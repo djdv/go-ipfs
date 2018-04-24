@@ -12,17 +12,17 @@ import (
 
 	core "github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/pin"
+
+	posinfo "gx/ipfs/QmPG32VXR5jmpo9q8R9FNdR4Ae97Ky9CiZE6SctJLUB79H/go-ipfs-posinfo"
 	unixfs "gx/ipfs/QmPL8bYtbACcSFFiSr4s2du7Na382NxRADR8hC7D9FkEA2/go-unixfs"
 	balanced "gx/ipfs/QmPL8bYtbACcSFFiSr4s2du7Na382NxRADR8hC7D9FkEA2/go-unixfs/importer/balanced"
 	ihelper "gx/ipfs/QmPL8bYtbACcSFFiSr4s2du7Na382NxRADR8hC7D9FkEA2/go-unixfs/importer/helpers"
 	trickle "gx/ipfs/QmPL8bYtbACcSFFiSr4s2du7Na382NxRADR8hC7D9FkEA2/go-unixfs/importer/trickle"
-	dag "gx/ipfs/QmXv5mwmQ74r4aiHcNeQ4GAmfB3aWJuqaE4WyDfDfvkgLM/go-merkledag"
-
-	posinfo "gx/ipfs/QmPG32VXR5jmpo9q8R9FNdR4Ae97Ky9CiZE6SctJLUB79H/go-ipfs-posinfo"
 	cid "gx/ipfs/QmPSQnBKM9g7BaUcZCvswUJVscQ1ipjmwxN5PXCjkp9EQ7/go-cid"
 	logging "gx/ipfs/QmRREK2CAZ5Re2Bd9zZFG6FeYDppUWt5cMgsoUEp3ktgSr/go-log"
 	mfs "gx/ipfs/QmRkrpnhZqDxTxwGCsDbuZMr7uCFZHH6SGfrcjgEQwxF3t/go-mfs"
 	files "gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit/files"
+	dag "gx/ipfs/QmXv5mwmQ74r4aiHcNeQ4GAmfB3aWJuqaE4WyDfDfvkgLM/go-merkledag"
 	ipld "gx/ipfs/QmdDXJs4axxefSPgK6Y1QhpJWKuDPnGJiqgq4uncb4rFHL/go-ipld-format"
 	chunker "gx/ipfs/QmdSeG9s4EQ9TGruJJS9Us38TQDZtMmFGwzTYUDVqNTURm/go-ipfs-chunker"
 	bstore "gx/ipfs/QmegPGspn3RpTMQ23Fd3GVVMopo1zsEMurudbFMZ5UXBLH/go-ipfs-blockstore"
@@ -310,7 +310,7 @@ func AddR(n *core.IpfsNode, root string) (key string, err error) {
 		return "", err
 	}
 
-	f, err := files.NewSerialFile(filepath.Base(root), root, false, stat)
+	f, err := files.NewSerialFile(filepath.Base(root), root, false, stat, false)
 	if err != nil {
 		return "", err
 	}

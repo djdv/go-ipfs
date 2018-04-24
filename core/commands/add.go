@@ -11,11 +11,8 @@ import (
 	cmdenv "github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	"github.com/ipfs/go-ipfs/core/coreunix"
 	filestore "github.com/ipfs/go-ipfs/filestore"
-	ft "gx/ipfs/QmPL8bYtbACcSFFiSr4s2du7Na382NxRADR8hC7D9FkEA2/go-unixfs"
-	dag "gx/ipfs/QmXv5mwmQ74r4aiHcNeQ4GAmfB3aWJuqaE4WyDfDfvkgLM/go-merkledag"
-	dagtest "gx/ipfs/QmXv5mwmQ74r4aiHcNeQ4GAmfB3aWJuqaE4WyDfDfvkgLM/go-merkledag/test"
-	blockservice "gx/ipfs/Qma2KhbQarYTkmSJAeaMGRAg8HAXAhEWK8ge4SReG7ZSD3/go-blockservice"
 
+	ft "gx/ipfs/QmPL8bYtbACcSFFiSr4s2du7Na382NxRADR8hC7D9FkEA2/go-unixfs"
 	cmds "gx/ipfs/QmPTfgFTo9PFr1PvPKyKoeMgBvYPh6cX3aDP7DHKVbnCbi/go-ipfs-cmds"
 	mh "gx/ipfs/QmPnFwZ2JXKnXgMw8CdBPxn7FWh6LLdjUjxV1fKHuJnkr8/go-multihash"
 	pb "gx/ipfs/QmPtj12fdwuAqj9sBSTNUxBNu8kCGNp8b3o8yUzMm5GHpq/pb"
@@ -23,6 +20,9 @@ import (
 	mfs "gx/ipfs/QmRkrpnhZqDxTxwGCsDbuZMr7uCFZHH6SGfrcjgEQwxF3t/go-mfs"
 	cmdkit "gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
 	files "gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit/files"
+	dag "gx/ipfs/QmXv5mwmQ74r4aiHcNeQ4GAmfB3aWJuqaE4WyDfDfvkgLM/go-merkledag"
+	dagtest "gx/ipfs/QmXv5mwmQ74r4aiHcNeQ4GAmfB3aWJuqaE4WyDfDfvkgLM/go-merkledag/test"
+	blockservice "gx/ipfs/Qma2KhbQarYTkmSJAeaMGRAg8HAXAhEWK8ge4SReG7ZSD3/go-blockservice"
 	offline "gx/ipfs/QmcRC35JF2pJQneAxa5LdQBQRumWggccWErogSrCkS1h8T/go-ipfs-exchange-offline"
 	bstore "gx/ipfs/QmegPGspn3RpTMQ23Fd3GVVMopo1zsEMurudbFMZ5UXBLH/go-ipfs-blockstore"
 )
@@ -110,6 +110,8 @@ You can now check what blocks have been created by:
 	},
 	Options: []cmdkit.Option{
 		cmds.OptionRecursivePath, // a builtin option that allows recursive paths (-r, --recursive)
+		cmds.OptionDerefArgs,     // a builtin option that resolves passed in file system links (--dereference-command-line)
+		cmds.OptionDerefAll,      // a builtin option that resolves file system links (--dereference-links)
 		cmdkit.BoolOption(quietOptionName, "q", "Write minimal output."),
 		cmdkit.BoolOption(quieterOptionName, "Q", "Write only final hash."),
 		cmdkit.BoolOption(silentOptionName, "Write no output."),
