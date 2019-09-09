@@ -31,6 +31,7 @@ the above issue.
 - [TLS 1.3 Handshake](#tls-13-as-default-handshake-protocol)
 - [Strategic Providing](#strategic-providing)
 - [Graphsync](graphsync)
+- [IPFS filesystem API plugin](#filesystem-api-plugin)
 
 ---
 
@@ -733,3 +734,42 @@ ipfs config --json Experimental.GraphsyncEnabled true
       logic for GraphSync is quite complex and, if we're not careful, the server
       might end up performing unbounded work when responding to a malicious
       request.
+
+## Filesystem API Plugin
+
+### State
+
+Experimental, not included by default.
+
+This daemon plugin wraps the IPFS node and exposes file system services over a multiaddr listener.  
+Currently we use the 9P2000.L protocol, and offer read-only support for `/ipfs` requests. With support for other (writable) systems coming next.  
+
+You may connect to this service using the [`v9fs`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/filesystems/9p.txt) client used in the Linux kernel.
+By default we listen for requests on a Unix domain socket.
+`mount -t 9p -o trans=unix $IPFS_PATH/filesystem.9p.sock ~/ipfs-mount`
+
+To configure the listening address and more, see the [package documentation](https://godoc.org/github.com/ipfs/go-ipfs/plugin/plugins/filesystem)
+See the [v9fs documentation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/filesystems/9p.txt) for instructions on using transports, such as TCP.
+i.e.
+```
+> export IPFS_FS_ADDR=/ip4/127.0.0.1/tcp/564
+> ipfs daemon &
+> mount -t 9p 127.0.0.1 ~/ipfs-mount
+> ...
+> umount ~/ipfs-mount
+> ipfs shutdown
+```
+
+### How to enable
+
+See the Plugin documentation [here](https://github.com/ipfs/go-ipfs/blob/master/docs/plugins.md#installing-plugins).
+You will likely want to add the plugin to the `go-ipfs` plugin preload list
+`filesystem github.com/ipfs/go-ipfs/plugin/plugins/filesystem *`
+
+### Road to being a real feature
+
+- [ ] Needs testing
+    - Technically correct (`go test`, sharness, etc.)
+- [ ] Needs finalizing
+    - Config structure and environment variable names become stable/frozen
+    - Practically/API correct (does this service fulfill the practical needs of users/clients?)

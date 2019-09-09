@@ -15,6 +15,7 @@ require (
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/ipfs/go-bitswap v0.1.11
+	github.com/hugelgupf/p9 v0.0.0-00010101000000-000000000000
 	github.com/ipfs/go-block-format v0.0.2
 	github.com/ipfs/go-blockservice v0.1.2
 	github.com/ipfs/go-cid v0.0.5
@@ -85,6 +86,7 @@ require (
 	github.com/libp2p/go-socket-activation v0.0.2
 	github.com/mattn/go-runewidth v0.0.8 // indirect
 	github.com/mitchellh/go-homedir v1.1.0
+	github.com/mitchellh/mapstructure v1.1.2
 	github.com/mr-tron/base58 v1.1.3
 	github.com/multiformats/go-multiaddr v0.2.1
 	github.com/multiformats/go-multiaddr-dns v0.2.0
@@ -105,3 +107,6 @@ require (
 )
 
 go 1.12
+
+//TODO: remove this replace when upstream merges changes
+replace github.com/hugelgupf/p9 => github.com/djdv/p9 v0.0.0-20191124212207-3ac24bae1de6
