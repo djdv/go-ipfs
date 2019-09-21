@@ -84,6 +84,7 @@ require (
 	github.com/libp2p/go-socket-activation v0.0.1
 	github.com/mattn/go-runewidth v0.0.4 // indirect
 	github.com/mitchellh/go-homedir v1.1.0
+	github.com/mitchellh/mapstructure v1.1.2
 	github.com/mr-tron/base58 v1.1.2
 	github.com/multiformats/go-multiaddr v0.1.2
 	github.com/multiformats/go-multiaddr-dns v0.1.0
