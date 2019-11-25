@@ -88,7 +88,7 @@ func RootAttacher(ctx context.Context, core coreiface.CoreAPI, ops ...nodeopts.A
 	// assign inherent options,
 	// and instantiate a template root entry
 	ri.subsystems = make(map[string]systemTuple, len(subsystems))
-	opts := []nodeopts.AttachOption{nodeopts.Parent(ri)}
+	subOpts := []nodeopts.AttachOption{nodeopts.Parent(ri)}
 	rootDirent := p9.Dirent{
 		Type: p9.TypeDir,
 		QID:  p9.QID{Type: p9.TypeDir},
@@ -96,22 +96,51 @@ func RootAttacher(ctx context.Context, core coreiface.CoreAPI, ops ...nodeopts.A
 
 	// couple the strings to their implementations
 	// "aname"=>{filesystem,entry}
-	for i, subsystem := range subsystems {
+	for _, subsystem := range subsystems {
 		logOpt := nodeopts.Logger(subsystem.EventLogger)
 		// the file system implementation
-		fs, err := subsystem.subattacher(ctx, core, append(opts, logOpt)...).Attach()
+		fs, err := subsystem.subattacher(ctx, core, append(subOpts, logOpt)...).Attach()
 		if err != nil {
 			panic(err) // hard implementation error
 		}
 
 		// create a directory entry for it
-		rootDirent.Offset = uint64(i + 1)
+		rootDirent.Offset++
 		rootDirent.Name = subsystem.string
 
 		rootDirent.QID.Path = cidToQPath(rootPath("/" + subsystem.string).Cid())
 
 		// add the fs+entry to the list of subsystems
 		ri.subsystems[subsystem.string] = systemTuple{
+			file:   fs.(fsutils.WalkRef),
+			dirent: rootDirent,
+		}
+	}
+
+	// attach files API
+	{
+	options := nodeopts.AttachOps(ops...)
+	if !options.MFSRoot.Defined() {
+		panic("Files root cid is required but was not defined in options")
+	}
+
+	
+		fOpts := append(subOpts,
+			nodeopts.Logger(logging.Logger("files")),
+			nodeopts.MFSRoot(options.MFSRoot),
+			nodeopts.MFSPublish(options.MFSPublish),
+		)
+		fs, err := MFSAttacher(ctx, core, fOpts...).Attach()
+		if err != nil {
+			panic(err) // hard implementation error
+		}
+		// create a directory entry for it
+		rootDirent.Offset++
+		rootDirent.Name = "files"
+		rootDirent.QID.Path = cidToQPath(rootPath("/" + "files").Cid())
+
+		// add the fs+entry to the list of subsystems
+		ri.subsystems["files"] = systemTuple{
 			file:   fs.(fsutils.WalkRef),
 			dirent: rootDirent,
 		}

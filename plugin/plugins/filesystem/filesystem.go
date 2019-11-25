@@ -10,18 +10,21 @@ import (
 	"strings"
 
 	"github.com/hugelgupf/p9/p9"
+	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-ipfs/core"
+	"github.com/ipfs/go-ipfs/core/coreapi"
 	plugin "github.com/ipfs/go-ipfs/plugin"
 	fsnodes "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/nodes"
 	nodeopts "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/nodes/options"
 	logging "github.com/ipfs/go-log"
-	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	"github.com/mitchellh/mapstructure"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr-net"
 )
 
 var (
-	_ plugin.PluginDaemon = (*FileSystemPlugin)(nil) // impl check
+	_ plugin.PluginDaemonInternal = (*FileSystemPlugin)(nil) // impl check
 
 	// Plugins is an exported list of plugins that will be loaded by go-ipfs.
 	Plugins = []plugin.Plugin{
@@ -106,7 +109,7 @@ func (fs *FileSystemPlugin) Init(env *plugin.Environment) error {
 	return nil
 }
 
-func (fs *FileSystemPlugin) Start(core coreiface.CoreAPI) error {
+func (fs *FileSystemPlugin) Start(node *core.IpfsNode) error {
 	logger.Info("Starting 9P resource server...")
 	if fs.addr == nil {
 		return fmt.Errorf("Start called before plugin Init")
@@ -117,9 +120,14 @@ func (fs *FileSystemPlugin) Start(core coreiface.CoreAPI) error {
 		return fmt.Errorf("already started and listening on %s", fs.listener.Addr())
 	}
 
-	// make sure sockets are not in use already (if we're using them)
-	err := removeUnixSockets(fs.addr)
+	// make sure the api is valid
+	coreAPI, err := coreapi.NewCoreAPI(node)
 	if err != nil {
+		return err
+	}
+
+	// make sure sockets are not in use already (if we're using them)
+	if err = removeUnixSockets(fs.addr); err != nil {
 		return err
 	}
 
@@ -135,8 +143,25 @@ func (fs *FileSystemPlugin) Start(core coreiface.CoreAPI) error {
 	fs.ctx, fs.cancel = context.WithCancel(context.Background())
 	fs.closed = make(chan struct{})
 
-	opts := []nodeopts.AttachOption{nodeopts.Logger(logging.Logger("9root"))}
-	server := p9.NewServer(fsnodes.RootAttacher(fs.ctx, core, opts...))
+	filesCid, err := extractFilesCid(node)
+	if err != nil {
+		return err
+	}
+
+	// TODO: either: 1) pass the already constructed `mfs.root` through or 2) add a pubfunc getter to `mfs.Root` so we can reconstruct it
+	// copy paste function body for now
+	dsk := datastore.NewKey("/local/filesroot")
+	pf := func(ctx context.Context, c cid.Cid) error {
+		return node.Repo.Datastore().Put(dsk, c.Bytes())
+	}
+
+	opts := []nodeopts.AttachOption{
+		nodeopts.Logger(logging.Logger("9root")),
+		nodeopts.MFSRoot(filesCid),
+		nodeopts.MFSPublish(pf),
+	}
+
+	server := p9.NewServer(fsnodes.RootAttacher(fs.ctx, coreAPI, opts...))
 	go func() {
 		// run the server until the listener closes
 		// store error on the fs object then close our syncing channel (see use in `Close` below)
@@ -178,4 +203,16 @@ func (fs *FileSystemPlugin) Close() error {
 	}
 	// otherwise we were never started to begin with; default/initial value will be returned
 	return fs.serverErr
+}
+
+func extractFilesCid(iNode *core.IpfsNode) (cid.Cid, error) {
+	if iNode.FilesRoot == nil {
+		return cid.Undef, errors.New("Files root was not provided by the node")
+	}
+
+	mNode, err := iNode.FilesRoot.GetDirectory().GetNode()
+	if err != nil {
+		return cid.Undef, err
+	}
+	return mNode.Cid(), nil
 }
