@@ -1,17 +1,16 @@
-package fsnodes
+package mfs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	gopath "path"
-	"time"
+	"sync/atomic"
 
 	"github.com/hugelgupf/p9/p9"
 	"github.com/hugelgupf/p9/unimplfs"
-	cid "github.com/ipfs/go-cid"
-	nodeopts "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/nodes/options"
+	fserrors "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/errors"
+	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/meta"
 	fsutils "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/utils"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
@@ -20,128 +19,148 @@ import (
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
-var _ p9.File = (*MFS)(nil)
-var _ fsutils.WalkRef = (*MFS)(nil)
+var _ p9.File = (*File)(nil)
+var _ meta.WalkRef = (*File)(nil)
 
 // TODO: break this up into 2 file systems?
-// MFS + MFS Overlay?
+// File + File Overlay?
 // TODO: docs
-type MFS struct {
+type File struct {
 	unimplfs.NoopFile
 	p9.DefaultWalkGetAttr
 
-	IPFSBase
-	MFSFileMeta
+	meta.CoreBase
+	meta.OverlayBase
 
-	//ref   uint                 //TODO: rename, root refcount
-	//key   coreiface.Key        // optional value, if set, publish to IPNS key on MFS change
-	//roots map[string]*mfs.Root //share the same mfs root across calls
-	mroot *mfs.Root
-}
-
-type MFSFileMeta struct {
 	//file      mfs.FileDescriptor
 	openFlags p9.OpenFlags //TODO: move this to IPFSBase; use as open marker
 	file      *mfs.File
 	directory *mfs.Directory
+
+	//ref   uint                 //TODO: rename, root refcount
+	//key   coreiface.Key        // optional value, if set, publish to IPNS key on MFS change
+	//roots map[string]*mfs.Root //share the same mfs root across calls
+	mroot  *mfs.Root
+	parent meta.WalkRef
+	open   bool
 }
 
-func MFSAttacher(ctx context.Context, core coreiface.CoreAPI, ops ...nodeopts.AttachOption) p9.Attacher {
-	options := nodeopts.AttachOps(ops...)
+func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOption) p9.Attacher {
+	options := meta.AttachOps(ops...)
 
-	if !options.MFSRoot.Defined() {
-		panic("MFS root cid is required but was not defined in options")
+	if options.MFSRoot == nil {
+		panic("MFS root is required but was not defined in provided options")
 	}
 
-	mroot, err := cidToMFSRoot(ctx, options.MFSRoot, core, options.MFSPublish)
-	if err != nil {
-		panic(err)
+	md := &File{
+		CoreBase: meta.NewCoreBase("/ipld", core, ops...),
+		OverlayBase: meta.OverlayBase{
+			ParentCtx: ctx,
+			Opened:    new(uintptr),
+		},
+		mroot:  options.MFSRoot,
+		parent: options.Parent,
 	}
-
-	md := &MFS{
-		IPFSBase: newIPFSBase(ctx, "/ipld", core, ops...),
-		mroot:    mroot,
-	}
-	md.meta.Mode, md.metaMask.Mode = p9.ModeDirectory|IRXA|0220, true
 
 	return md
 }
 
-func (md *MFS) Fork() (fsutils.WalkRef, error) {
-	base, err := md.IPFSBase.fork()
+func (md *File) Fork() (meta.WalkRef, error) {
+	newFid, err := md.clone()
 	if err != nil {
+		md.Logger.Error(err)
 		return nil, err
 	}
 
-	newFid := &MFS{
-		IPFSBase: base,
-		mroot:    md.mroot,
+	// make sure we were actually initalized
+	if md.FilesystemCtx == nil {
+		md.Logger.Error(fserrors.FSCtxNotInitalized)
+		return nil, fserrors.FSCtxNotInitalized
 	}
-	return newFid, nil
 
+	// and also not canceled / still valid
+	if err := md.FilesystemCtx.Err(); err != nil {
+		md.Logger.Error(err)
+		return nil, err
+	}
+
+	newFid.OperationsCtx, newFid.OperationsCancel = context.WithCancel(md.FilesystemCtx)
+
+	return newFid, nil
 }
 
-func (md *MFS) Attach() (p9.File, error) {
+func (md *File) Attach() (p9.File, error) {
 	md.Logger.Debugf("Attach")
 
-	newFid := new(MFS)
-	*newFid = *md
+	newFid, err := md.clone()
+	if err != nil {
+		md.Logger.Error(err)
+		return nil, err
+	}
 
+	newFid.FilesystemCtx, newFid.FilesystemCancel = context.WithCancel(newFid.ParentCtx)
 	return newFid, nil
 }
 
-func (md *MFS) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
+func (md *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 	md.Logger.Debugf("GetAttr path: %s", md.StringPath())
 	md.Logger.Debugf("%p", md)
 
 	qid, err := md.QID()
 	if err != nil {
+		md.Logger.Error(err)
 		return qid, p9.AttrMask{}, p9.Attr{}, err
 	}
 
 	attr, filled, err := md.getAttr(req)
 	if err != nil {
+		md.Logger.Error(err)
 		return qid, filled, attr, err
 	}
 
 	if req.RDev {
-		attr.RDev, filled.RDev = dMemory, true
+		attr.RDev, filled.RDev = meta.DevMemory, true
 	}
 
 	if req.Mode {
-		attr.Mode |= IRXA | 0220
+		attr.Mode |= meta.IRXA | 0220
 	}
-
-	*md.qid = qid
 
 	return qid, filled, attr, nil
 }
 
-func (md *MFS) Walk(names []string) ([]p9.QID, p9.File, error) {
-	md.Logger.Debugf("Walk names: %v", names)
-	md.Logger.Debugf("Walk myself: %q:{%d}", md.StringPath(), md.ninePath())
-
+func (md *File) Walk(names []string) ([]p9.QID, p9.File, error) {
+	md.Logger.Debugf("Walk %q: %v", md.String(), names)
 	return fsutils.Walker(md, names)
 }
 
-func (md *MFS) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
+func (md *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	md.Logger.Debugf("Open %q {Mode:%v OSFlags:%v, String:%s}", md.StringPath(), mode.Mode(), mode.OSFlags(), mode.String())
 	md.Logger.Debugf("%p", md)
 
-	if md.mroot == nil {
-		return *md.qid, 0, fmt.Errorf("TODO: message; root not set")
+	if md.IsOpen() {
+		md.Logger.Error(fserrors.FileOpen)
+		return p9.QID{}, 0, fserrors.FileOpen
+	}
+
+	qid, err := md.QID()
+	if err != nil {
+		md.Logger.Error(err)
+		return p9.QID{}, 0, err
 	}
 
 	attr, _, err := md.getAttr(p9.AttrMask{Mode: true})
 	if err != nil {
-		return *md.qid, 0, err
+		md.Logger.Error(err)
+		return qid, 0, err
 	}
 
 	switch {
 	case attr.Mode.IsDir():
 		dir, err := md.getDirectory()
 		if err != nil {
-			return *md.qid, 0, err
+			md.Logger.Error(err)
+			return qid, 0, err
 		}
 
 		md.directory = dir
@@ -149,17 +168,20 @@ func (md *MFS) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	case attr.Mode.IsRegular():
 		mFile, err := md.getFile()
 		if err != nil {
-			return *md.qid, 0, err
+			md.Logger.Error(err)
+			return qid, 0, err
 		}
 
 		md.file = mFile
 	}
 
+	atomic.StoreUintptr(md.Opened, 1)
 	md.openFlags = mode // TODO: convert to MFS native flags
-	return *md.qid, ipfsBlockSize, nil
+	md.open = true
+	return qid, meta.UFS1BlockSize, nil
 }
 
-func (md *MFS) Readdir(offset uint64, count uint32) ([]p9.Dirent, error) {
+func (md *File) Readdir(offset uint64, count uint32) ([]p9.Dirent, error) {
 	md.Logger.Debugf("Readdir %d %d", offset, count)
 
 	if md.directory == nil {
@@ -167,7 +189,7 @@ func (md *MFS) Readdir(offset uint64, count uint32) ([]p9.Dirent, error) {
 	}
 
 	//TODO: resetable context; for { ...; ctx.reset() }
-	callCtx, cancel := context.WithCancel(md.filesystemCtx)
+	callCtx, cancel := context.WithCancel(md.FilesystemCtx)
 	defer cancel()
 
 	ents := make([]p9.Dirent, 0)
@@ -185,8 +207,9 @@ func (md *MFS) Readdir(offset uint64, count uint32) ([]p9.Dirent, error) {
 			return nil
 		}
 
-		ent, err := mfsEntTo9Ent(nl)
+		ent, err := meta.MFSEntTo9Ent(nl)
 		if err != nil {
+			md.Logger.Error(err)
 			return err
 		}
 
@@ -204,20 +227,18 @@ func (md *MFS) Readdir(offset uint64, count uint32) ([]p9.Dirent, error) {
 	return ents, err
 }
 
-func (md *MFS) ReadAt(p []byte, offset uint64) (int, error) {
-	const (
-		readAtFmt    = "ReadAt {%d/%d}%q"
-		readAtFmtErr = readAtFmt + ": %s"
-	)
+func (md *File) ReadAt(p []byte, offset uint64) (int, error) {
+	const readAtFmtErr = "ReadAt {%d}%q: %s"
 
 	if md.file == nil {
 		err := fmt.Errorf("file is not open for reading")
-		md.Logger.Errorf(readAtFmtErr, offset, md.meta.Size, md.StringPath(), err)
+		md.Logger.Errorf(readAtFmtErr, offset, md.StringPath(), err)
 		return 0, err
 	}
 
 	attr, _, err := md.getAttr(p9.AttrMask{Size: true})
 	if err != nil {
+		md.Logger.Error(err)
 		return 0, err
 	}
 
@@ -228,19 +249,20 @@ func (md *MFS) ReadAt(p []byte, offset uint64) (int, error) {
 
 	openFile, err := md.file.Open(mfs.Flags{Read: true})
 	if err != nil {
+		md.Logger.Error(err)
 		return 0, err
 	}
 	defer openFile.Close()
 
 	if _, err := openFile.Seek(int64(offset), io.SeekStart); err != nil {
-		md.Logger.Errorf(readAtFmtErr, offset, attr.Size, md.StringPath(), err)
+		md.Logger.Errorf(readAtFmtErr, offset, md.StringPath(), err)
 		return 0, err
 	}
 
 	return openFile.Read(p)
 }
 
-func (md *MFS) SetAttr(valid p9.SetAttrMask, attr p9.SetAttr) error {
+func (md *File) SetAttr(valid p9.SetAttrMask, attr p9.SetAttr) error {
 	md.Logger.Debugf("SetAttr %v %v", valid, attr)
 	md.Logger.Debugf("%p", md)
 
@@ -260,43 +282,46 @@ func (md *MFS) SetAttr(valid p9.SetAttrMask, attr p9.SetAttr) error {
 
 		openFile, err := target.Open(mfs.Flags{Read: true, Write: true})
 		if err != nil {
+			md.Logger.Error(err)
 			return err
 		}
 		defer openFile.Close()
 
 		if err := openFile.Truncate(int64(attr.Size)); err != nil {
+			md.Logger.Error(err)
 			return err
 		}
 	}
 
-	md.meta.Apply(valid, attr)
+	// TODO: requires a form of metadata storage (like UFSv2)
+	// md.meta.Apply(valid, attr)
 	return nil
 }
 
-func (md *MFS) WriteAt(p []byte, offset uint64) (int, error) {
-	const (
-		readAtFmt    = "WriteAt {%d/%d}%q"
-		readAtFmtErr = readAtFmt + ": %s"
-	)
+func (md *File) WriteAt(p []byte, offset uint64) (int, error) {
+	const readAtFmtErr = "WriteAt {%d}%q: %s"
+
 	if md.file == nil {
 		err := fmt.Errorf("file is not open for writing")
-		md.Logger.Errorf(readAtFmtErr, offset, md.meta.Size, md.StringPath(), err)
+		md.Logger.Errorf(readAtFmtErr, offset, md.StringPath(), err)
 		return 0, err
 	}
 
 	openFile, err := md.file.Open(mfs.Flags{Read: true, Write: true})
 	if err != nil {
+		md.Logger.Error(err)
 		return 0, err
 	}
 	defer openFile.Close()
 
 	nbytes, err := openFile.WriteAt(p, int64(offset))
 	if err != nil {
-		md.Logger.Errorf(readAtFmtErr, offset, md.meta.Size, md.StringPath(), err)
+		md.Logger.Errorf(readAtFmtErr, offset, md.StringPath(), err)
 		return nbytes, err
 	}
 
 	if err = openFile.Flush(); err != nil {
+		md.Logger.Error(err)
 		return nbytes, err
 	}
 
@@ -305,8 +330,11 @@ func (md *MFS) WriteAt(p []byte, offset uint64) (int, error) {
 	//return md.file.WriteAt(p, int64(offset))
 }
 
-func (md *MFS) Close() error {
-	md.Logger.Debugf("closing: %q:{%d}", md.StringPath(), md.ninePath())
+func (md *File) Close() error {
+	md.Closed = true
+	if md.open {
+		atomic.StoreUintptr(md.Opened, 0)
+	}
 
 	md.file = nil
 	md.directory = nil
@@ -327,27 +355,32 @@ func (md *MFS) Close() error {
 =>
 `/ipld/QmVuDpaFj55JnUH7UYxTAydx6ayrs2cB3Gb7cdPr61wLv5/folder/file.txt`
 */
-func (md *MFS) StringPath() string {
+func (md *File) StringPath() string {
 	rootNode, err := md.mroot.GetDirectory().GetNode()
 	if err != nil {
 		panic(err)
 	}
-	return gopath.Join(append([]string{md.coreNamespace, rootNode.Cid().String()}, md.Trail...)...)
+	return gopath.Join(append([]string{md.CoreNamespace, rootNode.Cid().String()}, md.Trail...)...)
 }
 
-func (md *MFS) Step(name string) (fsutils.WalkRef, error) {
+func (md *File) Step(name string) (meta.WalkRef, error) {
 
 	// FIXME: [in general] Step should return ref, qid, error
 	// obviate CheckWalk + QID and make this implicit via Step
 	qid, err := md.QID()
 	if err != nil {
+		md.Logger.Error(err)
 		return nil, err
 	}
 
-	*md.qid = qid
-	//
+	if qid.Type != p9.TypeDir {
+		md.Logger.Error(fserrors.ENOTDIR)
+		return nil, fserrors.ENOTDIR
+	}
 
-	return md.step(md, name)
+	tLen := len(md.Trail)
+	md.Trail = append(md.Trail[:tLen:tLen], name)
+	return md, nil
 }
 
 /*
@@ -365,7 +398,7 @@ func (md *MFS) RootPath(keyName string, components ...string) (corepath.Path, er
 }
 
 func (md *MFS) ResolvedPath(names ...string) (corepath.Path, error) {
-	callCtx, cancel := md.callCtx()
+	callCtx, cancel := md.CallCtx()
 	defer cancel()
 
 	return md.core.ResolvePath(callCtx, md.KeyPath(names[0], names[1:]...))
@@ -375,52 +408,39 @@ func (md *MFS) ResolvedPath(names ...string) (corepath.Path, error) {
 }
 */
 
-func cidToMFSRoot(ctx context.Context, rootCid cid.Cid, core coreiface.CoreAPI, publish mfs.PubFunc) (*mfs.Root, error) {
-
-	if !rootCid.Defined() {
-		return nil, errors.New("root cid was not defined")
+func (md *File) Backtrack() (meta.WalkRef, error) {
+	if md.parent != nil {
+		return md.parent, nil
 	}
-
-	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	ipldNode, err := core.Dag().Get(callCtx, rootCid)
-	if err != nil {
-		return nil, err
-	}
-
-	pbNode, ok := ipldNode.(*dag.ProtoNode)
-	if !ok {
-		return nil, fmt.Errorf("%q has incompatible type %T", rootCid.String(), ipldNode)
-	}
-
-	return mfs.NewRoot(ctx, core.Dag(), pbNode, publish)
+	return md, nil
 }
 
-func (md *MFS) CheckWalk() error                    { return md.Base.checkWalk() }
-func (md *MFS) Backtrack() (fsutils.WalkRef, error) { return md.IPFSBase.backtrack(md) }
-func (md *MFS) QID() (p9.QID, error) {
+func (md *File) QID() (p9.QID, error) {
 	mNode, err := mfs.Lookup(md.mroot, gopath.Join(md.Trail...))
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
-	t, err := mfsTypeToNineType(mNode.Type())
+	t, err := meta.MFSTypeToNineType(mNode.Type())
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
 	ipldNode, err := mNode.GetNode()
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
 	return p9.QID{
 		Type: t,
-		Path: cidToQPath(ipldNode.Cid()),
+		Path: meta.CidToQIDPath(ipldNode.Cid()),
 	}, nil
 }
 
-func (md *MFS) getNode() (ipld.Node, error) {
+func (md *File) getNode() (ipld.Node, error) {
 	mNode, err := mfs.Lookup(md.mroot, gopath.Join(md.Trail...))
 	if err != nil {
 		return nil, err
@@ -428,7 +448,7 @@ func (md *MFS) getNode() (ipld.Node, error) {
 	return mNode.GetNode()
 }
 
-func (md *MFS) getFile() (*mfs.File, error) {
+func (md *File) getFile() (*mfs.File, error) {
 	mNode, err := mfs.Lookup(md.mroot, gopath.Join(md.Trail...))
 	if err != nil {
 		return nil, err
@@ -442,7 +462,7 @@ func (md *MFS) getFile() (*mfs.File, error) {
 	return mFile, nil
 }
 
-func (md *MFS) getDirectory() (*mfs.Directory, error) {
+func (md *File) getDirectory() (*mfs.Directory, error) {
 	mNode, err := mfs.Lookup(md.mroot, gopath.Join(md.Trail...))
 	if err != nil {
 		return nil, err
@@ -455,7 +475,7 @@ func (md *MFS) getDirectory() (*mfs.Directory, error) {
 	return dir, nil
 }
 
-func (md *MFS) getAttr(req p9.AttrMask) (p9.Attr, p9.AttrMask, error) {
+func (md *File) getAttr(req p9.AttrMask) (p9.Attr, p9.AttrMask, error) {
 	var attr p9.Attr
 
 	mfsNode, err := mfs.Lookup(md.mroot, gopath.Join(md.Trail...))
@@ -468,37 +488,41 @@ func (md *MFS) getAttr(req p9.AttrMask) (p9.Attr, p9.AttrMask, error) {
 		return attr, p9.AttrMask{}, err
 	}
 
-	callCtx, cancel := md.callCtx()
+	callCtx, cancel := md.CallCtx()
 	defer cancel()
 
-	filled, err := ipldStat(callCtx, &attr, ipldNode, req)
+	filled, err := meta.IpldStat(callCtx, &attr, ipldNode, req)
 	if err != nil {
 		md.Logger.Error(err)
 	}
 	return attr, filled, err
 }
 
-func (md *MFS) Create(name string, flags p9.OpenFlags, permissions p9.FileMode, uid p9.UID, gid p9.GID) (p9.File, p9.QID, uint32, error) {
-	callCtx, cancel := md.callCtx()
+func (md *File) Create(name string, flags p9.OpenFlags, permissions p9.FileMode, uid p9.UID, gid p9.GID) (p9.File, p9.QID, uint32, error) {
+	callCtx, cancel := md.CallCtx()
 	defer cancel()
 
-	emptyNode, err := emptyNode(callCtx, md.core.Dag())
+	emptyNode, err := emptyNode(callCtx, md.Core.Dag())
 	if err != nil {
+		md.Logger.Error(err)
 		return nil, p9.QID{}, 0, err
 	}
 
 	err = mfs.PutNode(md.mroot, gopath.Join(append(md.Trail, name)...), emptyNode)
 	if err != nil {
+		md.Logger.Error(err)
 		return nil, p9.QID{}, 0, err
 	}
 
 	newFid, err := md.Fork()
 	if err != nil {
+		md.Logger.Error(err)
 		return nil, p9.QID{}, 0, err
 	}
 
 	newRef, err := newFid.Step(name)
 	if err != nil {
+		md.Logger.Error(err)
 		return nil, p9.QID{}, 0, err
 	}
 
@@ -514,25 +538,28 @@ func emptyNode(ctx context.Context, dagAPI coreiface.APIDagService) (ipld.Node, 
 	return eFile, nil
 }
 
-func (md *MFS) Mkdir(name string, permissions p9.FileMode, uid p9.UID, gid p9.GID) (p9.QID, error) {
+func (md *File) Mkdir(name string, permissions p9.FileMode, uid p9.UID, gid p9.GID) (p9.QID, error) {
 	err := mfs.Mkdir(md.mroot, gopath.Join(append(md.Trail, name)...), mfs.MkdirOpts{Flush: true})
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
 	newFid, err := md.Fork()
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 	newRef, err := newFid.Step(name)
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
 	return newRef.QID()
 }
 
-func (md *MFS) parentDir() (*mfs.Directory, error) {
+func (md *File) parentDir() (*mfs.Directory, error) {
 	parent := gopath.Dir(gopath.Join(md.Trail...))
 
 	mNode, err := mfs.Lookup(md.mroot, parent)
@@ -547,36 +574,61 @@ func (md *MFS) parentDir() (*mfs.Directory, error) {
 	return dir, nil
 }
 
-func (md *MFS) Mknod(name string, mode p9.FileMode, major uint32, minor uint32, uid p9.UID, gid p9.GID) (p9.QID, error) {
-	callCtx, cancel := md.callCtx()
+func (md *File) Mknod(name string, mode p9.FileMode, major uint32, minor uint32, uid p9.UID, gid p9.GID) (p9.QID, error) {
+	callCtx, cancel := md.CallCtx()
 	defer cancel()
 
-	emptyNode, err := emptyNode(callCtx, md.core.Dag())
+	emptyNode, err := emptyNode(callCtx, md.Core.Dag())
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
 	err = mfs.PutNode(md.mroot, gopath.Join(append(md.Trail, name)...), emptyNode)
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
 	newFid, err := md.Fork()
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 	newRef, err := newFid.Step(name)
 	if err != nil {
+		md.Logger.Error(err)
 		return p9.QID{}, err
 	}
 
 	return newRef.QID()
 }
 
-func (md *MFS) UnlinkAt(name string, flags uint32) error {
+func (md *File) UnlinkAt(name string, flags uint32) error {
 	dir, err := md.getDirectory()
 	if err != nil {
+		md.Logger.Error(err)
 		return err
 	}
 	return dir.Unlink(name)
+}
+
+func (md *File) clone() (*File, error) {
+	// make sure we were actually initalized
+	if md.ParentCtx == nil {
+		return nil, fserrors.FSCtxNotInitalized
+	}
+
+	// and also not canceled / still valid
+	if err := md.ParentCtx.Err(); err != nil {
+		return nil, err
+	}
+
+	// all good; derive a new reference from this instance and return it
+	return &File{
+		CoreBase:    md.CoreBase,
+		OverlayBase: md.OverlayBase.Clone(),
+		parent:      md.parent,
+		mroot:       md.mroot,
+	}, nil
 }

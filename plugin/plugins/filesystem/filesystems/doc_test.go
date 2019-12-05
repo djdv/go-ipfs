@@ -13,7 +13,7 @@ func ExampleRootIndex() {
 }
 
 func ExampleIPFS() {
-	ipfs, err := fsnodes.IPFSAttacher(ctx, coreAPI).Attach()
+	ipfs, err := fsnodes.ipfs.Attacher(ctx, coreAPI).Attach()
 	_, file, err := ipfs.Walk(strings.Split("Qm.../subdir/file", "/"))
 	_, _, err := file.Open(p9.ReadOnly)
 	defer file.Close()

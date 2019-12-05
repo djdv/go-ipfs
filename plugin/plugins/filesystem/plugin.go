@@ -10,13 +10,11 @@ import (
 	"strings"
 
 	"github.com/hugelgupf/p9/p9"
-	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreapi"
 	plugin "github.com/ipfs/go-ipfs/plugin"
-	fsnodes "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/nodes"
-	nodeopts "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/nodes/options"
+	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/overlay"
+	nodeopts "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/meta"
 	logging "github.com/ipfs/go-log"
 	"github.com/mitchellh/mapstructure"
 	"github.com/multiformats/go-multiaddr"
@@ -143,25 +141,14 @@ func (fs *FileSystemPlugin) Start(node *core.IpfsNode) error {
 	fs.ctx, fs.cancel = context.WithCancel(context.Background())
 	fs.closed = make(chan struct{})
 
-	filesCid, err := extractFilesCid(node)
-	if err != nil {
-		return err
-	}
-
 	// TODO: either: 1) pass the already constructed `mfs.root` through or 2) add a pubfunc getter to `mfs.Root` so we can reconstruct it
 	// copy paste function body for now
-	dsk := datastore.NewKey("/local/filesroot")
-	pf := func(ctx context.Context, c cid.Cid) error {
-		return node.Repo.Datastore().Put(dsk, c.Bytes())
-	}
-
 	opts := []nodeopts.AttachOption{
 		nodeopts.Logger(logging.Logger("9root")),
-		nodeopts.MFSRoot(filesCid),
-		nodeopts.MFSPublish(pf),
+		nodeopts.MFSRoot(node.FilesRoot),
 	}
 
-	server := p9.NewServer(fsnodes.RootAttacher(fs.ctx, coreAPI, opts...))
+	server := p9.NewServer(overlay.Attacher(fs.ctx, coreAPI, opts...))
 	go func() {
 		// run the server until the listener closes
 		// store error on the fs object then close our syncing channel (see use in `Close` below)
@@ -203,16 +190,4 @@ func (fs *FileSystemPlugin) Close() error {
 	}
 	// otherwise we were never started to begin with; default/initial value will be returned
 	return fs.serverErr
-}
-
-func extractFilesCid(iNode *core.IpfsNode) (cid.Cid, error) {
-	if iNode.FilesRoot == nil {
-		return cid.Undef, errors.New("Files root was not provided by the node")
-	}
-
-	mNode, err := iNode.FilesRoot.GetDirectory().GetNode()
-	if err != nil {
-		return cid.Undef, err
-	}
-	return mNode.Cid(), nil
 }

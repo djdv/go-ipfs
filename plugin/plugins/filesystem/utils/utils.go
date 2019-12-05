@@ -1,70 +1,16 @@
 package fsutils
 
-import "github.com/hugelgupf/p9/p9"
-
-// WalkRef is used to generalize 9P `Walk` operations within file system boundaries
-// and allows for traversal across those boundaries if intended by the implementation
-//
-// The reference root node implementation links file systems together using a parent/child relation
-// sending the appropriate node back to the caller by using the linkage between nodes
-// combined with inspection of a nodes current path
-// it tries its best to avoid copying by modifying a node directly where possible
-// falling back to derived copies when crossing file system boundaries during "movement"
-type WalkRef interface {
-	p9.File
-
-	/* CheckWalk should make sure that the current reference adheres to the restrictions
-	of 'walk(5)'
-	In particular the reference must not be open for I/O, or otherwise already closed
-	*/
-	CheckWalk() error
-
-	/* Fork allocates a new reference, derived from the existing reference
-	Acting as the `newfid` construct mentioned in the documentation for the protocol
-	A subset of the semantics will be noted here in a generalized way
-	Please see 'walk(5)' for more information on the standard
-
-	The returned reference node must "stand" beside the existing `WalkRef`
-	Meaning the node must be "at"/contain the same location/path as the existing reference.
-
-	The returned node must also adhere to 'walk(5)' `newfid` semantics
-	Meaning that...
-	`newfid` must be allowed to `Close` separately from the original reference
-	`newfid`'s path may be modified during `Walk` without affecting the original `WalkRef`
-	`Open` must flag all references within the same system, at the same path, as open
-	etc. in compliance with 'walk(5)'
-	*/
-	Fork() (WalkRef, error)
-
-	/* QID checks that the node's current path contains an existing file
-	and returns the QID for it
-	*/
-	QID() (p9.QID, error)
-
-	/* Step should return a reference that is tracking the result of
-	the node's current-path + "name"
-
-	It is valid to return a newly constructed reference or modify and return the existing reference
-	as long as `QID` is ready to be called on the resulting node
-	and resources are reaped where sensible within the fs implementation
-	*/
-	Step(name string) (WalkRef, error)
-
-	/* Backtrack is the handler for `..` requests
-	it is effectively the inverse of `Step`
-	if called on the root node, the node should return itself
-	*/
-	Backtrack() (parentRef WalkRef, err error)
-}
+import (
+	"github.com/hugelgupf/p9/p9"
+	fserrors "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/errors"
+	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/meta"
+)
 
 // Walker implements the 9P `Walk` operation
-func Walker(ref WalkRef, names []string) ([]p9.QID, p9.File, error) {
-	// operations check
-	err := ref.CheckWalk()
-	if err != nil {
-		return nil, nil, err
+func Walker(ref meta.WalkRef, names []string) ([]p9.QID, p9.File, error) {
+	if ref.IsClosed() {
+		return nil, nil, fserrors.FileClosed
 	}
-
 	// no matter the outcome, we start with a `newfid`
 	curRef, err := ref.Fork()
 	if err != nil {

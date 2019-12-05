@@ -13,9 +13,7 @@ import (
 
 	"github.com/hugelgupf/p9/p9"
 	files "github.com/ipfs/go-ipfs-files"
-	"github.com/ipfs/go-ipfs/core"
-	"github.com/ipfs/go-ipfs/core/coreapi"
-	nodeopts "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/nodes/options"
+	nodeopts "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/meta"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
@@ -27,6 +25,12 @@ const (
 	errFmtClose      = "Close errored: %s\n"
 	errFmtClone      = "Failed to clone ref: %s\n"
 )
+
+/* TODO:
+add a set of standard tests that have redundant functionlity for transforms
+e.g.
+StandardQIDFromStringFunction("/pinfs") == pinfsObject.QIDMethod()
+*/
 
 type baseAttacher func(context.Context, coreiface.CoreAPI, ...nodeopts.AttachOption) p9.Attacher
 
@@ -347,19 +351,6 @@ func testCompareTreeAttrs(t *testing.T, f1, f2 p9.File) {
 		t.Logf("contents don't match \nf1:%v\nf2:%v\n", f1Map, f2Map)
 		t.FailNow()
 	}
-}
-
-func InitCore(ctx context.Context) (coreiface.CoreAPI, error) {
-	node, err := core.NewNode(ctx, &core.BuildCfg{
-		Online:                      false,
-		Permanent:                   false,
-		DisableEncryptedConnections: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return coreapi.NewCoreAPI(node)
 }
 
 const incantation = "May the bits passing through this device somehow help bring peace to this world"
