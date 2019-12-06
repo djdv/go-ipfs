@@ -14,7 +14,7 @@ import (
 	"github.com/ipfs/go-ipfs/core/coreapi"
 	plugin "github.com/ipfs/go-ipfs/plugin"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/overlay"
-	nodeopts "github.com/ipfs/go-ipfs/plugin/plugins/filesystem/meta"
+	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/meta"
 	logging "github.com/ipfs/go-log"
 	"github.com/mitchellh/mapstructure"
 	"github.com/multiformats/go-multiaddr"
@@ -143,9 +143,9 @@ func (fs *FileSystemPlugin) Start(node *core.IpfsNode) error {
 
 	// TODO: either: 1) pass the already constructed `mfs.root` through or 2) add a pubfunc getter to `mfs.Root` so we can reconstruct it
 	// copy paste function body for now
-	opts := []nodeopts.AttachOption{
-		nodeopts.Logger(logging.Logger("9root")),
-		nodeopts.MFSRoot(node.FilesRoot),
+	opts := []meta.AttachOption{
+		meta.Logger(logging.Logger("9root")),
+		meta.MFSRoot(node.FilesRoot),
 	}
 
 	server := p9.NewServer(overlay.Attacher(fs.ctx, coreAPI, opts...))

@@ -1,3 +1,4 @@
+// Package overlay dispatches requests to other file system implementations while acting as a single (virtual) file system itself
 package overlay
 
 import (
@@ -35,7 +36,6 @@ The current mapping looks like this:
  - /ipns/*    - IPNS|MFS  - Another relay, but for the IPNS namespace
  - /files     - FilesAPI/MFS - exposes the same root as the node's `ipfs files` storage
 */
-
 type File struct {
 	unimplfs.NoopFile
 	p9.DefaultWalkGetAttr

@@ -1,3 +1,6 @@
+// Package keyfs acts as an overlay of IPNS and MFS
+// dispatching requests to MFS if we have access to its key
+// and otherwise defering to IPNS
 package keyfs
 
 import (
@@ -28,6 +31,9 @@ var _ meta.WalkRef = (*File)(nil)
 
 var errKeyNotInStore = errors.New("requested key was not found in the key store")
 
+// The KeyFS File exposes the IPFS API over a p9.File interface
+// Walk does not expect a namespace, only path arguments
+// e.g. `ipfs.Walk([]string("Qm...", "subdir")` not `ipfs.Walk([]string("ipfs", "Qm...", "subdir")`
 type File struct {
 	unimplfs.NoopFile
 	p9.DefaultWalkGetAttr

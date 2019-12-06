@@ -1,3 +1,4 @@
+// Package ipns exposes the Inter-Planetary Name System API as a 9P compatible resource server
 package ipns
 
 import (
@@ -12,10 +13,9 @@ import (
 var _ p9.File = (*File)(nil)
 var _ meta.WalkRef = (*File)(nil)
 
-// IPNS exposes the IPNS API over a p9.File interface
+// File exposes the IPNS API over a p9.File interface
 // Walk does not expect a namespace, only its path argument
-// e.g. `ipfs.Walk([]string("Qm...", "subdir")` not `ipfs.Walk([]string("ipns", "Qm...", "subdir")`
-
+// e.g. `ipns.Walk([]string("Qm...", "subdir")` not `ipns.Walk([]string("ipns", "Qm...", "subdir")`
 type File = ipfs.File
 
 func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOption) p9.Attacher {

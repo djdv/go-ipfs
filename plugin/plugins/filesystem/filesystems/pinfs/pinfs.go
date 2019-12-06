@@ -1,3 +1,4 @@
+// Package pinfs exposes an IPFS nodes pins as a 9P directory
 package pinfs
 
 import (

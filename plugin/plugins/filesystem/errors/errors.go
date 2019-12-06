@@ -1,7 +1,8 @@
-package fserrors
+// Package fserrors attempts to provide consistent error values across various file systems
+package errors
 
 import (
-	"errors"
+	goerrors "errors"
 	"syscall"
 )
 
@@ -13,8 +14,8 @@ const (
 )
 
 var (
-	FSCtxNotInitalized = errors.New("a required file system context was not initalized")
-	FileOpen           = errors.New("file is open")
-	FileNotOpen        = errors.New("file is not open")
-	FileClosed         = errors.New("file was closed")
+	FSCtxNotInitalized = goerrors.New("a required file system context was not initalized")
+	FileOpen           = goerrors.New("file is open")
+	FileNotOpen        = goerrors.New("file is not open")
+	FileClosed         = goerrors.New("file was closed")
 )

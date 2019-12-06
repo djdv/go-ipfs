@@ -1,3 +1,4 @@
+// Package ipfs exposes the Inter-Planetary File System API as a 9P compatible resource server
 package ipfs
 
 import (
@@ -17,7 +18,7 @@ import (
 var _ p9.File = (*File)(nil)
 var _ meta.WalkRef = (*File)(nil)
 
-// The IPFS File exposes the IPFS API over a p9.File interface (as a directory)
+// The IPFS File exposes the IPFS API over a p9.File interface
 // Walk does not expect a namespace, only path arguments
 // e.g. `ipfs.Walk([]string("Qm...", "subdir")` not `ipfs.Walk([]string("ipfs", "Qm...", "subdir")`
 type File struct {

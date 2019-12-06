@@ -1,3 +1,4 @@
+// Package mfs exposes the IPFS Mutable File System API as a 9P compatible resource server
 package mfs
 
 import (
@@ -22,9 +23,6 @@ import (
 var _ p9.File = (*File)(nil)
 var _ meta.WalkRef = (*File)(nil)
 
-// TODO: break this up into 2 file systems?
-// File + File Overlay?
-// TODO: docs
 type File struct {
 	unimplfs.NoopFile
 	p9.DefaultWalkGetAttr
@@ -32,14 +30,10 @@ type File struct {
 	meta.CoreBase
 	meta.OverlayBase
 
-	//file      mfs.FileDescriptor
 	openFlags p9.OpenFlags //TODO: move this to IPFSBase; use as open marker
 	file      *mfs.File
 	directory *mfs.Directory
 
-	//ref   uint                 //TODO: rename, root refcount
-	//key   coreiface.Key        // optional value, if set, publish to IPNS key on MFS change
-	//roots map[string]*mfs.Root //share the same mfs root across calls
 	mroot  *mfs.Root
 	parent meta.WalkRef
 	open   bool
