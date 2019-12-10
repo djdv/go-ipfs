@@ -147,7 +147,7 @@ func testPlugin(t *testing.T, pluginEnv *plugin.Environment, node *core.IpfsNode
 }
 
 func testRootFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
-	t.Run("Baseline", func(t *testing.T) { baseLine(ctx, t, core, overlay.Attacher) })
+	t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, overlay.Attacher) })
 
 	rootRef, err := overlay.Attacher(ctx, core).Attach()
 	if err != nil {
@@ -190,7 +190,7 @@ func testRootDir(ctx context.Context, t *testing.T, root p9.File) {
 }
 
 func testPinFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
-	t.Run("Baseline", func(t *testing.T) { baseLine(ctx, t, core, pinfs.Attacher) })
+	t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, pinfs.Attacher) })
 
 	pinRoot, err := pinfs.Attacher(ctx, core).Attach()
 	if err != nil {
@@ -256,7 +256,7 @@ func testPinFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 }
 
 func testIPFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
-	t.Run("Baseline", func(t *testing.T) { baseLine(ctx, t, core, ipfs.Attacher) })
+	t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, ipfs.Attacher) })
 
 	rootRef, err := ipfs.Attacher(ctx, core).Attach()
 	if err != nil {
@@ -309,10 +309,10 @@ func testIPFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 }
 
 func testIPNS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
-	t.Run("Baseline", func(t *testing.T) { baseLine(ctx, t, core, ipns.Attacher) })
+	t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, ipns.Attacher) })
 }
 
 func testMFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 	//TODO: init root CID
-	//t.Run("Baseline", func(t *testing.T) { baseLine(ctx, t, core, fsnodes.MFSAttacher) })
+	//t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, fsnodes.MFSAttacher) })
 }

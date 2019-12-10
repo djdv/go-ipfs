@@ -34,7 +34,7 @@ StandardQIDFromStringFunction("/pinfs") == pinfsObject.QIDMethod()
 
 type baseAttacher func(context.Context, coreiface.CoreAPI, ...nodeopts.AttachOption) p9.Attacher
 
-func baseLine(ctx context.Context, t *testing.T, core coreiface.CoreAPI, attachFn baseAttacher) {
+func baseline(ctx context.Context, t *testing.T, core coreiface.CoreAPI, attachFn baseAttacher) {
 	attacher := attachFn(ctx, core)
 
 	t.Run("attacher", func(t *testing.T) { testAttacher(ctx, t, attacher) })
