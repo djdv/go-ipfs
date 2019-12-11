@@ -7,6 +7,7 @@ import (
 	"os"
 	gopath "path"
 	"sort"
+	"strconv"
 	"testing"
 
 	"github.com/hugelgupf/p9/localfs"
@@ -18,6 +19,8 @@ import (
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/overlay"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/pinfs"
+	"github.com/ipfs/go-unixfs/hamt"
+	uio "github.com/ipfs/go-unixfs/io"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -257,6 +260,7 @@ func testPinFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 
 func testIPFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 	t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, ipfs.Attacher) })
+	t.Run("Extra formats", func(t *testing.T) { testIpfsExtra(ctx, t, core) })
 
 	rootRef, err := ipfs.Attacher(ctx, core).Attach()
 	if err != nil {
@@ -307,6 +311,9 @@ func testIPFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 		t.FailNow()
 	}
 }
+func testIpfsExtra(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
+	t.Run("Sharded", func(t *testing.T) { testShard(ctx, t, core) })
+}
 
 func testIPNS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 	t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, ipns.Attacher) })
@@ -315,4 +322,76 @@ func testIPNS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 func testMFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 	//TODO: init root CID
 	//t.Run("Baseline", func(t *testing.T) { baseline(ctx, t, core, fsnodes.MFSAttacher) })
+}
+
+func testShard(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
+	entryCount := 32
+	// create the sharded structure with an arbitrary ammount of nodes
+	shard, err := hamt.NewShard(core.Dag(), entryCount)
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	// just add ourself to ourself as data
+	subNode, err := uio.NewDirectory(core.Dag()).GetNode()
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+	for i := 0; i != entryCount; i++ {
+		if err = shard.Set(ctx, strconv.Itoa(i), subNode); err != nil {
+			t.Error(err)
+			t.FailNow()
+		}
+
+		subNode, err = shard.Node()
+		if err != nil {
+			t.Error(err)
+			t.FailNow()
+		}
+	}
+
+	if err = core.Dag().Add(ctx, subNode); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	rootRef, err := ipfs.Attacher(ctx, core).Attach()
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	_, shardedFile, err := rootRef.Walk([]string{subNode.Cid().String()})
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	if _, _, err = shardedFile.Open(p9.ReadOnly); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	ents, err := shardedFile.Readdir(0, uint32(entryCount))
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	if len(ents) != entryCount {
+		t.Errorf("entry count mismatch for sharded directory")
+		t.FailNow()
+	}
+
+	if err = shardedFile.Close(); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	if err = rootRef.Close(); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 }
