@@ -112,6 +112,7 @@ func IpldStat(ctx context.Context, attr *p9.Attr, node ipld.Node, mask p9.AttrMa
 	return filledAttrs, nil
 }
 
+// RootPath wraps a namespace string path as a CoreAPI compatible path
 type RootPath string
 
 func (rp RootPath) String() string { return string(rp) }
