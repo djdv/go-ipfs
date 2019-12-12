@@ -74,12 +74,57 @@ func TestAll(t *testing.T) {
 	t.Run("IPFS", func(t *testing.T) { testIPFS(ctx, t, core) })
 	t.Run("MFS", func(t *testing.T) { testMFS(ctx, t, core) })
 	t.Run("IPNS", func(t *testing.T) { testIPNS(ctx, t, core) })
-
-	pluginEnv := &plugin.Environment{Config: defaultConfig()}
-	t.Run("Plugin", func(t *testing.T) { testPlugin(t, pluginEnv, node) })
+	t.Run("Plugin", func(t *testing.T) { testPlugin(t, node) })
 }
 
-func testPlugin(t *testing.T, pluginEnv *plugin.Environment, node *core.IpfsNode) {
+func testPlugin(t *testing.T, node *core.IpfsNode) {
+	module := new(FileSystemPlugin)
+	pluginEnv := &plugin.Environment{}
+	t.Run("Config none", func(t *testing.T) { testPluginConfig(t, module, pluginEnv) })
+	if err := module.Close(); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
+	module = new(FileSystemPlugin)
+	pluginEnv = &plugin.Environment{Config: defaultConfig()}
+	t.Run("Config default", func(t *testing.T) { testPluginConfig(t, module, pluginEnv) })
+
+	module = new(FileSystemPlugin)
+	pluginEnv = &plugin.Environment{
+		Config: &Config{
+			map[string]string{
+				defaultService: fmt.Sprintf("/unix/${%s}/%s", tmplHome, sockName),
+				"fuse":         "/mnt/",
+				"projfs":       `\\someNamespace\`,
+				"iokit":        `/Some/Elegant/Path`,
+			},
+		},
+	}
+	t.Run("Config additional", func(t *testing.T) { testPluginConfig(t, module, pluginEnv) })
+
+	module = new(FileSystemPlugin)
+	pluginEnv = &plugin.Environment{Config: 42}
+	t.Run("Config malformed", func(t *testing.T) {
+		if err := module.Init(pluginEnv); err == nil {
+			t.Error("Init succeeded with malformed config")
+			t.Fail()
+		}
+	})
+
+	module = new(FileSystemPlugin)
+	pluginEnv = &plugin.Environment{Config: defaultConfig()}
+	t.Run("Execution", func(t *testing.T) { testPluginExecution(t, pluginEnv, node) })
+}
+
+func testPluginConfig(t *testing.T, module *FileSystemPlugin, pluginEnv *plugin.Environment) {
+	if err := module.Init(pluginEnv); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+}
+
+func testPluginExecution(t *testing.T, pluginEnv *plugin.Environment, node *core.IpfsNode) {
 	// NOTE: all restrictive comments are in relation to our plugin, not all plugins
 	var (
 		module FileSystemPlugin
