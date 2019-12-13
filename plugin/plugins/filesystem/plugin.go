@@ -21,6 +21,11 @@ import (
 	manet "github.com/multiformats/go-multiaddr-net"
 )
 
+const (
+	PluginName    = "filesystem"
+	PluginVersion = "0.0.1"
+)
+
 var (
 	_ plugin.PluginDaemonInternal = (*FileSystemPlugin)(nil) // impl check
 
@@ -79,15 +84,9 @@ func (fs *FileSystemPlugin) Init(env *plugin.Environment) error {
 		cfg = defaultConfig()
 	}
 
-	var addrString string
-	// allow environment variable to override config values
-	if envAddr := os.ExpandEnv(EnvAddr); envAddr != "" {
-		addrString = EnvAddr
-	} else {
-		addrString = cfg.Service[defaultService]
-	}
+	addrString := cfg.Service[defaultService]
 
-	// expand string templates and initialize listening addr
+	// expand config templates
 	templateRepoPath := env.Repo
 	if strings.HasPrefix(addrString, "/unix") {
 		// prevent template from expanding to double slashed paths like `/unix//home/...`
@@ -95,15 +94,19 @@ func (fs *FileSystemPlugin) Init(env *plugin.Environment) error {
 		templateRepoPath = strings.TrimPrefix(templateRepoPath, "/")
 	}
 
-	addrString = os.Expand(addrString, configVarMapper(templateRepoPath))
+	// only expand documented value(s)
+	addrString = os.Expand(addrString, func(key string) string {
+		return (map[string]string{tmplHome: templateRepoPath})[key]
+	})
 
+	// initialize listening addr from config string
 	ma, err := multiaddr.NewMultiaddr(addrString)
 	if err != nil {
 		return err
 	}
 	fs.addr = ma
 
-	logger.Info("9P resource server okay for launch")
+	logger.Info("9P resource server is okay to start")
 	return nil
 }
 
@@ -124,9 +127,29 @@ func (fs *FileSystemPlugin) Start(node *core.IpfsNode) error {
 		return err
 	}
 
-	// make sure sockets are not in use already (if we're using them)
-	if err = removeUnixSockets(fs.addr); err != nil {
-		return err
+	// if we're using unix sockets, make sure the file doesn't exist
+	{
+		var failed bool
+		multiaddr.ForEach(fs.addr, func(comp multiaddr.Component) bool {
+			if comp.Protocol().Code == multiaddr.P_UNIX {
+				target := comp.Value()
+				if len(target) >= 108 {
+					// TODO [anyone] this type of check is platform dependant and checks+errors around it should exist in `mulitaddr` when forming the actual structure
+					// e.g. on Windows 1909 and lower, this will always fail when binding
+					// on Linux this can cause problems if applications are not aware of the true addr length and assume `sizeof addr <= 108`
+					logger.Warning("Unix domain socket path is at or exceeds standard length `sun_path[108]` this is likely to cause problems")
+				}
+				if callErr := os.Remove(comp.Value()); err != nil && !os.IsNotExist(err) {
+					logger.Error(err)
+					failed = true
+					err = callErr
+				}
+			}
+			return false
+		})
+		if failed {
+			return err
+		}
 	}
 
 	// launch the listener

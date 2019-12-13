@@ -12,6 +12,7 @@ import (
 
 	"github.com/hugelgupf/p9/localfs"
 	"github.com/hugelgupf/p9/p9"
+	nodeconf "github.com/ipfs/go-ipfs-config"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreapi"
 	"github.com/ipfs/go-ipfs/plugin"
@@ -112,8 +113,17 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 		}
 	})
 
+	nodeRoot, err := nodeconf.PathRoot()
+	if err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+
 	module = new(FileSystemPlugin)
-	pluginEnv = &plugin.Environment{Config: defaultConfig()}
+	pluginEnv = &plugin.Environment{
+		Repo:   nodeRoot,
+		Config: defaultConfig(),
+	}
 	t.Run("Execution", func(t *testing.T) { testPluginExecution(t, pluginEnv, node) })
 }
 

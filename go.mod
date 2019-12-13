@@ -110,3 +110,5 @@ go 1.12
 
 //TODO: remove this replace when upstream merges changes
 replace github.com/hugelgupf/p9 => github.com/djdv/p9 v0.0.0-20191124212207-3ac24bae1de6
+
+replace github.com/multiformats/go-multiaddr => github.com/djdv/go-multiaddr v0.2.1-0.20191212235607-dd09c2e79712
