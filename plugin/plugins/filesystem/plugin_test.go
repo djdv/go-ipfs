@@ -4,22 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	gopath "path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"testing"
 
 	"github.com/hugelgupf/p9/localfs"
 	"github.com/hugelgupf/p9/p9"
-	nodeconf "github.com/ipfs/go-ipfs-config"
+	config "github.com/ipfs/go-ipfs-config"
+	serialize "github.com/ipfs/go-ipfs-config/serialize"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreapi"
 	"github.com/ipfs/go-ipfs/plugin"
+	"github.com/ipfs/go-ipfs/plugin/loader"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/ipfs"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/overlay"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/pinfs"
+	"github.com/ipfs/go-ipfs/repo/common"
+	"github.com/ipfs/go-ipfs/repo/fsrepo"
 	"github.com/ipfs/go-unixfs/hamt"
 	uio "github.com/ipfs/go-unixfs/io"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -51,14 +57,9 @@ var (
 )
 
 func TestAll(t *testing.T) {
+
 	ctx := context.TODO()
-
-	node, err := core.NewNode(ctx, &core.BuildCfg{
-		Online:                      false,
-		Permanent:                   false,
-		DisableEncryptedConnections: true,
-	})
-
+	node, err := testInitNode(ctx, t)
 	if err != nil {
 		t.Logf("Failed to construct IPFS node: %s\n", err)
 		t.FailNow()
@@ -69,7 +70,6 @@ func TestAll(t *testing.T) {
 		t.Logf("Failed to construct CoreAPI: %s\n", err)
 		t.FailNow()
 	}
-
 	t.Run("RootFS", func(t *testing.T) { testRootFS(ctx, t, core) })
 	t.Run("PinFS", func(t *testing.T) { testPinFS(ctx, t, core) })
 	t.Run("IPFS", func(t *testing.T) { testIPFS(ctx, t, core) })
@@ -79,56 +79,57 @@ func TestAll(t *testing.T) {
 }
 
 func testPlugin(t *testing.T, node *core.IpfsNode) {
-	module := new(FileSystemPlugin)
-	pluginEnv := &plugin.Environment{}
-	t.Run("Config none", func(t *testing.T) { testPluginConfig(t, module, pluginEnv) })
-	if err := module.Close(); err != nil {
+	repoPath, err := config.PathRoot()
+	if err != nil {
 		t.Error(err)
 		t.FailNow()
 	}
 
-	module = new(FileSystemPlugin)
-	pluginEnv = &plugin.Environment{Config: defaultConfig()}
-	t.Run("Config default", func(t *testing.T) { testPluginConfig(t, module, pluginEnv) })
+	pluginEnv := &plugin.Environment{Repo: repoPath}
+	defaultCfg := defaultConfig()
 
-	module = new(FileSystemPlugin)
-	pluginEnv = &plugin.Environment{
-		Config: &Config{
-			map[string]string{
+	for _, pair := range []struct {
+		string
+		*Config
+	}{
+		{"none", nil},
+		{"default", defaultCfg},
+		{"additional", &Config{
+			Service: map[string]string{
 				defaultService: fmt.Sprintf("/unix/${%s}/%s", tmplHome, sockName),
 				"fuse":         "/mnt/",
 				"projfs":       `\\someNamespace\`,
 				"iokit":        `/Some/Elegant/Path`,
 			},
 		},
+		},
+	} {
+		pluginEnv.Config = pair.Config
+		t.Run(fmt.Sprintf("Config %s", pair.string), func(t *testing.T) { testPluginInit(t, pluginEnv) })
 	}
-	t.Run("Config additional", func(t *testing.T) { testPluginConfig(t, module, pluginEnv) })
 
-	module = new(FileSystemPlugin)
-	pluginEnv = &plugin.Environment{Config: 42}
 	t.Run("Config malformed", func(t *testing.T) {
+		module := new(FileSystemPlugin)
+		pluginEnv.Config = 42
 		if err := module.Init(pluginEnv); err == nil {
 			t.Error("Init succeeded with malformed config")
 			t.Fail()
 		}
 	})
 
-	nodeRoot, err := nodeconf.PathRoot()
-	if err != nil {
+	pluginEnv.Config = defaultCfg
+	t.Run("Execution", func(t *testing.T) { testPluginExecution(t, pluginEnv, node) })
+}
+
+func testPluginInit(t *testing.T, pluginEnv *plugin.Environment) {
+	module := new(FileSystemPlugin)
+
+	if err := module.Init(pluginEnv); err != nil {
 		t.Error(err)
 		t.FailNow()
 	}
 
-	module = new(FileSystemPlugin)
-	pluginEnv = &plugin.Environment{
-		Repo:   nodeRoot,
-		Config: defaultConfig(),
-	}
-	t.Run("Execution", func(t *testing.T) { testPluginExecution(t, pluginEnv, node) })
-}
-
-func testPluginConfig(t *testing.T, module *FileSystemPlugin, pluginEnv *plugin.Environment) {
-	if err := module.Init(pluginEnv); err != nil {
+	if err := module.Close(); err != nil {
 		t.Error(err)
 		t.FailNow()
 	}
@@ -449,4 +450,88 @@ func testShard(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 		t.Error(err)
 		t.FailNow()
 	}
+}
+
+func loadConfigFile() (*Config, error) {
+	confPath, err := config.Filename(config.DefaultConfigFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var mapConf map[string]interface{}
+	if err := serialize.ReadConfigFile(confPath, &mapConf); err != nil {
+		return nil, err
+	}
+
+	genericObj, err := common.MapGetKV(mapConf, selectorBase)
+	if err != nil {
+		return nil, err
+	}
+
+	typedConfig, ok := genericObj.(Config)
+	if !ok {
+		return nil, fmt.Errorf("config was parsed but type does not match expected:")
+	}
+	return &typedConfig, nil
+}
+
+// TODO: [anyone] remove overlap when node constructor refactor is done
+func testInitNode(ctx context.Context, t *testing.T) (*core.IpfsNode, error) {
+	repoPath, err := config.PathRoot()
+	if err != nil {
+		t.Logf("Failed to find suitable IPFS repo path: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	if err := setupPlugins(repoPath); err != nil {
+		t.Logf("Failed to initalize IPFS node plugins: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	conf, err := config.Init(ioutil.Discard, 2048)
+	if err != nil {
+		t.Logf("Failed to construct IPFS node config: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	if err := fsrepo.Init(repoPath, conf); err != nil {
+		t.Logf("Failed to construct IPFS node repo: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	repo, err := fsrepo.Open(repoPath)
+	if err := fsrepo.Init(repoPath, conf); err != nil {
+		t.Logf("Failed to open newly initalized IPFS repo: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	return core.NewNode(ctx, &core.BuildCfg{
+		Online:                      false,
+		Permanent:                   false,
+		DisableEncryptedConnections: true,
+		Repo:                        repo,
+	})
+}
+
+func setupPlugins(path string) error {
+	// Load plugins. This will skip the repo if not available.
+	plugins, err := loader.NewPluginLoader(filepath.Join(path, "plugins"))
+	if err != nil {
+		return fmt.Errorf("error loading plugins: %s", err)
+	}
+
+	if err := plugins.Initialize(); err != nil {
+		return fmt.Errorf("error initializing plugins: %s", err)
+	}
+
+	if err := plugins.Inject(); err != nil {
+		return fmt.Errorf("error initializing plugins: %s", err)
+	}
+
+	return nil
 }

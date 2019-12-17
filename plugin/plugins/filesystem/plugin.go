@@ -16,7 +16,6 @@ import (
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/filesystems/overlay"
 	"github.com/ipfs/go-ipfs/plugin/plugins/filesystem/meta"
 	logging "github.com/ipfs/go-log"
-	"github.com/mitchellh/mapstructure"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr-net"
 )
@@ -74,14 +73,9 @@ func (fs *FileSystemPlugin) Init(env *plugin.Environment) error {
 		env.Repo = absRepo
 	}
 
-	cfg := &Config{}
-	// load config from file or initialize it
-	if env.Config != nil {
-		if err := mapstructure.Decode(env.Config, cfg); err != nil {
-			return err
-		}
-	} else {
-		cfg = defaultConfig()
+	cfg, err := loadPluginConfig(env)
+	if err != nil {
+		return err
 	}
 
 	addrString := cfg.Service[defaultService]
