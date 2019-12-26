@@ -36,6 +36,9 @@ func defaultConfig() *Config {
 
 func loadPluginConfig(env *plugin.Environment) (*Config, error) {
 	if env.Config != nil && env.Config != (*Config)(nil) {
+		if _, ok := env.Config.(*Config); !ok {
+			return nil, fmt.Errorf("provided config has invalid type have: %T want: %T", env.Config, &Config{})
+		}
 		// If env is populated, the node already parsed its config for us
 		// We then parse the plugin portion given to us
 		cfg := &Config{}

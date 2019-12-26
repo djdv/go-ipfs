@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/hugelgupf/p9/localfs"
@@ -57,6 +58,29 @@ var (
 )
 
 func TestAll(t *testing.T) {
+	origPath := os.Getenv("IPFS_PATH")
+
+	repoDir, err := ioutil.TempDir("", "ipfs-fs")
+	if err != nil {
+		t.Logf("Failed to create repo directory: %s\n", err)
+		t.FailNow()
+	}
+
+	if err = os.Setenv("IPFS_PATH", repoDir); err != nil {
+		t.Logf("Failed to set IPFS_PATH: %s\n", err)
+		t.FailNow()
+	}
+
+	defer func() {
+		if err = os.RemoveAll(repoDir); err != nil {
+			t.Logf("Failed to remove test IPFS_PATH: %s\n", err)
+			t.Fail()
+		}
+		if err = os.Setenv("IPFS_PATH", origPath); err != nil {
+			t.Logf("Failed to reset IPFS_PATH: %s\n", err)
+			t.Fail()
+		}
+	}()
 
 	ctx := context.TODO()
 	node, err := testInitNode(ctx, t)
@@ -76,6 +100,11 @@ func TestAll(t *testing.T) {
 	t.Run("MFS", func(t *testing.T) { testMFS(ctx, t, core) })
 	t.Run("IPNS", func(t *testing.T) { testIPNS(ctx, t, core) })
 	t.Run("Plugin", func(t *testing.T) { testPlugin(t, node) })
+
+	if err = node.Close(); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
 }
 
 func testPlugin(t *testing.T, node *core.IpfsNode) {
@@ -113,11 +142,95 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 		pluginEnv.Config = 42
 		if err := module.Init(pluginEnv); err == nil {
 			t.Error("Init succeeded with malformed config")
+			if err = module.Close(); err != nil {
+				t.Error("malformed close succeeded")
+			} else {
+				t.Error(err)
+			}
 			t.Fail()
 		}
 	})
 
-	pluginEnv.Config = defaultCfg
+	t.Run("Relative repo path", func(t *testing.T) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		relPath, err := filepath.Rel(cwd, repoPath)
+		if err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		module := new(FileSystemPlugin)
+		pluginEnv := &plugin.Environment{Repo: relPath, Config: defaultCfg}
+		if err := module.Init(pluginEnv); err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		if err = module.Close(); err != nil {
+			t.Logf("plugin isn't busy, but it can't close: %s", err)
+			t.Fail()
+		}
+	})
+
+	t.Run("long Unix Domain Socket paths", func(t *testing.T) {
+		const (
+			sun_path_len = 108
+			padding      = "SUN"
+		)
+
+		socketPath, err := ioutil.TempDir(".", "socket-test")
+		if err != nil {
+			t.Logf("Failed to create socket directory: %s\n", err)
+			t.Fail()
+		}
+
+		defer os.RemoveAll(socketPath)
+		socketPath = filepath.ToSlash(socketPath)
+
+		// we need to append at least 2 bytes to test
+		if sLen := len(socketPath); sLen >= sun_path_len || sLen == sun_path_len-1 {
+			t.Skip("temporary directory is already beyond socket length limit, skipping")
+		}
+
+		// use a temporary socket path
+		var b strings.Builder
+		b.WriteString(socketPath)
+
+		// seperate socket file from the rest of the path (NOTE: maddr target not native path)
+		b.WriteRune('/')
+
+		// pad path length to original max length
+		for i := 0; b.Len() != sun_path_len; i++ {
+			b.WriteByte(padding[i%len(padding)])
+		}
+
+		module := new(FileSystemPlugin)
+		pluginEnv := &plugin.Environment{Repo: repoPath, Config: &Config{map[string]string{
+			defaultService: fmt.Sprintf("/unix/%s", b.String()),
+		}}}
+		if err := module.Init(pluginEnv); err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		if err = module.Start(node); err != nil {
+			t.Log("OS does not support long UDS targets")
+		} else {
+			t.Log("OS does support long UDS targets")
+		}
+
+		if err = module.Close(); err != nil {
+			t.Logf("plugin isn't busy, but it can't close: %s", err)
+			t.Fail()
+		}
+	})
+
+	pluginEnv = &plugin.Environment{Repo: repoPath, Config: defaultCfg}
 	t.Run("Execution", func(t *testing.T) { testPluginExecution(t, pluginEnv, node) })
 }
 
@@ -128,6 +241,10 @@ func testPluginInit(t *testing.T, pluginEnv *plugin.Environment) {
 		t.Error(err)
 		t.FailNow()
 	}
+
+	// shouldn't panic
+	_ = module.Name()
+	_ = module.Version()
 
 	if err := module.Close(); err != nil {
 		t.Error(err)
