@@ -178,10 +178,7 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 	})
 
 	t.Run("long Unix Domain Socket paths", func(t *testing.T) {
-		const (
-			sun_path_len = 108
-			padding      = "SUN"
-		)
+		const padding = "SUN"
 
 		socketPath, err := ioutil.TempDir(".", "socket-test")
 		if err != nil {
@@ -212,6 +209,46 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 		module := new(FileSystemPlugin)
 		pluginEnv := &plugin.Environment{Repo: repoPath, Config: &Config{map[string]string{
 			defaultService: fmt.Sprintf("/unix/%s", b.String()),
+		}}}
+		if err := module.Init(pluginEnv); err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		if err = module.Start(node); err != nil {
+			t.Log("OS does not support long UDS targets")
+		} else {
+			t.Log("OS does support long UDS targets")
+		}
+
+		if err = module.Close(); err != nil {
+			t.Logf("plugin isn't busy, but it can't close: %s", err)
+			t.Fail()
+		}
+	})
+
+	t.Run("remove existing Unix Domain Socket", func(t *testing.T) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		target := filepath.Join(cwd, "sock")
+		f, err := os.Create(target)
+		if err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		if err = f.Close(); err != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		module := new(FileSystemPlugin)
+		pluginEnv := &plugin.Environment{Repo: repoPath, Config: &Config{map[string]string{
+			defaultService: fmt.Sprintf("/unix/%s", filepath.ToSlash(target)),
 		}}}
 		if err := module.Init(pluginEnv); err != nil {
 			t.Error(err)

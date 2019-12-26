@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/hugelgupf/p9/p9"
@@ -23,6 +24,8 @@ import (
 const (
 	PluginName    = "filesystem"
 	PluginVersion = "0.0.1"
+
+	sun_path_len = 108
 )
 
 var (
@@ -127,13 +130,16 @@ func (fs *FileSystemPlugin) Start(node *core.IpfsNode) error {
 		multiaddr.ForEach(fs.addr, func(comp multiaddr.Component) bool {
 			if comp.Protocol().Code == multiaddr.P_UNIX {
 				target := comp.Value()
-				if len(target) >= 108 {
+				if runtime.GOOS == "windows" {
+					target = strings.TrimLeft(target, "/")
+				}
+				if len(target) >= sun_path_len {
 					// TODO [anyone] this type of check is platform dependant and checks+errors around it should exist in `mulitaddr` when forming the actual structure
 					// e.g. on Windows 1909 and lower, this will always fail when binding
 					// on Linux this can cause problems if applications are not aware of the true addr length and assume `sizeof addr <= 108`
 					logger.Warning("Unix domain socket path is at or exceeds standard length `sun_path[108]` this is likely to cause problems")
 				}
-				if callErr := os.Remove(comp.Value()); err != nil && !os.IsNotExist(err) {
+				if callErr := os.Remove(target); err != nil && !os.IsNotExist(err) {
 					logger.Error(err)
 					failed = true
 					err = callErr
