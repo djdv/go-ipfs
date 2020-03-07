@@ -14,8 +14,8 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/hashicorp/golang-lru v0.5.4
-	github.com/ipfs/go-bitswap v0.1.11
 	github.com/hugelgupf/p9 v0.0.0-00010101000000-000000000000
+	github.com/ipfs/go-bitswap v0.1.11
 	github.com/ipfs/go-block-format v0.0.2
 	github.com/ipfs/go-blockservice v0.1.2
 	github.com/ipfs/go-cid v0.0.5
