@@ -119,11 +119,11 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 
 	for _, pair := range []struct {
 		string
-		*Config
+		*fsPluginConfig
 	}{
 		{"none", nil},
 		{"default", defaultCfg},
-		{"additional", &Config{
+		{"additional", &fsPluginConfig{
 			Service: map[string]string{
 				defaultService: fmt.Sprintf("/unix/${%s}/%s", tmplHome, sockName),
 				"fuse":         "/mnt/",
@@ -133,13 +133,27 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 		},
 		},
 	} {
-		pluginEnv.Config = pair.Config
+		pluginEnv.Config = pair.fsPluginConfig
 		t.Run(fmt.Sprintf("Config %s", pair.string), func(t *testing.T) { testPluginInit(t, pluginEnv) })
 	}
 
-	t.Run("Config malformed", func(t *testing.T) {
+	t.Run("Config malformed 1", func(t *testing.T) {
 		module := new(FileSystemPlugin)
 		pluginEnv.Config = 42
+		if err := module.Init(pluginEnv); err == nil {
+			t.Error("Init succeeded with malformed config")
+			if err = module.Close(); err != nil {
+				t.Error("malformed close succeeded")
+			} else {
+				t.Error(err)
+			}
+			t.Fail()
+		}
+	})
+
+	t.Run("Config malformed 2", func(t *testing.T) {
+		module := new(FileSystemPlugin)
+		pluginEnv.Config = map[string]int{defaultService: 42}
 		if err := module.Init(pluginEnv); err == nil {
 			t.Error("Init succeeded with malformed config")
 			if err = module.Close(); err != nil {
@@ -207,7 +221,7 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 		}
 
 		module := new(FileSystemPlugin)
-		pluginEnv := &plugin.Environment{Repo: repoPath, Config: &Config{map[string]string{
+		pluginEnv := &plugin.Environment{Repo: repoPath, Config: &fsPluginConfig{map[string]string{
 			defaultService: fmt.Sprintf("/unix/%s", b.String()),
 		}}}
 		if err := module.Init(pluginEnv); err != nil {
@@ -247,7 +261,7 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 		}
 
 		module := new(FileSystemPlugin)
-		pluginEnv := &plugin.Environment{Repo: repoPath, Config: &Config{map[string]string{
+		pluginEnv := &plugin.Environment{Repo: repoPath, Config: &fsPluginConfig{map[string]string{
 			defaultService: fmt.Sprintf("/unix/%s", filepath.ToSlash(target)),
 		}}}
 		if err := module.Init(pluginEnv); err != nil {
@@ -606,7 +620,7 @@ func testShard(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 	}
 }
 
-func loadConfigFile() (*Config, error) {
+func loadConfigFile() (*fsPluginConfig, error) {
 	confPath, err := config.Filename(config.DefaultConfigFile)
 	if err != nil {
 		return nil, err
@@ -622,7 +636,7 @@ func loadConfigFile() (*Config, error) {
 		return nil, err
 	}
 
-	typedConfig, ok := genericObj.(Config)
+	typedConfig, ok := genericObj.(fsPluginConfig)
 	if !ok {
 		return nil, fmt.Errorf("config was parsed but type does not match expected:")
 	}

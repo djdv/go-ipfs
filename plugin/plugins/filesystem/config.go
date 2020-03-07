@@ -20,29 +20,30 @@ const (
 	selector9p   = selectorBase + ".Service.9p"
 )
 
-type Config struct { // NOTE: unstable/experimental
+type fsPluginConfig struct { // NOTE: unstable/experimental
 	// addresses for file system servers and clients
 	//e.g. "9p":"/ip4/localhost/tcp/564", "fuse":"/mountpoint", ...
 	Service map[string]string
 }
 
-func defaultConfig() *Config {
-	return &Config{
+func defaultConfig() *fsPluginConfig {
+	return &fsPluginConfig{
 		map[string]string{
 			defaultService: fmt.Sprintf("/unix/${%s}/%s", tmplHome, sockName),
 		},
 	}
 }
 
-func loadPluginConfig(env *plugin.Environment) (*Config, error) {
+func loadPluginConfig(env *plugin.Environment) (*fsPluginConfig, error) {
 	// if config was provided, try to use it
-	if env.Config != nil && env.Config != (*Config)(nil) {
-		if _, ok := env.Config.(*Config); !ok {
-			return nil, fmt.Errorf("provided config has invalid type have: %T want: %T", env.Config, &Config{})
-		}
-		// if env is populated, the node already parsed its config for us
-		// we then parse our plugin's portion of it
-		cfg := &Config{}
+	if env.Config != nil && env.Config != (*fsPluginConfig)(nil) {
+		// even if the interface is not nil, make sure it's data segment does not point to a nil struct
+		// e.g. var bad *fsPluginConfig; env.Config = bad
+		// makes for env.Config == nil == false
+
+		// if env is populated, the node already parsed its full config
+		// and passed us the plugins portion for us to parse ourselves
+		cfg := &fsPluginConfig{}
 		if err := mapstructure.Decode(env.Config, cfg); err != nil {
 			return nil, err
 		}
@@ -65,7 +66,7 @@ We should probably expose this function via the FS and document it so users can 
 		/show => string: $ConfigContents
 		/save => either an int:(0, 1), a string:("success", "failed: err"), or both seperated by a newline
 */
-func savePluginConfig(pluginConf *Config) error {
+func savePluginConfig(pluginConf *fsPluginConfig) error {
 	confPath, err := config.Filename("")
 	if err != nil {
 		return err
