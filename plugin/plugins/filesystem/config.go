@@ -35,12 +35,13 @@ func defaultConfig() *Config {
 }
 
 func loadPluginConfig(env *plugin.Environment) (*Config, error) {
+	// if config was provided, try to use it
 	if env.Config != nil && env.Config != (*Config)(nil) {
 		if _, ok := env.Config.(*Config); !ok {
 			return nil, fmt.Errorf("provided config has invalid type have: %T want: %T", env.Config, &Config{})
 		}
-		// If env is populated, the node already parsed its config for us
-		// We then parse the plugin portion given to us
+		// if env is populated, the node already parsed its config for us
+		// we then parse our plugin's portion of it
 		cfg := &Config{}
 		if err := mapstructure.Decode(env.Config, cfg); err != nil {
 			return nil, err
@@ -50,13 +51,20 @@ func loadPluginConfig(env *plugin.Environment) (*Config, error) {
 
 	// otherwise we try to initalize with defaults
 	conf := defaultConfig()
-	if err := savePluginConfig(conf); err != nil {
-		return nil, err
-	}
 
 	return conf, nil
 }
 
+/* TODO: there's no obvious time to save the plugin's config to disk
+we can't do it during:
+1) plugin.Init() since the config file may not exist when we're called.
+2) plugin.Start()|.Close() doesn't make much sense, it's not related to the method names and we'd be (re)writing the file when we don't need to anyway.
+
+We should probably expose this function via the FS and document it so users can trigger it on demand:
+	/config
+		/show => string: $ConfigContents
+		/save => either an int:(0, 1), a string:("success", "failed: err"), or both seperated by a newline
+*/
 func savePluginConfig(pluginConf *Config) error {
 	confPath, err := config.Filename("")
 	if err != nil {
