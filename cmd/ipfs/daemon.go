@@ -21,10 +21,10 @@ import (
 	oldcmds "github.com/ipfs/go-ipfs/commands"
 	"github.com/ipfs/go-ipfs/core"
 	commands "github.com/ipfs/go-ipfs/core/commands"
+	"github.com/ipfs/go-ipfs/core/coreapi"
 	corehttp "github.com/ipfs/go-ipfs/core/corehttp"
 	corerepo "github.com/ipfs/go-ipfs/core/corerepo"
 	libp2p "github.com/ipfs/go-ipfs/core/node/libp2p"
-	nodeMount "github.com/ipfs/go-ipfs/fuse/node"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 	migrate "github.com/ipfs/go-ipfs/repo/fsrepo/migrations"
 	sockets "github.com/libp2p/go-socket-activation"
@@ -37,7 +37,18 @@ import (
 	manet "github.com/multiformats/go-multiaddr/net"
 	prometheus "github.com/prometheus/client_golang/prometheus"
 	promauto "github.com/prometheus/client_golang/prometheus/promauto"
+
+	mountcon "github.com/ipfs/go-ipfs/mount/conductors/ipfs-core"
+	mountcmds "github.com/ipfs/go-ipfs/mount/utils/cmds"
 )
+
+func init() {
+	// TODO: I don't think this is gonna fly; people hate init()
+	// we could also make the initial decleration be append(hugeLiteral, mountcmds.DaemonOpts...)
+	// or specify them line by line in the huge literal
+	// (I think this is a better pattern myself though; define the opts for your command in your pkg and let people import them rather than jumping between packages)
+	daemonCmd.Options = append(daemonCmd.Options, mountcmds.DaemonOpts...)
+}
 
 const (
 	adjustFDLimitKwd          = "manage-fdlimit"
@@ -45,8 +56,6 @@ const (
 	initOptionKwd             = "init"
 	initConfigOptionKwd       = "init-config"
 	initProfileOptionKwd      = "init-profile"
-	ipfsMountKwd              = "mount-ipfs"
-	ipnsMountKwd              = "mount-ipns"
 	migrateKwd                = "migrate"
 	mountKwd                  = "mount"
 	offlineKwd                = "offline" // global option
@@ -164,10 +173,7 @@ Headers.
 		cmds.StringOption(initConfigOptionKwd, "Path to existing configuration file to be loaded during --init"),
 		cmds.StringOption(initProfileOptionKwd, "Configuration profiles to apply for --init. See ipfs init --help for more"),
 		cmds.StringOption(routingOptionKwd, "Overrides the routing option").WithDefault(routingOptionDefaultKwd),
-		cmds.BoolOption(mountKwd, "Mounts IPFS to the filesystem"),
 		cmds.BoolOption(writableKwd, "Enable writing objects (with POST, PUT and DELETE)"),
-		cmds.StringOption(ipfsMountKwd, "Path to the mountpoint for IPFS (if using --mount). Defaults to config setting."),
-		cmds.StringOption(ipnsMountKwd, "Path to the mountpoint for IPNS (if using --mount). Defaults to config setting."),
 		cmds.BoolOption(unrestrictedApiAccessKwd, "Allow API access to unlisted hashes"),
 		cmds.BoolOption(unencryptTransportKwd, "Disable transport encryption (for debugging protocols)"),
 		cmds.BoolOption(enableGCKwd, "Enable automatic periodic repo garbage collection"),
@@ -395,15 +401,29 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		return err
 	}
 
-	// construct fuse mountpoints - if the user provided the --mount flag
-	mount, _ := req.Options[mountKwd].(bool)
-	if mount && offline {
-		return cmds.Errorf(cmds.ErrClient, "mount is not currently supported in offline mode")
-	}
-	if mount {
-		if err := mountFuse(req, cctx); err != nil {
+	// bind mountpoints - if the user provided the --mount flag
+	mountRequest, _ := req.Options[mountKwd].(bool)
+	if mountRequest {
+		coreAPI, err := coreapi.NewCoreAPI(node)
+		if err != nil {
 			return err
 		}
+		nodeConf, err := cctx.GetConfig()
+		if err != nil {
+			return fmt.Errorf("GetConfig() failed: %s", err)
+		}
+
+		provider, targets, err := mountcmds.ParseDaemonRequest(req, nodeConf)
+		if err != nil {
+			return err
+		}
+		node.Mount = mountcon.NewConductor(node.Context(), coreAPI)
+
+		if err := mountcmds.MountNode(re, node, provider, targets); err != nil {
+			return err
+		}
+
+		fmt.Printf("mounted: %s\n", targets.String())
 	}
 
 	// repo blockstore GC - if --enable-gc flag is present
@@ -688,37 +708,6 @@ func serveHTTPGateway(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, e
 	}()
 
 	return errc, nil
-}
-
-//collects options and opens the fuse mountpoint
-func mountFuse(req *cmds.Request, cctx *oldcmds.Context) error {
-	cfg, err := cctx.GetConfig()
-	if err != nil {
-		return fmt.Errorf("mountFuse: GetConfig() failed: %s", err)
-	}
-
-	fsdir, found := req.Options[ipfsMountKwd].(string)
-	if !found {
-		fsdir = cfg.Mounts.IPFS
-	}
-
-	nsdir, found := req.Options[ipnsMountKwd].(string)
-	if !found {
-		nsdir = cfg.Mounts.IPNS
-	}
-
-	node, err := cctx.ConstructNode()
-	if err != nil {
-		return fmt.Errorf("mountFuse: ConstructNode() failed: %s", err)
-	}
-
-	err = nodeMount.Mount(node, fsdir, nsdir)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("IPFS mounted at: %s\n", fsdir)
-	fmt.Printf("IPNS mounted at: %s\n", nsdir)
-	return nil
 }
 
 func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {

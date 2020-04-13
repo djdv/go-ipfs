@@ -8,6 +8,7 @@ import (
 	name "github.com/ipfs/go-ipfs/core/commands/name"
 	ocmd "github.com/ipfs/go-ipfs/core/commands/object"
 	unixfs "github.com/ipfs/go-ipfs/core/commands/unixfs"
+	mountcmds "github.com/ipfs/go-ipfs/mount/utils/cmds"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	logging "github.com/ipfs/go-log"
@@ -133,7 +134,8 @@ var rootSubcommands = map[string]*cmds.Command{
 	"key":       KeyCmd,
 	"log":       LogCmd,
 	"ls":        LsCmd,
-	"mount":     MountCmd,
+	"mount":     mountcmds.MountCmd,
+	"unmount":   mountcmds.UnmountCmd,
 	"name":      name.NameCmd,
 	"object":    ocmd.ObjectCmd,
 	"pin":       PinCmd,
