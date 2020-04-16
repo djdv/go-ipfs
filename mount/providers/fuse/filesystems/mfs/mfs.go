@@ -2,7 +2,7 @@ package mfs
 
 import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	fusemeta "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/meta"
+	fusecommon "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	logging "github.com/ipfs/go-log"
 )
 
@@ -11,7 +11,7 @@ var log = logging.Logger("fuse/mfs")
 const fuseSuccess = 0
 
 type Filesystem struct {
-	fusemeta.FUSEBase
+	fusecommon.FUSEBase
 
 	fuselib.FileSystemBase // TODO: remove this; should implement everything
 }

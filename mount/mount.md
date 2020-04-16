@@ -13,29 +13,23 @@ In short, it's all gross and unusable.
 The mount directory contains various packages to facilitate mounting various file systems to various hosts using various APIs.  
 ```
 .\mount\
-├── conductors (implementations of the `mount.Conductor` interface)
-│   ├── ipfs-core
-│   └── options
-├── interface (various interfaces used by the mount system)
+├── conductors (implementation(s) of the `mount.Conductor` interface)
+│   └── ipfs-core
+├── interface (various interface definitions used by the mount system)
 ├── providers (implementations of the `mount.Provider` interface)
 │   ├── 9P (implements file systems via the Plan9 protocol)
-│   │   ├── errors
-│   │   ├── filesystems (IPFS API mappings to 9P)
-│   │   │   ├── ipfs
-│   │   │   ├── ipns
-│   │   │   ├── keyfs
-│   │   │   ├── mfs
-│   │   │   ├── overlay
-│   │   │   └── pinfs
-│   │   ├── meta (to be defunct by `utils/transform`)
-│   │   └── utils (to be defunct by `utils/transform`)
-│   ├── fuse
-│   │   └── filesystems (IPFS API mappings to FUSE)
-│   │       ├── ipfs
-│   │       ├── ipns
-│   │       ├── meta
-│   │       └── mfs
-│   └── options
+│   │   └── filesystems (common base for filesystems to be built on)
+│   │       ├── ipfs (IPFS API mappings to 9P, etc...)
+│   │       ├── ipns
+│   │       ├── keyfs
+│   │       ├── mfs
+│   │       ├── overlay
+│   │       └── pinfs
+│   └── fuse
+│       └── filesystems (common base for filesystems to be built on)
+│           ├── ipfs (IPFS API mappings to FUSE, etc...)
+│           ├── ipns
+│           └── mfs
 └── utils
     ├── cmds (hosts the parameters and sub-commands for `daemon`, `mount`, `unmount`)
     ├── common

@@ -10,7 +10,13 @@ import (
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-// returns attr, filled members, error
+// TODO [2019.09.12; anyone]
+// Start a discussion around block sizes
+// should we use the de-facto standard of 4KiB or use our own of 256KiB?
+// context: https://github.com/ipfs/go-ipfs/pull/6612/files#r322989041
+const ufs1BlockSize = 256 << 10
+
+// CoreGettAttr returns attr, filled members, error
 func CoreGetAttr(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
 	// translate from abstract path to CoreAPI resolved path
 	resolvedPath, err := core.ResolvePath(ctx, path)
@@ -55,13 +61,13 @@ func ipldStat(ctx context.Context, node ipld.Node, req IPFSStatRequest) (*IPFSSt
 		return nil, filledAttrs, err
 	}
 
-	if req.Mode {
-		attr.FileType, filledAttrs.Mode = unixfsTypeToCoreType(ufsNode.Type()), true
+	if req.Type {
+		attr.FileType, filledAttrs.Type = unixfsTypeToCoreType(ufsNode.Type()), true
 	}
 
 	if req.Blocks {
 		// TODO: when/if UFS supports this metadata field, use it instead
-		attr.BlockSize, filledAttrs.Blocks = UFS1BlockSize, true
+		attr.BlockSize, filledAttrs.Blocks = ufs1BlockSize, true
 	}
 
 	if req.Size {

@@ -5,17 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
 	"github.com/hugelgupf/p9/p9"
+	config "github.com/ipfs/go-ipfs-config"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
+	prov "github.com/ipfs/go-ipfs/mount/providers"
+	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/keyfs"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/overlay"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/pinfs"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/meta"
-	provops "github.com/ipfs/go-ipfs/mount/providers/options"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	mountsys "github.com/ipfs/go-ipfs/mount/utils/sys"
 	logging "github.com/ipfs/go-log"
@@ -25,7 +29,14 @@ import (
 	manet "github.com/multiformats/go-multiaddr-net"
 )
 
+//TODO: var tmplRoot = `/` || ${CurDrive}:\ || ...
 var provlog = logging.Logger("mount/9p/provider")
+var errObjectNotInitialized = errors.New("method called on uninitialized object")
+
+const (
+	tmplHome     = "IPFS_HOME"
+	sun_path_len = 108
+)
 
 type p9pProvider struct {
 	sync.Mutex
@@ -50,8 +61,8 @@ type p9pProvider struct {
 	// TODO: resource lock goes here
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, ops ...provops.Option) (*p9pProvider, error) {
-	opts := provops.ParseOptions(ops...)
+func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, ops ...prov.Option) (*p9pProvider, error) {
+	opts := prov.ParseOptions(ops...)
 
 	if strings.HasPrefix(addrString, "/unix") { // stabilize our addr string which could contain template keys and/or be relative in some way
 		var err error
@@ -82,7 +93,7 @@ func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 	defer pr.Unlock()
 
 	if pr.maddr == nil {
-		return nil, errObjectNotInitalized
+		return nil, errObjectNotInitialized
 	}
 
 	if pr.instances.Exists(target) {
@@ -262,26 +273,26 @@ func (pr *p9pProvider) Close() error {
 }
 
 func newServer(ctx context.Context, namespace mountinter.Namespace, core coreiface.CoreAPI, mroot *gomfs.Root) (*p9.Server, error) {
-	ops := []meta.AttachOption{
-		meta.MFSRoot(mroot),
+	ops := []common.AttachOption{
+		common.MFSRoot(mroot),
 	}
 	var attacher p9.Attacher
 
 	switch namespace {
 	case mountinter.NamespaceIPFS:
-		ops = append(ops, meta.Logger(logging.Logger("9IPFS")))
+		ops = append(ops, common.Logger(logging.Logger("9IPFS")))
 		attacher = pinfs.Attacher(ctx, core, ops...)
 
 	case mountinter.NamespaceIPNS:
-		ops = append(ops, meta.Logger(logging.Logger("9IPNS")))
+		ops = append(ops, common.Logger(logging.Logger("9IPNS")))
 		attacher = keyfs.Attacher(ctx, core, ops...)
 
 	case mountinter.NamespaceFiles:
-		ops = append(ops, meta.Logger(logging.Logger("9Files")))
+		ops = append(ops, common.Logger(logging.Logger("9Files")))
 		attacher = mfs.Attacher(ctx, core, ops...)
 
 	case mountinter.NamespaceAllInOne:
-		ops = append(ops, meta.Logger(logging.Logger("9overlay")))
+		ops = append(ops, common.Logger(logging.Logger("9overlay")))
 		attacher = overlay.Attacher(ctx, core, ops...)
 
 	default:
@@ -289,4 +300,65 @@ func newServer(ctx context.Context, namespace mountinter.Namespace, core coreifa
 	}
 
 	return p9.NewServer(attacher), nil
+}
+
+// TODO: multiaddr encapsulation concerns; this is just going to destroy every socket, not just ours
+// it should probably just operate on the final component
+func removeUnixSockets(maddr multiaddr.Multiaddr) error {
+	var retErr error
+
+	multiaddr.ForEach(maddr, func(comp multiaddr.Component) bool {
+		if comp.Protocol().Code == multiaddr.P_UNIX {
+			target := comp.Value()
+			if runtime.GOOS == "windows" {
+				target = strings.TrimLeft(target, "/")
+			}
+			if len(target) >= sun_path_len {
+				// TODO [anyone] this type of check is platform dependant and checks+errors around it should exist in `mulitaddr` when forming the actual structure
+				// e.g. on Windows 1909 and lower, this will always fail when binding
+				// on Linux this can cause problems if applications are not aware of the true addr length and assume `sizeof addr <= 108`
+
+				// FIXME: we lost our logger in the port from plugin; this shouldn't use fmt
+				// logger.Warning("Unix domain socket path is at or exceeds standard length `sun_path[108]` this is likely to cause problems")
+				fmt.Printf("[WARNING] Unix domain socket path %q is at or exceeds standard length `sun_path[108]` this is likely to cause problems\n", target)
+			}
+
+			// discard notexist errors
+			if callErr := os.Remove(target); callErr != nil && !os.IsNotExist(callErr) {
+				retErr = callErr
+				return false // break out of ForEach
+			}
+		}
+		return true // continue
+	})
+
+	return retErr
+}
+
+func stabilizeUnixPath(maString string) (string, error) {
+	templateValueRepoPath, err := config.PathRoot()
+	if err != nil {
+		return "", err
+	}
+
+	if !filepath.IsAbs(templateValueRepoPath) { // stabilize root path
+		absRepo, err := filepath.Abs(templateValueRepoPath)
+		if err != nil {
+			return "", err
+		}
+		templateValueRepoPath = absRepo
+	}
+
+	// expand templates
+
+	// prevent template from expanding to double slashed paths like `/unix//home/...` on *nix systems
+	// but allow it to expand to `/unix/C:\Users...` on the Windows platform
+	templateValueRepoPath = strings.TrimPrefix(templateValueRepoPath, "/")
+
+	// only expand documented template keys, not everything
+	return os.Expand(maString, func(key string) string {
+		return (map[string]string{
+			tmplHome: templateValueRepoPath,
+		})[key]
+	}), nil
 }

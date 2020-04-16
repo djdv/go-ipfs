@@ -1,5 +1,4 @@
-// Package fserrors attempts to provide consistent error values across various file systems
-package errors
+package common
 
 import (
 	goerrors "errors"

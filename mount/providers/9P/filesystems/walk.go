@@ -1,10 +1,6 @@
-package meta
+package common
 
 import (
-	"context"
-	"sync/atomic"
-	"time"
-
 	"github.com/hugelgupf/p9/p9"
 )
 
@@ -54,58 +50,70 @@ type WalkRef interface {
 	Backtrack() (parentRef WalkRef, err error)
 }
 
-type OverlayBase struct {
-
-	/* The parent context must be set prior to `fs.Attach`. */
-	ParentCtx context.Context
-
-	/*	When a new reference to `fs` is created during `fs.Attach`,
-		it must populate the fs-context+cancel pair with new values derived
-		from the pre-existing parent context.
-
-		This context must be canceled when the reference's `Close` method is called
-		i.e. it should be valid only for the lifetime of the file system
-	*/
-	FilesystemCtx    context.Context
-	FilesystemCancel context.CancelFunc
-
-	/*	When a new reference to `fs` is created during `fs.Walk`,
-		it must populate the op-context+cancel pair with new values derived
-		from the pre-existing `FilesystemCtx`.
-
-		This context must be canceled when the reference's `Close` method is called
-		i.e. it should be valid only for the lifetime of the file reference
-	*/
-	OperationsCtx    context.Context
-	OperationsCancel context.CancelFunc
-
-	/* Must be set to true upon `Close`, invalidates all future operations for this reference */
-	Closed bool
-
-	/* Atomic value;
-	Must be set to non-zero if any reference opens I/O
-	and reset to 0 upon `Close` of the open reference */
-	Opened *uintptr
-}
-
-// Clone returns a copy of OverlayBase with cancel functions omitted
-func (ob *OverlayBase) Clone() OverlayBase {
-	return OverlayBase{
-		ParentCtx:     ob.ParentCtx,
-		FilesystemCtx: ob.FilesystemCtx,
-		Closed:        ob.Closed,
-		Opened:        ob.Opened,
+// Walker implements the 9P `Walk` operation
+func Walker(ref WalkRef, names []string) ([]p9.QID, p9.File, error) {
+	if ref.IsClosed() {
+		return nil, nil, FileClosed
 	}
+	// no matter the outcome, we start with a `newfid`
+	curRef, err := ref.Fork()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if shouldClone(names) {
+		qid, err := ref.QID() // validate the node is "walkable"
+		if err != nil {
+			return nil, nil, err
+		}
+		return []p9.QID{qid}, curRef, nil
+	}
+
+	qids := make([]p9.QID, 0, len(names))
+
+	for _, name := range names {
+		switch name {
+		default:
+			// get ready to step forward; maybe across FS bounds
+			curRef, err = curRef.Step(name)
+
+		case ".":
+			// don't prepare to move at all
+
+		case "..":
+			// get ready to step backwards; maybe across FS bounds
+			curRef, err = curRef.Backtrack()
+		}
+
+		if err != nil {
+			return qids, nil, err
+		}
+
+		// commit to the step
+		qid, err := curRef.QID()
+		if err != nil {
+			return qids, nil, err
+		}
+
+		// set on success, we stepped forward
+		qids = append(qids, qid)
+	}
+
+	return qids, curRef, nil
 }
 
-func (ob *OverlayBase) CallCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ob.FilesystemCtx, 30*time.Second)
-}
-
-func (ob *OverlayBase) IsOpen() bool {
-	return atomic.LoadUintptr(ob.Opened) > 0
-}
-
-func (ob *OverlayBase) IsClosed() bool {
-	return ob.Closed
+/* walk(5):
+It is legal for `nwname` to be zero, in which case `newfid` will represent the same `file` as `fid`
+and the `walk` will usually succeed; this is equivalent to walking to dot.
+*/
+func shouldClone(names []string) bool {
+	switch len(names) {
+	case 0: // truly empty path
+		return true
+	case 1: // self or empty but not nil
+		pc := names[0]
+		return pc == "." || pc == ""
+	default:
+		return false
+	}
 }

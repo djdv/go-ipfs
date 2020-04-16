@@ -1,11 +1,9 @@
-package meta
+package common
 
 import (
 	logging "github.com/ipfs/go-log"
 	"github.com/ipfs/go-mfs"
 )
-
-// TODO: we should separate options out of the meta package
 
 type AttachOptions struct {
 	Parent  WalkRef             // node directly behind self

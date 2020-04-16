@@ -7,7 +7,7 @@ import (
 	"github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreapi"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/meta"
+	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	logging "github.com/ipfs/go-log"
 )
 
@@ -25,9 +25,9 @@ func ExampleFile() {
 	// and just pass it to the `Attacher`, calling its `Attach` method
 	// (with or without options)
 
-	opts := []meta.AttachOption{
-		meta.Logger(logging.Logger("🧊")),
-		meta.MFSRoot(node.FilesRoot),
+	opts := []common.AttachOption{
+		common.Logger(logging.Logger("🧊")),
+		common.MFSRoot(node.FilesRoot),
 	}
 
 	//root, _ := Attacher(ctx, core).Attach()

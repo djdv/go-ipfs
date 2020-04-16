@@ -1,4 +1,4 @@
-package meta
+package common
 
 import (
 	gopath "path"

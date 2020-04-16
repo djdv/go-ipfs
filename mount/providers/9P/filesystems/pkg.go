@@ -1,4 +1,4 @@
-package meta
+package common
 
 import "github.com/hugelgupf/p9/p9"
 

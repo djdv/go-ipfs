@@ -7,37 +7,35 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/hugelgupf/p9/p9"
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
-	fserrors "github.com/ipfs/go-ipfs/mount/providers/9P/errors"
+	"github.com/hugelgupf/p9/p9"
+	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/ipfs"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/meta"
-	fsutils "github.com/ipfs/go-ipfs/mount/providers/9P/utils"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 )
 
 var _ p9.File = (*File)(nil)
-var _ meta.WalkRef = (*File)(nil)
+var _ common.WalkRef = (*File)(nil)
 
 type File struct {
 	templatefs.NoopFile
 	p9.DefaultWalkGetAttr
 
-	meta.CoreBase
-	meta.OverlayBase
+	common.CoreBase
+	common.OverlayBase
 
 	ents          p9.Dirents
-	parent, proxy meta.WalkRef
+	parent, proxy common.WalkRef
 	open          bool
 }
 
-func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOption) p9.Attacher {
-	options := meta.AttachOps(ops...)
+func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachOption) p9.Attacher {
+	options := common.AttachOps(ops...)
 	pd := &File{
-		CoreBase: meta.NewCoreBase("/pinfs", core, ops...),
-		OverlayBase: meta.OverlayBase{
+		CoreBase: common.NewCoreBase("/pinfs", core, ops...),
+		OverlayBase: common.OverlayBase{
 			ParentCtx: ctx,
 			Opened:    new(uintptr),
 		},
@@ -45,9 +43,9 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 	}
 
 	// set up our subsystem, used to relay walk names to IPFS
-	subOpts := []meta.AttachOption{
-		meta.Parent(pd),
-		meta.Logger(logging.Logger("IPFS")),
+	subOpts := []common.AttachOption{
+		common.Parent(pd),
+		common.Logger(logging.Logger("IPFS")),
 	}
 
 	subsystem, err := ipfs.Attacher(ctx, core, subOpts...).Attach()
@@ -55,7 +53,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 		panic(err)
 	}
 
-	pd.proxy = subsystem.(meta.WalkRef)
+	pd.proxy = subsystem.(common.WalkRef)
 
 	// detach from our proxied system when we fall out of memory
 	runtime.SetFinalizer(pd, func(pinRoot *File) {
@@ -81,7 +79,7 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	pd.Logger.Debugf("Open: %s", pd.String())
 
 	if pd.IsOpen() {
-		return p9.QID{}, 0, fserrors.FileOpen
+		return p9.QID{}, 0, common.FileOpen
 	}
 
 	qid, err := pd.QID()
@@ -101,7 +99,7 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	// actual conversion
 	for i, pin := range pins {
 		callCtx, cancel := pd.CallCtx()
-		subQid, err := meta.CoreToQID(callCtx, pin.Path(), pd.Core)
+		subQid, err := common.CoreToQID(callCtx, pin.Path(), pd.Core)
 		if err != nil {
 			cancel()
 			return p9.QID{}, 0, err
@@ -118,7 +116,7 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	atomic.StoreUintptr(pd.Opened, 1)
 	pd.open = true
 
-	return qid, meta.UFS1BlockSize, nil
+	return qid, common.UFS1BlockSize, nil
 }
 
 func (pd *File) Close() error {
@@ -144,18 +142,18 @@ func (pd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	pd.Logger.Debugf("Readdir")
 
 	if pd.ents == nil {
-		return nil, fserrors.FileNotOpen
+		return nil, common.FileNotOpen
 	}
 
-	return meta.FlatReaddir(pd.ents, offset, count)
+	return common.FlatReaddir(pd.ents, offset, count)
 }
 
 /* WalkRef relevant */
 
-func (pd *File) Fork() (meta.WalkRef, error) {
+func (pd *File) Fork() (common.WalkRef, error) {
 	// make sure we were actually initalized
 	if pd.FilesystemCtx == nil {
-		return nil, fserrors.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid
@@ -175,7 +173,7 @@ func (pd *File) Fork() (meta.WalkRef, error) {
 
 // PinFS forks the IPFS root that was set during construction
 // and calls step on it rather than itself
-func (pd *File) Step(name string) (meta.WalkRef, error) {
+func (pd *File) Step(name string) (common.WalkRef, error) {
 	newFid, err := pd.proxy.Fork()
 	if err != nil {
 		return nil, err
@@ -185,18 +183,18 @@ func (pd *File) Step(name string) (meta.WalkRef, error) {
 
 func (pd *File) CheckWalk() error {
 	if pd.ents != nil {
-		return fserrors.FileOpen
+		return common.FileOpen
 	}
 	return nil
 }
 
 func (pd *File) QID() (p9.QID, error) {
 	return p9.QID{Type: p9.TypeDir,
-		Path: meta.CidToQIDPath(meta.RootPath(pd.CoreNamespace).Cid()),
+		Path: common.CidToQIDPath(common.RootPath(pd.CoreNamespace).Cid()),
 	}, nil
 }
 
-func (pd *File) Backtrack() (meta.WalkRef, error) {
+func (pd *File) Backtrack() (common.WalkRef, error) {
 	if pd.parent != nil {
 		return pd.parent, nil
 	}
@@ -207,19 +205,19 @@ func (pd *File) Backtrack() (meta.WalkRef, error) {
 
 func (pd *File) Walk(names []string) ([]p9.QID, p9.File, error) {
 	pd.Logger.Debugf("Walk %q: %v", pd.String(), names)
-	return fsutils.Walker(pd, names)
+	return common.Walker(pd, names)
 }
 
 func (pd *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 	return p9.QID{
 			Type: p9.TypeDir,
-			Path: meta.CidToQIDPath(meta.RootPath(pd.CoreNamespace).Cid()),
+			Path: common.CidToQIDPath(common.RootPath(pd.CoreNamespace).Cid()),
 		},
 		p9.AttrMask{
 			Mode: true,
 		},
 		p9.Attr{
-			Mode: p9.ModeDirectory | meta.IRXA,
+			Mode: p9.ModeDirectory | common.IRXA,
 		},
 		nil
 }
@@ -227,7 +225,7 @@ func (pd *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 func (pd *File) clone() (*File, error) {
 	// make sure we were actually initalized
 	if pd.ParentCtx == nil {
-		return nil, fserrors.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid

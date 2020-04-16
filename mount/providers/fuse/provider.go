@@ -8,11 +8,11 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
+	prov "github.com/ipfs/go-ipfs/mount/providers"
+	fusecommon "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
-	fusemeta "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/meta"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
-	provops "github.com/ipfs/go-ipfs/mount/providers/options"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -41,8 +41,8 @@ type fuseProvider struct {
 	// TODO: resource lock goes here
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, ops ...provops.Option) (*fuseProvider, error) {
-	opts := provops.ParseOptions(ops...)
+func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, ops ...prov.Option) (*fuseProvider, error) {
+	opts := prov.ParseOptions(ops...)
 
 	fsCtx, cancel := context.WithCancel(ctx)
 	return &fuseProvider{
@@ -125,7 +125,7 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 		return nil, nil, fmt.Errorf("unknown namespace: %v", namespace)
 	case mountinter.NamespaceIPFS:
 		fsh = fuselib.NewFileSystemHost(&ipfs.Filesystem{
-			FUSEBase: fusemeta.FUSEBase{
+			FUSEBase: fusecommon.FUSEBase{
 				Core:       core,
 				FilesRoot:  mroot,
 				InitSignal: initSignal,
@@ -134,7 +134,7 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 		})
 	case mountinter.NamespaceIPNS:
 		fsh = fuselib.NewFileSystemHost(&ipns.Filesystem{
-			FUSEBase: fusemeta.FUSEBase{
+			FUSEBase: fusecommon.FUSEBase{
 				Core:       core,
 				FilesRoot:  mroot,
 				InitSignal: initSignal,
@@ -143,7 +143,7 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 		})
 	case mountinter.NamespaceFiles:
 		fsh = fuselib.NewFileSystemHost(&mfs.Filesystem{
-			FUSEBase: fusemeta.FUSEBase{
+			FUSEBase: fusecommon.FUSEBase{
 				Core:       core,
 				FilesRoot:  mroot,
 				InitSignal: initSignal,

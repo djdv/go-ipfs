@@ -1,4 +1,4 @@
-package fsnodes
+package common
 
 /*
 func ExampleIPFS() {

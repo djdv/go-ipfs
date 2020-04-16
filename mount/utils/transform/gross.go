@@ -1,18 +1,13 @@
 package transform
 
 import (
-	"context"
-	"fmt"
-
-	"github.com/hugelgupf/p9/p9"
-	ipld "github.com/ipfs/go-ipld-format"
-	"github.com/ipfs/go-unixfs"
-	coreiface "github.com/ipfs/interface-go-ipfs-core"
-	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
+	"github.com/hugelgupf/p9/p9"
+	unixpb "github.com/ipfs/go-unixfs/pb"
+	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
-func unixfsTypeToCoreType(ut unixpb.Data_DataType) coreiface.FileType{
+func unixfsTypeToCoreType(ut unixpb.Data_DataType) coreiface.FileType {
 	switch ut {
 	// TODO: directories and hamt shards are not synonymous; HAMTs may need special handling
 	case unixpb.Data_Directory, unixpb.Data_HAMTShard:
@@ -42,7 +37,7 @@ func coreTypeTo9PType(ct coreiface.FileType) p9.FileMode {
 
 type fuseFileType = uint32
 
-func coreTypeToFuseType(ct coreiface.FileType) fuseFileType
+func coreTypeToFuseType(ct coreiface.FileType) fuseFileType {
 	switch ct {
 	case coreiface.TDirectory:
 		return fuselib.S_IFDIR

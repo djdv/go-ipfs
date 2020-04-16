@@ -1,18 +1,25 @@
-package provops
+package conductor
 
 import "github.com/ipfs/go-mfs"
+
+// TODO: we should split mfs out of this; let core have its own embedded version
 
 type (
 	Option  func(*Options)
 	Options struct {
-		ProviderParameter string // a provider specific string used during initialization; this should be documented by the provider implementation if required
-		//Foreground        bool   // should the provider block in the foreground until it exits or run in a background routine
+		Foreground bool // should the provider block in the foreground until it exits or run in a background routine
 
 		FilesRoot *mfs.Root // required when mounting the Files namespace, otherwise nil-able
 	}
 )
 
-func ProviderFilesRoot(root *mfs.Root) Option {
+func MountForeground(cond bool) Option {
+	return func(ops *Options) {
+		ops.Foreground = cond
+	}
+}
+
+func MountFilesRoot(root *mfs.Root) Option {
 	return func(ops *Options) {
 		ops.FilesRoot = root
 	}

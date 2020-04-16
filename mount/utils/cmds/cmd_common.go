@@ -9,7 +9,7 @@ import (
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	config "github.com/ipfs/go-ipfs-config"
 	"github.com/ipfs/go-ipfs/core"
-	conops "github.com/ipfs/go-ipfs/mount/conductors/options"
+	con "github.com/ipfs/go-ipfs/mount/conductors"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 )
 
@@ -126,13 +126,13 @@ func MountNode(res cmds.ResponseEmitter, daemon *core.IpfsNode, provider mountin
 		return errors.New("no targets provided")
 	}
 
-	conOps := []conops.Option{conops.MountFilesRoot(daemon.FilesRoot)}
+	conOps := []con.Option{con.MountFilesRoot(daemon.FilesRoot)}
 
 	if !daemon.IsDaemon { // print message and block
 		return errors.New("mounting in foreground not supported yet")
 
 		// WIP:
-		conOps = append(conOps, conops.MountForeground(true))
+		conOps = append(conOps, con.MountForeground(true))
 		res.Emit(fmt.Sprintf("mounting %s in the foreground...", targets.String()))
 		return daemon.Mount.Graft(provider, targets, conOps...)
 	}

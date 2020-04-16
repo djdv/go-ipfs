@@ -10,9 +10,7 @@ import (
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
-	fserrors "github.com/ipfs/go-ipfs/mount/providers/9P/errors"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/meta"
-	fsutils "github.com/ipfs/go-ipfs/mount/providers/9P/utils"
+	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-mfs"
@@ -21,34 +19,34 @@ import (
 )
 
 var _ p9.File = (*File)(nil)
-var _ meta.WalkRef = (*File)(nil)
+var _ common.WalkRef = (*File)(nil)
 
 type File struct {
 	templatefs.NoopFile
 	p9.DefaultWalkGetAttr
 
-	meta.CoreBase
-	meta.OverlayBase
+	common.CoreBase
+	common.OverlayBase
 
 	openFlags p9.OpenFlags //TODO: move this to IPFSBase; use as open marker
 	file      *mfs.File
 	directory *mfs.Directory
 
 	mroot  *mfs.Root
-	parent meta.WalkRef
+	parent common.WalkRef
 	open   bool
 }
 
-func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOption) p9.Attacher {
-	options := meta.AttachOps(ops...)
+func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachOption) p9.Attacher {
+	options := common.AttachOps(ops...)
 
 	if options.MFSRoot == nil {
 		panic("MFS root is required but was not defined in provided options")
 	}
 
 	md := &File{
-		CoreBase: meta.NewCoreBase("/ipld", core, ops...),
-		OverlayBase: meta.OverlayBase{
+		CoreBase: common.NewCoreBase("/ipld", core, ops...),
+		OverlayBase: common.OverlayBase{
 			ParentCtx: ctx,
 			Opened:    new(uintptr),
 		},
@@ -59,7 +57,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 	return md
 }
 
-func (md *File) Fork() (meta.WalkRef, error) {
+func (md *File) Fork() (common.WalkRef, error) {
 	newFid, err := md.clone()
 	if err != nil {
 		md.Logger.Error(err)
@@ -68,8 +66,8 @@ func (md *File) Fork() (meta.WalkRef, error) {
 
 	// make sure we were actually initalized
 	if md.FilesystemCtx == nil {
-		md.Logger.Error(fserrors.FSCtxNotInitalized)
-		return nil, fserrors.FSCtxNotInitalized
+		md.Logger.Error(common.FSCtxNotInitalized)
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid
@@ -113,11 +111,11 @@ func (md *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 	}
 
 	if req.RDev {
-		attr.RDev, filled.RDev = meta.DevMemory, true
+		attr.RDev, filled.RDev = common.DevMemory, true
 	}
 
 	if req.Mode {
-		attr.Mode |= meta.IRXA | 0220
+		attr.Mode |= common.IRXA | 0220
 	}
 
 	return qid, filled, attr, nil
@@ -125,7 +123,7 @@ func (md *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 
 func (md *File) Walk(names []string) ([]p9.QID, p9.File, error) {
 	md.Logger.Debugf("Walk %q: %v", md.String(), names)
-	return fsutils.Walker(md, names)
+	return common.Walker(md, names)
 }
 
 func (md *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
@@ -133,8 +131,8 @@ func (md *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	md.Logger.Debugf("%p", md)
 
 	if md.IsOpen() {
-		md.Logger.Error(fserrors.FileOpen)
-		return p9.QID{}, 0, fserrors.FileOpen
+		md.Logger.Error(common.FileOpen)
+		return p9.QID{}, 0, common.FileOpen
 	}
 
 	qid, err := md.QID()
@@ -172,7 +170,7 @@ func (md *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	atomic.StoreUintptr(md.Opened, 1)
 	md.openFlags = mode // TODO: convert to MFS native flags
 	md.open = true
-	return qid, meta.UFS1BlockSize, nil
+	return qid, common.UFS1BlockSize, nil
 }
 
 func (md *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
@@ -201,7 +199,7 @@ func (md *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 			return nil
 		}
 
-		ent, err := meta.MFSEntTo9Ent(nl)
+		ent, err := common.MFSEntTo9Ent(nl)
 		if err != nil {
 			md.Logger.Error(err)
 			return err
@@ -289,7 +287,7 @@ func (md *File) SetAttr(valid p9.SetAttrMask, attr p9.SetAttr) error {
 	}
 
 	// TODO: requires a form of metadata storage (like UFSv2)
-	// md.meta.Apply(valid, attr)
+	// md.common.Apply(valid, attr)
 	return nil
 }
 
@@ -358,7 +356,7 @@ func (md *File) StringPath() string {
 	return gopath.Join(append([]string{md.CoreNamespace, rootNode.Cid().String()}, md.Trail...)...)
 }
 
-func (md *File) Step(name string) (meta.WalkRef, error) {
+func (md *File) Step(name string) (common.WalkRef, error) {
 
 	// FIXME: [in general] Step should return ref, qid, error
 	// obviate CheckWalk + QID and make this implicit via Step
@@ -369,8 +367,8 @@ func (md *File) Step(name string) (meta.WalkRef, error) {
 	}
 
 	if qid.Type != p9.TypeDir {
-		md.Logger.Error(fserrors.ENOTDIR)
-		return nil, fserrors.ENOTDIR
+		md.Logger.Error(common.ENOTDIR)
+		return nil, common.ENOTDIR
 	}
 
 	tLen := len(md.Trail)
@@ -403,7 +401,7 @@ func (md *MFS) ResolvedPath(names ...string) (corepath.Path, error) {
 }
 */
 
-func (md *File) Backtrack() (meta.WalkRef, error) {
+func (md *File) Backtrack() (common.WalkRef, error) {
 	if md.parent != nil {
 		return md.parent, nil
 	}
@@ -417,7 +415,7 @@ func (md *File) QID() (p9.QID, error) {
 		return p9.QID{}, err
 	}
 
-	t, err := meta.MFSTypeToNineType(mNode.Type())
+	t, err := common.MFSTypeToNineType(mNode.Type())
 	if err != nil {
 		md.Logger.Error(err)
 		return p9.QID{}, err
@@ -431,7 +429,7 @@ func (md *File) QID() (p9.QID, error) {
 
 	return p9.QID{
 		Type: t,
-		Path: meta.CidToQIDPath(ipldNode.Cid()),
+		Path: common.CidToQIDPath(ipldNode.Cid()),
 	}, nil
 }
 
@@ -486,7 +484,7 @@ func (md *File) getAttr(req p9.AttrMask) (p9.Attr, p9.AttrMask, error) {
 	callCtx, cancel := md.CallCtx()
 	defer cancel()
 
-	filled, err := meta.IpldStat(callCtx, &attr, ipldNode, req)
+	filled, err := common.IpldStat(callCtx, &attr, ipldNode, req)
 	if err != nil {
 		md.Logger.Error(err)
 	}
@@ -611,7 +609,7 @@ func (md *File) UnlinkAt(name string, flags uint32) error {
 func (md *File) clone() (*File, error) {
 	// make sure we were actually initalized
 	if md.ParentCtx == nil {
-		return nil, fserrors.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid

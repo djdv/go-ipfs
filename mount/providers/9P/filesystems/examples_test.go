@@ -1,4 +1,4 @@
-package meta
+package common
 
 import corepath "github.com/ipfs/interface-go-ipfs-core/path"
 

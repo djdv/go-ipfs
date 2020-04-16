@@ -1,7 +1,7 @@
 package mountinter
 
 import (
-	conops "github.com/ipfs/go-ipfs/mount/conductors/options"
+	con "github.com/ipfs/go-ipfs/mount/conductors"
 )
 
 /*
@@ -10,7 +10,7 @@ delegating requests to them while also managing grafted instances
 */
 type Conductor interface {
 	// Graft uses the selected provider to map pairs of namespaces and their targets
-	Graft(ProviderType, []TargetCollection, ...conops.Option) error
+	Graft(ProviderType, []TargetCollection, ...con.Option) error
 	// Detach removes a previously grafted target
 	Detach(target string) error
 	// Where provides the mapping of providers and their targets

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"sync"
 
-	conops "github.com/ipfs/go-ipfs/mount/conductors/options"
+	cond "github.com/ipfs/go-ipfs/mount/conductors"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
+	provider "github.com/ipfs/go-ipfs/mount/providers"
 	mount9p "github.com/ipfs/go-ipfs/mount/providers/9P"
 	mountfuse "github.com/ipfs/go-ipfs/mount/providers/fuse"
-	provops "github.com/ipfs/go-ipfs/mount/providers/options"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -38,10 +38,10 @@ type conductor struct {
 	providers namespaceProviders
 }
 
-func (con *conductor) Graft(provider mountinter.ProviderType, targets []mountinter.TargetCollection, ops ...conops.Option) error {
+func (con *conductor) Graft(provider mountinter.ProviderType, targets []mountinter.TargetCollection, ops ...cond.Option) error {
 	con.Lock()
 	defer con.Unlock()
-	opts := conops.ParseOptions(ops...)
+	opts := cond.ParseOptions(ops...)
 	if opts.Foreground {
 		return errors.New("Foreground mounting not implemented yet")
 	}
@@ -146,9 +146,9 @@ func (con *conductor) Where() map[mountinter.ProviderType][]string {
 	return m
 }
 
-func (con *conductor) newProvider(prov mountinter.ProviderType, provParam string, namespace mountinter.Namespace, ops ...conops.Option) (mountinter.Provider, error) {
-	opts := conops.ParseOptions(ops...)
-	provOps := []provops.Option{provops.ProviderFilesRoot(opts.FilesRoot)}
+func (con *conductor) newProvider(prov mountinter.ProviderType, provParam string, namespace mountinter.Namespace, ops ...cond.Option) (mountinter.Provider, error) {
+	opts := cond.ParseOptions(ops...)
+	provOps := []provider.Option{provider.ProviderFilesRoot(opts.FilesRoot)}
 
 	switch prov {
 	case mountinter.ProviderPlan9Protocol:
@@ -161,7 +161,7 @@ func (con *conductor) newProvider(prov mountinter.ProviderType, provParam string
 	return nil, fmt.Errorf("unknown provider %q", prov)
 }
 
-func (con *conductor) getNamespaceProvider(prov mountinter.ProviderType, providerParameter string, namespace mountinter.Namespace, ops ...conops.Option) (mountinter.Provider, error) {
+func (con *conductor) getNamespaceProvider(prov mountinter.ProviderType, providerParameter string, namespace mountinter.Namespace, ops ...cond.Option) (mountinter.Provider, error) {
 	var namespaces namespaceMap
 	switch prov {
 	case mountinter.ProviderPlan9Protocol:

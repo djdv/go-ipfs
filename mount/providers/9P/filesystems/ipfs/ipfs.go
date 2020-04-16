@@ -8,15 +8,13 @@ import (
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
-	files "github.com/ipfs/go-ipfs-files"
-	fserrors "github.com/ipfs/go-ipfs/mount/providers/9P/errors"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/meta"
-	fsutils "github.com/ipfs/go-ipfs/mount/providers/9P/utils"
+	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
 var _ p9.File = (*File)(nil)
-var _ meta.WalkRef = (*File)(nil)
+var _ common.WalkRef = (*File)(nil)
 
 // The IPFS File exposes the IPFS API over a p9.File interface
 // Walk does not expect a namespace, only path arguments
@@ -25,16 +23,16 @@ type File struct {
 	templatefs.NoopFile
 	p9.DefaultWalkGetAttr
 
-	meta.CoreBase
-	meta.OverlayBase
+	common.CoreBase
+	common.OverlayBase
 
 	// operation handle storage
-	file      files.File
+	file      transform.File
 	directory *directoryStream
 
 	// optional WalkRef extension node
 	// (".." on root gets sent here if set)
-	Parent meta.WalkRef
+	Parent common.WalkRef
 }
 
 type directoryStream struct {
@@ -43,11 +41,11 @@ type directoryStream struct {
 	err       error
 }
 
-func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOption) p9.Attacher {
-	options := meta.AttachOps(ops...)
+func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachOption) p9.Attacher {
+	options := common.AttachOps(ops...)
 	return &File{
-		CoreBase:    meta.NewCoreBase("/ipfs", core, ops...),
-		OverlayBase: meta.OverlayBase{ParentCtx: ctx},
+		CoreBase:    common.NewCoreBase("/ipfs", core, ops...),
+		OverlayBase: common.OverlayBase{ParentCtx: ctx},
 		Parent:      options.Parent,
 	}
 }
@@ -69,13 +67,13 @@ func (id *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 	if len(id.Trail) == 0 { // root entry
 		return p9.QID{
 				Type: p9.TypeDir,
-				Path: meta.CidToQIDPath(meta.RootPath(id.CoreNamespace).Cid()),
+				Path: common.CidToQIDPath(common.RootPath(id.CoreNamespace).Cid()),
 			},
 			p9.AttrMask{
 				Mode: true,
 			},
 			p9.Attr{
-				Mode: p9.ModeDirectory | meta.IRXA,
+				Mode: p9.ModeDirectory | common.IRXA,
 			},
 			nil
 	}
@@ -84,13 +82,13 @@ func (id *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 	callCtx, cancel := id.CallCtx()
 	defer cancel()
 
-	qid, err := meta.CoreToQID(callCtx, id.CorePath(), id.Core)
+	qid, err := common.CoreToQID(callCtx, id.CorePath(), id.Core)
 	if err != nil {
 		return p9.QID{}, p9.AttrMask{}, p9.Attr{}, err
 	}
 
 	var attr p9.Attr
-	filled, err := meta.CoreToAttr(callCtx, &attr, id.CorePath(), id.Core, req)
+	filled, err := common.CoreToAttr(callCtx, &attr, id.CorePath(), id.Core, req)
 	if err != nil {
 		id.Logger.Error(err)
 		return qid, filled, attr, err
@@ -98,11 +96,11 @@ func (id *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 
 	// add metadata not contained in IPFS-UFS v1 objects
 	if req.RDev { // device
-		attr.RDev, filled.RDev = meta.DevIPFS, true
+		attr.RDev, filled.RDev = common.DevIPFS, true
 	}
 
 	if req.Mode { // UFS provides type bits, we provide permission bits
-		attr.Mode |= meta.IRXA
+		attr.Mode |= common.IRXA
 	}
 
 	return qid, filled, attr, err
@@ -132,19 +130,16 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return qid, 0, nil
 	}
 
-	// handle files
-	apiNode, err := id.Core.Unixfs().Get(id.OperationsCtx, id.CorePath())
+	callCtx, cancel := id.CallCtx()
+	defer cancel()
+
+	file, err := transform.CoreOpenFile(callCtx, id.CorePath(), id.Core, transform.IOFlagsFrom9P(mode))
 	if err != nil {
 		return qid, 0, err
 	}
+	id.file = file
 
-	fileNode, ok := apiNode.(files.File)
-	if !ok {
-		return qid, 0, fmt.Errorf("%q does not appear to be a file: %T", id.String(), apiNode)
-	}
-	id.file = fileNode
-
-	return qid, meta.UFS1BlockSize, nil
+	return qid, common.UFS1BlockSize, nil
 }
 
 // Close invalidates all references of the node
@@ -214,7 +209,7 @@ func (id *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 			if offset > id.directory.cursor {
 				continue
 			}
-			nineEnt, err := meta.CoreEntTo9Ent(entry)
+			nineEnt, err := common.CoreEntTo9Ent(entry)
 			if err != nil {
 				id.directory.err = err
 				return nil, err
@@ -237,8 +232,8 @@ func (id *File) ReadAt(p []byte, offset int64) (int, error) {
 	const readAtFmtErr = "ReadAt {%d}%q: %s"
 
 	if id.file == nil {
-		id.Logger.Errorf(readAtFmtErr, offset, id.String(), fserrors.FileNotOpen)
-		return 0, fserrors.FileNotOpen
+		id.Logger.Errorf(readAtFmtErr, offset, id.String(), common.FileNotOpen)
+		return 0, common.FileNotOpen
 	}
 
 	size, err := id.file.Size()
@@ -269,23 +264,23 @@ func (id *File) ReadAt(p []byte, offset int64) (int, error) {
 
 func (id *File) Walk(names []string) ([]p9.QID, p9.File, error) {
 	id.Logger.Debugf("Walk %q: %v", id.String(), names)
-	return fsutils.Walker(id, names)
+	return common.Walker(id, names)
 }
 
 /* WalkRef relevant */
 
 func (id *File) CheckWalk() error {
 	if id.file != nil || id.directory != nil {
-		return fserrors.FileOpen
+		return common.FileOpen
 	}
 
 	return nil
 }
 
-func (id *File) Fork() (meta.WalkRef, error) {
+func (id *File) Fork() (common.WalkRef, error) {
 	// make sure we were actually initalized
 	if id.FilesystemCtx == nil {
-		return nil, fserrors.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid
@@ -304,14 +299,14 @@ func (id *File) Fork() (meta.WalkRef, error) {
 }
 
 // Step appends "name" to the File's current path, and returns itself
-func (id *File) Step(name string) (meta.WalkRef, error) {
+func (id *File) Step(name string) (common.WalkRef, error) {
 	qid, err := id.QID()
 	if err != nil {
 		return nil, err
 	}
 
 	if qid.Type != p9.TypeDir {
-		return nil, fserrors.ENOTDIR
+		return nil, common.ENOTDIR
 	}
 
 	tLen := len(id.Trail)
@@ -323,17 +318,17 @@ func (id *File) QID() (p9.QID, error) {
 	if len(id.Trail) == 0 {
 		return p9.QID{
 			Type: p9.TypeDir,
-			Path: meta.CidToQIDPath(meta.RootPath(id.CoreNamespace).Cid()),
+			Path: common.CidToQIDPath(common.RootPath(id.CoreNamespace).Cid()),
 		}, nil
 	}
 
 	callCtx, cancel := id.CallCtx()
 	defer cancel()
 
-	return meta.CoreToQID(callCtx, id.CorePath(), id.Core)
+	return common.CoreToQID(callCtx, id.CorePath(), id.Core)
 }
 
-func (id *File) Backtrack() (meta.WalkRef, error) {
+func (id *File) Backtrack() (common.WalkRef, error) {
 	// if we're a root return our parent, or ourselves if we don't have one
 	if len(id.Trail) == 0 {
 		if id.Parent != nil {
@@ -350,7 +345,7 @@ func (id *File) Backtrack() (meta.WalkRef, error) {
 func (id *File) clone() (*File, error) {
 	// make sure we were actually initalized
 	if id.ParentCtx == nil {
-		return nil, fserrors.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid
@@ -361,7 +356,7 @@ func (id *File) clone() (*File, error) {
 	// all good; derive a new reference from this instance and return it
 	return &File{
 		CoreBase: id.CoreBase,
-		OverlayBase: meta.OverlayBase{
+		OverlayBase: common.OverlayBase{
 			ParentCtx:     id.ParentCtx,
 			FilesystemCtx: id.FilesystemCtx,
 		},

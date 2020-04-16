@@ -11,4 +11,4 @@ To change the multiaddr listen address, you may set the option in the node's con
 via `ipfs config "Plugins.Plugins.filesystem.Config.Service.9p" "/ip4/127.0.0.1/tcp/564"`
 To disable this plugin entirely, use: `ipfs config --bool "Plugins.Plugins.filesystem.Disabled" "true"``
 */
-package mount9p
+package common

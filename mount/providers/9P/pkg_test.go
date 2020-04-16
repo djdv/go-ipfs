@@ -13,7 +13,7 @@ import (
 
 	"github.com/hugelgupf/p9/p9"
 	files "github.com/ipfs/go-ipfs-files"
-	nodeopts "github.com/ipfs/go-ipfs/mount/providers/9P/meta"
+	nodeopts "github.com/ipfs/go-ipfs/mount/providers/9P/common"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"

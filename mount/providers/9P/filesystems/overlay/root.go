@@ -9,18 +9,16 @@ import (
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
-	fserrors "github.com/ipfs/go-ipfs/mount/providers/9P/errors"
+	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/keyfs"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/pinfs"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/meta"
-	fsutils "github.com/ipfs/go-ipfs/mount/providers/9P/utils"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
 var _ p9.File = (*File)(nil)
-var _ meta.WalkRef = (*File)(nil)
+var _ common.WalkRef = (*File)(nil)
 
 /* The overlay File is a file system of itself which wraps other `p9.File` implementations.
 
@@ -40,38 +38,38 @@ type File struct {
 	templatefs.NoopFile
 	p9.DefaultWalkGetAttr
 
-	meta.Base
-	meta.OverlayBase
+	common.Base
+	common.OverlayBase
 
 	path       uint64
-	parent     meta.WalkRef
+	parent     common.WalkRef
 	subsystems map[string]systemTuple
 	open       bool
 }
 
 // pair a filesystem implementation with directory entry metadata about it
 type systemTuple struct {
-	file   meta.WalkRef
+	file   common.WalkRef
 	dirent p9.Dirent
 }
 
 // Attacher constructs the default RootIndex file system, and all of its dependants, providing a means to Attach() to it
-func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOption) p9.Attacher {
-	options := meta.AttachOps(ops...)
+func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachOption) p9.Attacher {
+	options := common.AttachOps(ops...)
 	// construct root node actual
 	ri := &File{
-		Base: meta.NewBase(ops...),
-		OverlayBase: meta.OverlayBase{
+		Base: common.NewBase(ops...),
+		OverlayBase: common.OverlayBase{
 			ParentCtx: ctx,
 			Opened:    new(uintptr),
 		},
 		parent: options.Parent,
-		path:   meta.CidToQIDPath(meta.RootPath("/").Cid()),
+		path:   common.CidToQIDPath(common.RootPath("/").Cid()),
 	}
 
 	// attach to subsystems
 	// used for proxying walk requests to other file systems
-	type subattacher func(context.Context, coreiface.CoreAPI, ...meta.AttachOption) p9.Attacher
+	type subattacher func(context.Context, coreiface.CoreAPI, ...common.AttachOption) p9.Attacher
 	type attachTuple struct {
 		string
 		subattacher
@@ -88,7 +86,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 	// assign inherent options,
 	// and instantiate a template root entry
 	ri.subsystems = make(map[string]systemTuple, len(subsystems))
-	subOpts := []meta.AttachOption{meta.Parent(ri)}
+	subOpts := []common.AttachOption{common.Parent(ri)}
 	rootDirent := p9.Dirent{
 		Type: p9.TypeDir,
 		QID:  p9.QID{Type: p9.TypeDir},
@@ -97,7 +95,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 	// couple the strings to their implementations
 	// "aname"=>{filesystem,entry}
 	for _, subsystem := range subsystems {
-		logOpt := meta.Logger(subsystem.EventLogger)
+		logOpt := common.Logger(subsystem.EventLogger)
 		// the file system implementation
 		fs, err := subsystem.subattacher(ctx, core, append(subOpts, logOpt)...).Attach()
 		if err != nil {
@@ -108,11 +106,11 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 		rootDirent.Offset++
 		rootDirent.Name = subsystem.string
 
-		rootDirent.QID.Path = meta.CidToQIDPath(meta.RootPath("/" + subsystem.string).Cid())
+		rootDirent.QID.Path = common.CidToQIDPath(common.RootPath("/" + subsystem.string).Cid())
 
 		// add the fs+entry to the list of subsystems
 		ri.subsystems[subsystem.string] = systemTuple{
-			file:   fs.(meta.WalkRef),
+			file:   fs.(common.WalkRef),
 			dirent: rootDirent,
 		}
 	}
@@ -120,8 +118,8 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 	// attach to files API if provided
 	if options.MFSRoot != nil {
 		fOpts := append(subOpts,
-			meta.Logger(logging.Logger("files")),
-			meta.MFSRoot(options.MFSRoot),
+			common.Logger(logging.Logger("files")),
+			common.MFSRoot(options.MFSRoot),
 		)
 
 		fs, err := mfs.Attacher(ctx, core, fOpts...).Attach()
@@ -132,12 +130,12 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...meta.AttachOpt
 		// add the directory entry for it
 		rootDirent.Offset++
 		rootDirent.Name = "file"
-		rootDirent.QID.Path = meta.CidToQIDPath(meta.RootPath("/" + "files").Cid())
+		rootDirent.QID.Path = common.CidToQIDPath(common.RootPath("/" + "files").Cid())
 
 		// bind the fs+entry inside of the subsystem collection
 		// (add it for real)
 		ri.subsystems["files"] = systemTuple{
-			file:   fs.(meta.WalkRef),
+			file:   fs.(common.WalkRef),
 			dirent: rootDirent,
 		}
 	} else {
@@ -169,7 +167,7 @@ func (ri *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	ri.Logger.Debug("Open")
 
 	if ri.IsOpen() {
-		return p9.QID{}, 0, fserrors.FileOpen
+		return p9.QID{}, 0, common.FileOpen
 	}
 
 	qid, err := ri.QID()
@@ -231,10 +229,10 @@ func (ri *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 
 /* WalkRef relevant */
 
-func (ri *File) Fork() (meta.WalkRef, error) {
+func (ri *File) Fork() (common.WalkRef, error) {
 	// make sure we were actually initalized
 	if ri.subsystems == nil {
-		return nil, fserrors.FSCtxNotInitalized //TODO: not exactly the right error
+		return nil, common.FSCtxNotInitalized //TODO: not exactly the right error
 	}
 
 	// overlay doesn't have any state to fork (yet)
@@ -244,12 +242,12 @@ func (ri *File) Fork() (meta.WalkRef, error) {
 
 // The RootIndex checks if it has attached to "name"
 // derives a node from it, and returns it
-func (ri *File) Step(name string) (meta.WalkRef, error) {
+func (ri *File) Step(name string) (common.WalkRef, error) {
 	// consume fs/access name
 	subSys, ok := ri.subsystems[name]
 	if !ok {
 		ri.Logger.Errorf("%q is not provided by us", name)
-		return nil, fserrors.ENOENT
+		return nil, common.ENOENT
 	}
 
 	// return a ready to use derivative of it
@@ -262,7 +260,7 @@ func (ri *File) QID() (p9.QID, error) {
 		Path: ri.path,
 	}, nil
 }
-func (ri *File) Backtrack() (meta.WalkRef, error) {
+func (ri *File) Backtrack() (common.WalkRef, error) {
 	if ri.parent != nil {
 		return ri.parent, nil
 	}
@@ -273,14 +271,14 @@ func (ri *File) Backtrack() (meta.WalkRef, error) {
 
 func (ri *File) Walk(names []string) ([]p9.QID, p9.File, error) {
 	ri.Logger.Debugf("Walk %q: %v", ri.String(), names)
-	return fsutils.Walker(ri, names)
+	return common.Walker(ri, names)
 }
 
 func (ri *File) StatFS() (p9.FSStat, error) {
 	ri.Logger.Debug("StatFS")
 	return p9.FSStat{
-		BlockSize: meta.UFS1BlockSize,
-		FSID:      meta.DevMemory,
+		BlockSize: common.UFS1BlockSize,
+		FSID:      common.DevMemory,
 	}, nil
 }
 
@@ -288,13 +286,13 @@ func (ri *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 	ri.Logger.Debug("GetAttr")
 	return p9.QID{
 			Type: p9.TypeDir,
-			Path: meta.CidToQIDPath(meta.RootPath("/").Cid()),
+			Path: common.CidToQIDPath(common.RootPath("/").Cid()),
 		},
 		p9.AttrMask{
 			Mode: true,
 		},
 		p9.Attr{
-			Mode: p9.ModeDirectory | meta.IRXA,
+			Mode: p9.ModeDirectory | common.IRXA,
 		},
 		nil
 }

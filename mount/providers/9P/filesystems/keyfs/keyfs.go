@@ -11,15 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hugelgupf/p9/p9"
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
+	"github.com/hugelgupf/p9/p9"
 	cid "github.com/ipfs/go-cid"
-	fserrors "github.com/ipfs/go-ipfs/mount/providers/9P/errors"
+	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/mfs"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/meta"
-	nodeopts "github.com/ipfs/go-ipfs/mount/providers/9P/meta"
-	fsutils "github.com/ipfs/go-ipfs/mount/providers/9P/utils"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
@@ -27,7 +24,7 @@ import (
 )
 
 var _ p9.File = (*File)(nil)
-var _ meta.WalkRef = (*File)(nil)
+var _ common.WalkRef = (*File)(nil)
 
 var errKeyNotInStore = errors.New("requested key was not found in the key store")
 
@@ -38,30 +35,30 @@ type File struct {
 	templatefs.NoopFile
 	p9.DefaultWalkGetAttr
 
-	meta.CoreBase
-	meta.OverlayBase
+	common.CoreBase
+	common.OverlayBase
 
 	ents p9.Dirents
 
 	// shared roots across all FS instances
-	sharedLock    *sync.Mutex             // should be held when accessing the root map
-	mroots        map[string]meta.WalkRef // map["key"]*MFS{}
-	parent, proxy meta.WalkRef
+	sharedLock    *sync.Mutex               // should be held when accessing the root map
+	mroots        map[string]common.WalkRef // map["key"]*MFS{}
+	parent, proxy common.WalkRef
 }
 
-func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...nodeopts.AttachOption) p9.Attacher {
-	options := meta.AttachOps(ops...)
+func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachOption) p9.Attacher {
+	options := common.AttachOps(ops...)
 	kd := &File{
-		CoreBase:    meta.NewCoreBase("/keyfs", core, ops...),
-		OverlayBase: meta.OverlayBase{ParentCtx: ctx},
+		CoreBase:    common.NewCoreBase("/keyfs", core, ops...),
+		OverlayBase: common.OverlayBase{ParentCtx: ctx},
 		parent:      options.Parent,
-		mroots:      make(map[string]meta.WalkRef),
+		mroots:      make(map[string]common.WalkRef),
 	}
 
 	// non-keyed requests fall through to IPNS
-	opts := []nodeopts.AttachOption{
-		nodeopts.Parent(kd),
-		nodeopts.Logger(logging.Logger("IPNS")),
+	opts := []common.AttachOption{
+		common.Parent(kd),
+		common.Logger(logging.Logger("IPNS")),
 	}
 
 	subsystem, err := ipns.Attacher(ctx, core, opts...).Attach()
@@ -69,7 +66,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...nodeopts.Attac
 		panic(err)
 	}
 
-	kd.proxy = subsystem.(meta.WalkRef)
+	kd.proxy = subsystem.(common.WalkRef)
 
 	// detach from our proxied system when we fall out of memory
 	runtime.SetFinalizer(kd, func(keyRoot *File) {
@@ -130,15 +127,15 @@ func (kd *File) Close() error {
 func (kd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	kd.Logger.Debugf("Readdir")
 	if kd.ents == nil {
-		return nil, fserrors.FileNotOpen
+		return nil, common.FileNotOpen
 	}
 
-	return meta.FlatReaddir(kd.ents, offset, count)
+	return common.FlatReaddir(kd.ents, offset, count)
 }
 
 /* WalkRef relevant */
 
-func (kd *File) Fork() (meta.WalkRef, error) {
+func (kd *File) Fork() (common.WalkRef, error) {
 	newFid, err := kd.clone()
 	if err != nil {
 		return nil, err
@@ -146,7 +143,7 @@ func (kd *File) Fork() (meta.WalkRef, error) {
 
 	// make sure we were actually initalized
 	if kd.FilesystemCtx == nil {
-		return nil, fserrors.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid
@@ -162,7 +159,7 @@ func (kd *File) Fork() (meta.WalkRef, error) {
 
 // KeyFS forks the IPFS root that was set during construction
 // and calls step on it rather than itself
-func (kd *File) Step(keyName string) (meta.WalkRef, error) {
+func (kd *File) Step(keyName string) (common.WalkRef, error) {
 	callCtx, cancel := kd.CallCtx()
 	defer cancel()
 
@@ -191,17 +188,17 @@ func (kd *File) Step(keyName string) (meta.WalkRef, error) {
 			}
 			//TODO: check key target's type; MFS for dirs, UnixIO for files
 
-			mfsRootActual, err := meta.CidToMFSRoot(kd.FilesystemCtx, corePath.Cid(), kd.Core,
+			mfsRootActual, err := common.CidToMFSRoot(kd.FilesystemCtx, corePath.Cid(), kd.Core,
 				ipnsPublisher(key.Name(), offlineAPI(kd.Core).Name()))
 
 			if err != nil {
 				return nil, err
 			}
 
-			opts := []nodeopts.AttachOption{
-				nodeopts.Parent(kd),
-				nodeopts.MFSRoot(mfsRootActual),
-				nodeopts.Logger(logging.Logger("IPNS-Key")),
+			opts := []common.AttachOption{
+				common.Parent(kd),
+				common.MFSRoot(mfsRootActual),
+				common.Logger(logging.Logger("IPNS-Key")),
 			}
 
 			mfsRootVirtual, err := mfs.Attacher(kd.FilesystemCtx, kd.Core, opts...).Attach()
@@ -209,11 +206,11 @@ func (kd *File) Step(keyName string) (meta.WalkRef, error) {
 				return nil, err
 			}
 
-			mfsNode = mfsRootVirtual.(meta.WalkRef)
+			mfsNode = mfsRootVirtual.(common.WalkRef)
 			kd.mroots[keyName] = mfsNode
 
 			// TODO: validate this
-			runtime.SetFinalizer(mfsNode, func(wr meta.WalkRef) {
+			runtime.SetFinalizer(mfsNode, func(wr common.WalkRef) {
 				delete(kd.mroots, keyName)
 			})
 		}
@@ -224,16 +221,16 @@ func (kd *File) Step(keyName string) (meta.WalkRef, error) {
 
 func (kd *File) CheckWalk() error {
 	if kd.ents != nil {
-		return fserrors.FileOpen
+		return common.FileOpen
 	}
 	return nil
 }
 func (kd *File) QID() (p9.QID, error) {
 	return p9.QID{Type: p9.TypeDir,
-		Path: meta.CidToQIDPath(meta.RootPath(kd.CoreNamespace).Cid()),
+		Path: common.CidToQIDPath(common.RootPath(kd.CoreNamespace).Cid()),
 	}, nil
 }
-func (kd *File) Backtrack() (meta.WalkRef, error) {
+func (kd *File) Backtrack() (common.WalkRef, error) {
 	if kd.parent != nil {
 		return kd.parent, nil
 	}
@@ -244,19 +241,19 @@ func (kd *File) Backtrack() (meta.WalkRef, error) {
 
 func (kd *File) Walk(names []string) ([]p9.QID, p9.File, error) {
 	kd.Logger.Debugf("Walk %q: %v", kd.String(), names)
-	return fsutils.Walker(kd, names)
+	return common.Walker(kd, names)
 }
 
 func (kd *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 	return p9.QID{
 			Type: p9.TypeDir,
-			Path: meta.CidToQIDPath(meta.RootPath(kd.CoreNamespace).Cid()),
+			Path: common.CidToQIDPath(common.RootPath(kd.CoreNamespace).Cid()),
 		},
 		p9.AttrMask{
 			Mode: true,
 		},
 		p9.Attr{
-			Mode: p9.ModeDirectory | meta.IRXA | 0220,
+			Mode: p9.ModeDirectory | common.IRXA | 0220,
 		},
 		nil
 }
@@ -286,7 +283,7 @@ func getKeys(ctx context.Context, core coreiface.CoreAPI) (p9.Dirents, error) {
 			}
 			return nil, err
 		}
-		if _, err = meta.IpldStat(ctx, attr, ipldNode, requestType); err != nil {
+		if _, err = common.IpldStat(ctx, attr, ipldNode, requestType); err != nil {
 			return nil, err
 		}
 
@@ -296,7 +293,7 @@ func getKeys(ctx context.Context, core coreiface.CoreAPI) (p9.Dirents, error) {
 			Offset: offset,
 			QID: p9.QID{
 				Type: attr.Mode.QIDType(),
-				Path: meta.CidToQIDPath(ipldNode.Cid()),
+				Path: common.CidToQIDPath(ipldNode.Cid()),
 			},
 		})
 		offset++
@@ -342,7 +339,7 @@ func getKey(ctx context.Context, keyName string, core coreiface.CoreAPI) (coreif
 func (kd *File) clone() (*File, error) {
 	// make sure we were actually initalized
 	if kd.ParentCtx == nil {
-		return nil, fserrors.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitalized
 	}
 
 	// and also not canceled / still valid
