@@ -10,7 +10,7 @@ And the documentation has yet to be written.
 In short, it's all gross and unusable.
 
 # Overview
-The mount directory contains various packages to facilitate mounting various filesystems to various hosts using various APIs.  
+The mount directory contains various packages to facilitate mounting various file systems to various hosts using various APIs.  
 ```
 .\mount\
 ├── conductors (implementations of the `mount.Conductor` interface)
@@ -62,6 +62,7 @@ It is possible to specify any combination of namespaces and targets so long as t
 e.g. `ipfs daemon --mount --mount-provider="FUSE" --mount-namespace="IPFS,IPNS" --mount-target="/ipfs,/ipns"`
 
 ### Conductors
+(Note: I don't like this name but couldn't think of anything better)  
 The Conductor is responsible for managing multiple Providers and delegating requests to them while also managing grafted instances
 ```go
 type Conductor interface {
@@ -120,7 +121,7 @@ instance, err := someProvider.Graft(target)
 ## Implementation details (incomplete)
 ### cross boundary locking
 In order to allow the daemon to perform normal operations without locking the user out of certain features, such as publishing to IPNS keys or using the FilesAPI via the `ipfs` command, or other API instances. We'll want to incoperate a shared resource lock on the daemon for these namespaces to use.
-For example, within the `ipfs name publish` command we would like to acquire a lock for the key we are about to publish to, which may or maynot also be in use by an `ipfs mount` instance, or other instance of the CoreAPI.
+For example, within the `ipfs name publish` command we would like to acquire a lock for the key we are about to publish to, which may or may not also be in use by an `ipfs mount` instance, or other instance of the CoreAPI.
 Likewise with `ipfs files` in general.
 As a result we'll need some kind of interface such as this
 ```go
@@ -136,11 +137,13 @@ err := daemonNode.???.Request(mountinter.NamespaceIPNS, "/${key-hash}", mountint
 where the same instance is used by the rest of the services on the daemon, such as mount.
 either may hold the lock at various points, preventing one another from colliding and creating inconsistency without disabling features entirely.  
 
-NOTE: a quick hack was written to implement this but I don't trust myself to implement it correctly/efficiently. This will require research to see how other systems perform ancestry style path locking and which libraries already exist that could help with it.  
+NOTE: a quick hack was written to implement this but I don't trust myself to implement it correctly/efficiently.  
+This will require research to see how other systems perform ancestry style path locking and which libraries already exist that could help with it.  
 
-### filesystem implementations themselves
+### file system implementations themselves
 Currently there are 2 separate file system APIs that themselves implement mappings for various IPFS api's.
-1 for FUSE and 1 for 9P. They're fairly distinct but I'm going to put effort into trying to generalize and overlap as much as possible via a transform package.
-An example of this is not implementing 2 different forms of `Getattr` 1 for each API, instead we map from IPFS semantics to some intermediate representation.
-`(mount/utils/transform).CoreGetAttr(ctx, corepath, core, request)`, returns some intermediate object that itself implements transforms `object.ToFuse() *fuselib.Stat_t`, `object.To9P() *p9plib.Attr`.
-There will likely be other ways we can find overlap to provide generalized code over specific code. Allowing for more coverage with less tests. You can imagine writing an intermediate wrapper for file I/O that makes the layers for fuse.Read and p9.Read much smaller than `intermediate.CoreOpenFile(...) io.ReadWriter`.
+1 for FUSE and 1 for 9P. They're fairly distinct but I'm going to put effort into trying to generalize and overlap as much as possible via a transform package.  
+An example of this is not implementing 2 different forms of `Getattr` 1 for each API, instead we map from IPFS semantics to some intermediate representation.  
+`(mount/utils/transform).CoreGetAttr(ctx, corepath, core, request)`, returns some intermediate object that itself implements transforms `object.ToFuse() *fuselib.Stat_t`, `object.To9P() *p9plib.Attr`.  
+There will likely be other ways we can find overlap to provide generalized code over specific code. Allowing for uniformity, as well as more code coverage with less tests.  
+You can imagine writing an intermediate wrapper for file I/O that wraps the Core+MFS apis to make the layers for fuse.Read and p9.Read smaller. e.g. via something like `intermediate.CoreOpenFile(...) io.ReadWriter`.
