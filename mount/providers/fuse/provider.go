@@ -8,11 +8,9 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
-	prov "github.com/ipfs/go-ipfs/mount/providers"
-	fusecommon "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
+	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -37,21 +35,28 @@ type fuseProvider struct {
 
 	// mount interface
 	instances mountcom.InstanceCollectionState
+	resLock   mountcom.ResourceLock
 	//initSignal chan error
-	// TODO: resource lock goes here
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, ops ...prov.Option) (*fuseProvider, error) {
-	opts := prov.ParseOptions(ops...)
+func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, opts ...provcom.Option) (*fuseProvider, error) {
+	options := new(provcom.Options)
+	for _, opt := range opts {
+		opt.Apply(options)
+	}
+
+	if options.ResourceLock == nil {
+		options.ResourceLock = mountcom.NewResourceLocker()
+	}
 
 	fsCtx, cancel := context.WithCancel(ctx)
 	return &fuseProvider{
-		ctx:    fsCtx,
-		cancel: cancel,
-		//initSignal: make(chan error),
+		ctx:       fsCtx,
+		cancel:    cancel,
 		core:      api,
 		namespace: namespace,
-		filesRoot: opts.FilesRoot,
+		resLock:   options.ResourceLock,
+		filesRoot: options.FilesAPIRoot,
 		instances: mountcom.NewInstanceCollectionState(),
 	}, nil
 }
@@ -117,41 +122,32 @@ func (pr *fuseProvider) Grafted(target string) bool {
 func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface.CoreAPI, mroot *gomfs.Root) (*fuselib.FileSystemHost, chan error, error) {
 	var (
 		fsh        *fuselib.FileSystemHost
+		fs         fuselib.FileSystemInterface
 		initSignal = make(chan error)
 	)
 
 	switch namespace {
 	default:
 		return nil, nil, fmt.Errorf("unknown namespace: %v", namespace)
+	case mountinter.NamespaceAllInOne:
+		oOps := []overlay.Option{
+			overlay.WithInitSignal(initSignal),
+			//overlay.WithMFSRoot(*mroot), // FIXME: unchecked pointer
+		}
+		fs = overlay.NewFileSystem(ctx, core, oOps...)
+
 	case mountinter.NamespaceIPFS:
-		fsh = fuselib.NewFileSystemHost(&ipfs.Filesystem{
-			FUSEBase: fusecommon.FUSEBase{
-				Core:       core,
-				FilesRoot:  mroot,
-				InitSignal: initSignal,
-				Ctx:        ctx,
-			},
-		})
+		iOps := []ipfs.Option{
+			ipfs.WithInitSignal(initSignal),
+		}
+		fs = ipfs.NewFileSystem(ctx, core, iOps...)
 	case mountinter.NamespaceIPNS:
-		fsh = fuselib.NewFileSystemHost(&ipns.Filesystem{
-			FUSEBase: fusecommon.FUSEBase{
-				Core:       core,
-				FilesRoot:  mroot,
-				InitSignal: initSignal,
-				Ctx:        ctx,
-			},
-		})
+		fallthrough
 	case mountinter.NamespaceFiles:
-		fsh = fuselib.NewFileSystemHost(&mfs.Filesystem{
-			FUSEBase: fusecommon.FUSEBase{
-				Core:       core,
-				FilesRoot:  mroot,
-				InitSignal: initSignal,
-				Ctx:        ctx,
-			},
-		})
+		return nil, nil, fmt.Errorf("not implemented yet: %v", namespace)
 	}
 
+	fsh = fuselib.NewFileSystemHost(fs)
 	//TODO: fsh.SetCapReaddirPlus(true)
 	fsh.SetCapCaseInsensitive(false)
 

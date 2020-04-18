@@ -1,5 +1,6 @@
 package mount9p
 
+/* not ported over yet
 import (
 	"context"
 	"fmt"
@@ -33,7 +34,7 @@ add a set of standard tests that have redundant functionlity for transforms
 e.g.
 StandardQIDFromStringFunction("/pinfs") == pinfsObject.QIDMethod()
 */
-
+/*
 type baseAttacher func(context.Context, coreiface.CoreAPI, ...nodeopts.AttachOption) p9.Attacher
 
 func baseline(ctx context.Context, t *testing.T, core coreiface.CoreAPI, attachFn baseAttacher) {
@@ -513,3 +514,4 @@ func testIPFSCompare(t *testing.T, f1, f2 p9.File) {
 		t.Errorf("Attributes of same files do not match: %v and %v", f1Attr, f2Attr)
 	}
 }
+*/

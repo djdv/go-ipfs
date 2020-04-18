@@ -2,7 +2,7 @@ package ipns
 
 import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	fusecommon "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
+	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	logging "github.com/ipfs/go-log"
 )
 
@@ -11,7 +11,7 @@ var log = logging.Logger("fuse/ipns")
 const fuseSuccess = 0
 
 type Filesystem struct {
-	fusecommon.FUSEBase
+	provcom.Base
 
 	fuselib.FileSystemBase // TODO: remove this; should implement everything
 }
@@ -27,7 +27,7 @@ func (fs *Filesystem) Init() {
 	*/
 
 	defer log.Debug("init finished")
-	fs.InitSignal <- nil
+	//fs.InitSignal <- nil
 }
 
 /*

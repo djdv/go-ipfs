@@ -14,7 +14,7 @@ import (
 	"github.com/hugelgupf/p9/p9"
 	config "github.com/ipfs/go-ipfs-config"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
-	prov "github.com/ipfs/go-ipfs/mount/providers"
+	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/keyfs"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/mfs"
@@ -46,9 +46,9 @@ type p9pProvider struct {
 	listener manet.Listener
 
 	// IPFS API
-	namespace mountinter.Namespace
-	core      coreiface.CoreAPI
-	filesRoot *gomfs.Root
+	namespace    mountinter.Namespace
+	core         coreiface.CoreAPI
+	filesAPIRoot *gomfs.Root
 
 	// FS provider
 	ctx          context.Context // when canceled, signals Server close intent
@@ -58,11 +58,18 @@ type p9pProvider struct {
 
 	// object implementation
 	instances mountcom.InstanceCollectionState
-	// TODO: resource lock goes here
+	resLock   mountcom.ResourceLock
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, ops ...prov.Option) (*p9pProvider, error) {
-	opts := prov.ParseOptions(ops...)
+func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, opts ...provcom.Option) (*p9pProvider, error) {
+	options := new(provcom.Options)
+	for _, opt := range opts {
+		opt.Apply(options)
+	}
+
+	if options.ResourceLock == nil {
+		options.ResourceLock = mountcom.NewResourceLocker()
+	}
 
 	if strings.HasPrefix(addrString, "/unix") { // stabilize our addr string which could contain template keys and/or be relative in some way
 		var err error
@@ -78,13 +85,14 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString
 
 	fsCtx, cancel := context.WithCancel(ctx)
 	return &p9pProvider{
-		ctx:       fsCtx,
-		cancel:    cancel,
-		maddr:     ma,
-		core:      api,
-		namespace: namespace,
-		filesRoot: opts.FilesRoot,
-		instances: mountcom.NewInstanceCollectionState(),
+		ctx:          fsCtx,
+		cancel:       cancel,
+		maddr:        ma,
+		core:         api,
+		namespace:    namespace,
+		filesAPIRoot: options.FilesAPIRoot,
+		resLock:      options.ResourceLock,
+		instances:    mountcom.NewInstanceCollectionState(),
 	}, nil
 }
 
@@ -199,7 +207,7 @@ func (pr *p9pProvider) listen() error {
 	// construct and launch the 9P resource server
 	pr.serverClosed = make(chan struct{}) // [async] conditional variable
 
-	server, err := newServer(pr.ctx, pr.namespace, pr.core, pr.filesRoot)
+	server, err := newServer(pr.ctx, pr.namespace, pr.core, pr.filesAPIRoot)
 	if err != nil {
 		return err
 	}

@@ -86,7 +86,17 @@ baz
 				cmds.EmitOnce(res, err)
 				return err
 			}
-			daemon.Mount = mountcon.NewConductor(daemon.Context(), coreAPI)
+
+			var cOps []mountcon.Option
+			if mroot := daemon.FilesRoot; mroot != nil {
+				cOps = append(cOps, mountcon.WithFilesAPIRoot(*mroot))
+			}
+
+			if !daemon.IsDaemon {
+				cOps = append(cOps, mountcon.InForeground(true))
+			}
+
+			daemon.Mount = mountcon.NewConductor(daemon.Context(), coreAPI, cOps...)
 		}
 
 		nodeConf, err := cmdenv.GetConfig(env)

@@ -1,5 +1,6 @@
 package mount9p
 
+/* not ported over yet
 import (
 	"context"
 	"errors"
@@ -705,3 +706,4 @@ func setupPlugins(path string) error {
 
 	return nil
 }
+*/

@@ -17,16 +17,21 @@ const (
 	// AndroidFileSystemProvider
 )
 
-//go:generate stringer -type=Namespace -trimprefix=Namespace
+//go:generate stringer -type=Namespace -trimprefix=Namespace -linecomment
 const (
+	// TODO: consider renaming AllInOne to Overlay or simillar
+	// NOTE:
+	// NamespaceAll should be implemented by conductors; targeting all available namespaces
+	// NamespaceAllInOne should be implemented by providers
+
 	NamespaceNone Namespace = iota
 	NamespaceIPFS
 	NamespaceIPNS
 	NamespaceFiles
-	// NOTE: All must be implemented by the conductor
-	// AllInOne must be implemented by providers
-	NamespaceAll      // mounts all namespaces to their config or default targets
-	NamespaceAllInOne // mounts all namespaces within a single directory to a single target
+	// mounts all namespaces to their config or default targets
+	NamespaceAll
+	// mounts all namespaces within a single directory to a single target
+	NamespaceAllInOne // Overlay
 )
 
 var (
@@ -60,20 +65,19 @@ func (pairs TargetCollections) String() string {
 
 func ParseNamespace(in string) Namespace {
 	return map[string]Namespace{
-		NamespaceIPFS.String():     NamespaceIPFS,
-		NamespaceIPNS.String():     NamespaceIPNS,
-		NamespaceFiles.String():    NamespaceFiles,
-		NamespaceAll.String():      NamespaceAll,
-		NamespaceAllInOne.String(): NamespaceAllInOne,
-	}[in]
+		strings.ToLower(NamespaceIPFS.String()):     NamespaceIPFS,
+		strings.ToLower(NamespaceIPNS.String()):     NamespaceIPNS,
+		strings.ToLower(NamespaceFiles.String()):    NamespaceFiles,
+		strings.ToLower(NamespaceAll.String()):      NamespaceAll,
+		strings.ToLower(NamespaceAllInOne.String()): NamespaceAllInOne,
+	}[strings.ToLower(in)]
 }
 
 func ParseProvider(in string) ProviderType {
 	return map[string]ProviderType{
-		ProviderNone.String():          ProviderNone,
-		ProviderPlan9Protocol.String(): ProviderPlan9Protocol,
-		ProviderFuse.String():          ProviderFuse,
-	}[in]
+		strings.ToLower(ProviderPlan9Protocol.String()): ProviderPlan9Protocol,
+		strings.ToLower(ProviderFuse.String()):          ProviderFuse,
+	}[strings.ToLower(in)]
 }
 
 func SuggestedProvider() ProviderType {

@@ -1,28 +1,37 @@
-package provider
+package providercommon
 
-import "github.com/ipfs/go-mfs"
-
-type (
-	Option  func(*Options)
-	Options struct {
-		ProviderParameter string // a provider specific string used during initialization; this should be documented by the provider implementation if required
-		//Foreground        bool   // should the provider block in the foreground until it exits or run in a background routine
-
-		FilesRoot *mfs.Root // required when mounting the Files namespace, otherwise nil-able
-	}
+import (
+	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
+	gomfs "github.com/ipfs/go-mfs"
 )
 
-func ProviderFilesRoot(root *mfs.Root) Option {
-	return func(ops *Options) {
-		ops.FilesRoot = root
-	}
+type Options struct {
+	ResourceLock mountcom.ResourceLock // if provided, will replace the default lock used for operations
+	FilesAPIRoot *gomfs.Root           // required when mounting the FilesAPI namespace, otherwise nil-able
 }
 
-func ParseOptions(options ...Option) *Options {
-	processedOps := &Options{}
+// WithFilesRoot provides an MFS root node to use for the FilesAPI namespace
+func WithFilesAPIRoot(mroot gomfs.Root) Option {
+	return mfsOpt(mroot)
+}
 
-	for _, applyOption := range options {
-		applyOption(processedOps)
-	}
-	return processedOps
+// WithResourceLock substitutes the default path locker used for operations by the fs
+func WithResourceLock(rl mountcom.ResourceLock) Option {
+	return resourceLockOpt(resourceLockOptContainer{rl})
+}
+
+type Option interface{ Apply(*Options) }
+
+type (
+	resourceLockOpt          resourceLockOptContainer
+	resourceLockOptContainer struct{ mountcom.ResourceLock }
+	mfsOpt                   gomfs.Root
+)
+
+func (rc resourceLockOpt) Apply(opts *Options) {
+	opts.ResourceLock = mountcom.ResourceLock(rc.ResourceLock)
+}
+
+func (r mfsOpt) Apply(opts *Options) {
+	opts.FilesAPIRoot = (*gomfs.Root)(&r)
 }

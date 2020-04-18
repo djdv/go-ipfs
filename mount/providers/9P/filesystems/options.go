@@ -6,20 +6,29 @@ import (
 )
 
 type AttachOptions struct {
-	Parent  WalkRef             // node directly behind self
-	Logger  logging.EventLogger // what subsystem you are
-	MFSRoot *mfs.Root           // required for MFS attachments
+	Parent WalkRef             // node directly behind self
+	Logger logging.EventLogger // what subsystem you are // TODO: maintainer doesn't like this; phase out in favor of pkg variable
+	// TODO: separating these out into embedded but distinct types
+	// IPFS-core opts
+	//ResourceLock mountcom.ResourceLock
+	// MFSOpts
+	MFSRoot *mfs.Root // required for MFS attachments
 }
 
 type AttachOption func(*AttachOptions)
 
 func AttachOps(options ...AttachOption) *AttachOptions {
-	ops := &AttachOptions{
-		Logger: logging.Logger("FS"),
-	}
+	ops := new(AttachOptions)
+	// caller populates what they care about
 	for _, op := range options {
 		op(ops)
 	}
+
+	// insert defaults for empty fields
+	if ops.Logger == nil {
+		ops.Logger = logging.Logger("FS")
+	}
+
 	return ops
 }
 

@@ -118,7 +118,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachO
 	// attach to files API if provided
 	if options.MFSRoot != nil {
 		fOpts := append(subOpts,
-			common.Logger(logging.Logger("files")),
+			common.Logger(logging.Logger("FilesAPI")),
 			common.MFSRoot(options.MFSRoot),
 		)
 
@@ -130,11 +130,11 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachO
 		// add the directory entry for it
 		rootDirent.Offset++
 		rootDirent.Name = "file"
-		rootDirent.QID.Path = common.CidToQIDPath(common.RootPath("/" + "files").Cid())
+		rootDirent.QID.Path = common.CidToQIDPath(common.RootPath("/" + "file").Cid())
 
 		// bind the fs+entry inside of the subsystem collection
 		// (add it for real)
-		ri.subsystems["files"] = systemTuple{
+		ri.subsystems["file"] = systemTuple{
 			file:   fs.(common.WalkRef),
 			dirent: rootDirent,
 		}

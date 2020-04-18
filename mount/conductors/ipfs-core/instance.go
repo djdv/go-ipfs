@@ -1,4 +1,4 @@
-package mount
+package ipfsconductor
 
 import (
 	"context"
@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"sync"
 
-	cond "github.com/ipfs/go-ipfs/mount/conductors"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
-	provider "github.com/ipfs/go-ipfs/mount/providers"
+	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	mount9p "github.com/ipfs/go-ipfs/mount/providers/9P"
 	mountfuse "github.com/ipfs/go-ipfs/mount/providers/fuse"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	logging "github.com/ipfs/go-log"
+	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -33,21 +33,38 @@ type conductor struct {
 	core coreiface.CoreAPI
 
 	// object implementation details
-	lock      mountcom.ResourceLock
-	instances mountcom.InstanceCollection
-	providers namespaceProviders
+	resLock      mountcom.ResourceLock
+	instances    mountcom.InstanceCollection
+	providers    namespaceProviders
+	foreground   bool
+	filesAPIRoot *gomfs.Root
 }
 
-func (con *conductor) Graft(provider mountinter.ProviderType, targets []mountinter.TargetCollection, ops ...cond.Option) error {
-	con.Lock()
-	defer con.Unlock()
-	opts := cond.ParseOptions(ops...)
-	if opts.Foreground {
-		return errors.New("Foreground mounting not implemented yet")
+func NewConductor(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *conductor {
+	// TODO: reconsider default; we probably want to switch InForeGround
+	// to InBackground(true) and default to foreground `Graft`ing
+	options := new(options) // defaults are the zero values
+	for _, opt := range opts {
+		opt.apply(options)
 	}
 
-	// NOTE: we're going to have to rewrite the unwind logic for foreground support
-	// ^ for-each; go{try to graft, with success signal}; if success; add to unwind stack
+	return &conductor{
+		ctx:          ctx,
+		core:         core,
+		resLock:      mountcom.NewResourceLocker(),
+		instances:    mountcom.NewInstanceCollection(),
+		foreground:   options.foreground,
+		filesAPIRoot: options.filesAPIRoot,
+	}
+}
+
+func (con *conductor) Graft(provider mountinter.ProviderType, targets []mountinter.TargetCollection) error {
+	con.Lock()
+	defer con.Unlock()
+
+	if con.foreground {
+		return errors.New("Foreground mounting not implemented yet")
+	}
 
 	// construct pairs of {provider instances:mount target}
 	type instancePair struct {
@@ -61,7 +78,7 @@ func (con *conductor) Graft(provider mountinter.ProviderType, targets []mountint
 			return fmt.Errorf("%q already grafted", triple.Target)
 		}
 
-		instance, err := con.getNamespaceProvider(provider, triple.Parameter, triple.Namespace, ops...)
+		instance, err := con.getNamespaceProvider(provider, triple.Parameter, triple.Namespace)
 		if err != nil {
 			return err
 		}
@@ -146,22 +163,27 @@ func (con *conductor) Where() map[mountinter.ProviderType][]string {
 	return m
 }
 
-func (con *conductor) newProvider(prov mountinter.ProviderType, provParam string, namespace mountinter.Namespace, ops ...cond.Option) (mountinter.Provider, error) {
-	opts := cond.ParseOptions(ops...)
-	provOps := []provider.Option{provider.ProviderFilesRoot(opts.FilesRoot)}
+// TODO: structure has changed; we should reconsider provParam in favor
+func (con *conductor) newProvider(prov mountinter.ProviderType, provParam string, namespace mountinter.Namespace) (mountinter.Provider, error) {
+	pOps := []provcom.Option{
+		provcom.WithResourceLock(con.resLock),
+	}
+	if con.filesAPIRoot != nil {
+		pOps = append(pOps, provcom.WithFilesAPIRoot(*con.filesAPIRoot))
+	}
 
 	switch prov {
 	case mountinter.ProviderPlan9Protocol:
-		return mount9p.NewProvider(con.ctx, namespace, provParam, con.core, provOps...)
+		return mount9p.NewProvider(con.ctx, namespace, provParam, con.core, pOps...)
 
 	case mountinter.ProviderFuse:
-		return mountfuse.NewProvider(con.ctx, namespace, provParam, con.core, provOps...)
+		return mountfuse.NewProvider(con.ctx, namespace, provParam, con.core, pOps...)
 	}
 
 	return nil, fmt.Errorf("unknown provider %q", prov)
 }
 
-func (con *conductor) getNamespaceProvider(prov mountinter.ProviderType, providerParameter string, namespace mountinter.Namespace, ops ...cond.Option) (mountinter.Provider, error) {
+func (con *conductor) getNamespaceProvider(prov mountinter.ProviderType, providerParameter string, namespace mountinter.Namespace) (mountinter.Provider, error) {
 	var namespaces namespaceMap
 	switch prov {
 	case mountinter.ProviderPlan9Protocol:
@@ -178,7 +200,7 @@ func (con *conductor) getNamespaceProvider(prov mountinter.ProviderType, provide
 
 	instance, ok := namespaces[namespace]
 	if !ok {
-		newInst, err := con.newProvider(prov, providerParameter, namespace, ops...)
+		newInst, err := con.newProvider(prov, providerParameter, namespace)
 		if err != nil {
 			return nil, err
 		}
@@ -203,14 +225,4 @@ func (l *resLocker) Request(namespace, resource string) error {
 }
 func (l *resLocker) Release(namespace, resource string) {
 	// FIXME: not implemented yet
-}
-
-func NewConductor(ctx context.Context, core coreiface.CoreAPI) *conductor {
-	return &conductor{
-		ctx:  ctx,
-		core: core,
-		//TODO: lock
-		//providers: make(providerMap),
-		instances: mountcom.NewInstanceCollection(),
-	}
 }

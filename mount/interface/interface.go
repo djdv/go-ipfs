@@ -1,16 +1,12 @@
 package mountinter
 
-import (
-	con "github.com/ipfs/go-ipfs/mount/conductors"
-)
-
 /*
 Conductor is responsible for managing multiple Providers
 delegating requests to them while also managing grafted instances
 */
 type Conductor interface {
-	// Graft uses the selected provider to map pairs of namespaces and their targets
-	Graft(ProviderType, []TargetCollection, ...con.Option) error
+	// Graft uses the selected provider to map groups of namespaces to their targets
+	Graft(ProviderType, []TargetCollection) error
 	// Detach removes a previously grafted target
 	Detach(target string) error
 	// Where provides the mapping of providers and their targets

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"strings"
 
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 )
@@ -25,28 +24,39 @@ func cgofuseRecover(errPtr *error) {
 	}
 }
 
-/* TODO: this should be more dynamic and flexible
- we should comprehend various targets and use them accordingly
- e.g. if target starts with drivespec `I:\ipfs`, mount as folder
- if target IS drivespec `I:` mount as a drive
- if target is `\\`, map to `\\localhost\$Namespace`
- if target starts with UNC `\\cool`, map to UNC space `\\localhost\$Namespace\cool`
- cmds pkg will have to handle platform specific target transfomarion
-e.g. default `/ipfs` on Windows should probably map to `\\` as our input and thus result in `\\localhost\ipfs` output
-*/
 func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) {
-	args := []string{fmt.Sprintf("-o uid=-1,gid=-1,FileSystemName=%s", namespace.String())}
+	var (
+		retTarget, opts string
+		args            []string
+	)
 
-	if runtime.GOOS == "windows" {
-		// TODO: this shouldn't be handled here; but where?
-		// we also need a way to figure out which drive letters are free and use one, preffering `I:` but not requiring it
+	switch runtime.GOOS {
+	case "windows": // expected target is WinFSP; use its options
+		// basic info
 		if namespace == mountinter.NamespaceAllInOne {
-			return "I:", []string{"-o uid=-1,gid=-1,FileSystemName=IPFS"}
+			opts = `-o FileSystemName="IPFS",volname="IPFS"`
+		} else {
+			opts = fmt.Sprintf("-o FileSystemName=%q,volname=%q", namespace.String(), namespace.String())
+		}
+		// set the owner to be the same as the process (`daemon`'s or `mount`'s depending on background/foreground)
+		opts += ",uid=-1,gid=-1"
+
+		// convert UNC targets to WinFSP format
+		if len(target) > 2 && target[:2] == `\\` {
+			// NOTE: cgo-fuse/WinFSP UNC parameter uses single slash prefix
+			args = append(args, opts, fmt.Sprintf(`--VolumePrefix=%q`, target[1:]))
+			break // don't set target value; UNC is handled by `VolumePrefix`
 		}
 
-		args = append(args, fmt.Sprintf(`--VolumePrefix=\localhost\%s`, strings.ToLower(namespace.String())))
-		return "", args
+		// target is local reference; use it
+		retTarget = target
+	case "linux":
+		// [2020.04.18] cgofuse currently backed by hanwen/go-fuse on linux; their optset doesn't support our desire
+		// libfuse: opts = fmt.Sprintf(`-o fsname="ipfs",subtype="fuse.%s"`, namespace.String())
+		fallthrough
+	default:
+		retTarget = target
 	}
 
-	return target, args
+	return retTarget, args
 }

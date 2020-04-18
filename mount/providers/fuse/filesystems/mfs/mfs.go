@@ -2,7 +2,7 @@ package mfs
 
 import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	fusecommon "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
+	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	logging "github.com/ipfs/go-log"
 )
 
@@ -10,13 +10,13 @@ var log = logging.Logger("fuse/mfs")
 
 const fuseSuccess = 0
 
-type Filesystem struct {
-	fusecommon.FUSEBase
+type FileSystem struct {
+	provcom.Base
 
 	fuselib.FileSystemBase // TODO: remove this; should implement everything
 }
 
-func (fs *Filesystem) Init() {
+func (fs *FileSystem) Init() {
 	fs.Lock()
 	defer fs.Unlock()
 	log.Debug("init")
@@ -27,7 +27,7 @@ func (fs *Filesystem) Init() {
 	*/
 
 	defer log.Debug("init finished")
-	fs.InitSignal <- nil
+	//fs.InitSignal <- nil
 }
 
 /*
@@ -55,7 +55,7 @@ func (fs *Filesystem) Getattr(path string, fStat *fuselib.Stat_t, fh uint64) int
 */
 //}
 
-func (fs *Filesystem) Open(path string, flags int) (int, uint64) {
+func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	fs.Lock()
 	defer fs.Unlock()
 
@@ -68,11 +68,11 @@ func (fs *Filesystem) Open(path string, flags int) (int, uint64) {
 
 }
 
-func (fs *Filesystem) Releasedir(path string, fh uint64) int {
+func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 	return fuseSuccess
 }
 
-func (fs *Filesystem) Release(path string, fh uint64) int {
+func (fs *FileSystem) Release(path string, fh uint64) int {
 	return fuseSuccess
 }
 
@@ -81,7 +81,7 @@ const (
 	contents = "hello, world\n"
 )
 
-func (self *Filesystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (errc int) {
+func (self *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (errc int) {
 	switch path {
 	case "/":
 		stat.Mode = fuselib.S_IFDIR | 0555
@@ -95,7 +95,7 @@ func (self *Filesystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (e
 	}
 }
 
-func (self *Filesystem) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
+func (self *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
 	endofst := ofst + int64(len(buff))
 	if endofst > int64(len(contents)) {
 		endofst = int64(len(contents))
@@ -107,7 +107,7 @@ func (self *Filesystem) Read(path string, buff []byte, ofst int64, fh uint64) (n
 	return
 }
 
-func (self *Filesystem) Readdir(path string,
+func (self *FileSystem) Readdir(path string,
 	fill func(name string, stat *fuselib.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) (errc int) {
