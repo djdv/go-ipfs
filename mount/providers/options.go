@@ -10,6 +10,15 @@ type Options struct {
 	FilesAPIRoot *gomfs.Root           // required when mounting the FilesAPI namespace, otherwise nil-able
 }
 
+func ParseOptions(opts ...Option) *Options {
+	options := new(Options)
+	for _, opt := range opts {
+		opt.apply(options)
+	}
+
+	return options
+}
+
 // WithFilesRoot provides an MFS root node to use for the FilesAPI namespace
 func WithFilesAPIRoot(mroot gomfs.Root) Option {
 	return mfsOpt(mroot)
@@ -20,7 +29,7 @@ func WithResourceLock(rl mountcom.ResourceLock) Option {
 	return resourceLockOpt(resourceLockOptContainer{rl})
 }
 
-type Option interface{ Apply(*Options) }
+type Option interface{ apply(*Options) }
 
 type (
 	resourceLockOpt          resourceLockOptContainer
@@ -28,10 +37,10 @@ type (
 	mfsOpt                   gomfs.Root
 )
 
-func (rc resourceLockOpt) Apply(opts *Options) {
+func (rc resourceLockOpt) apply(opts *Options) {
 	opts.ResourceLock = mountcom.ResourceLock(rc.ResourceLock)
 }
 
-func (r mfsOpt) Apply(opts *Options) {
+func (r mfsOpt) apply(opts *Options) {
 	opts.FilesAPIRoot = (*gomfs.Root)(&r)
 }

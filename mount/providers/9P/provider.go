@@ -62,10 +62,7 @@ type p9pProvider struct {
 }
 
 func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, opts ...provcom.Option) (*p9pProvider, error) {
-	options := new(provcom.Options)
-	for _, opt := range opts {
-		opt.Apply(options)
-	}
+	options := provcom.ParseOptions(opts...)
 
 	if options.ResourceLock == nil {
 		options.ResourceLock = mountcom.NewResourceLocker()

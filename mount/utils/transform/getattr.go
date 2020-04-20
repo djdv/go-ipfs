@@ -16,8 +16,8 @@ import (
 // context: https://github.com/ipfs/go-ipfs/pull/6612/files#r322989041
 const ufs1BlockSize = 256 << 10
 
-// CoreGettAttr returns attr, filled members, error
-func CoreGetAttr(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
+// GetAttrCore returns attr, filled members, error
+func GetAttrCore(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
 	// translate from abstract path to CoreAPI resolved path
 	resolvedPath, err := core.ResolvePath(ctx, path)
 	if err != nil {

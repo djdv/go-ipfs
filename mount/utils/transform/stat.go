@@ -17,6 +17,11 @@ type IPFSStat struct {
 	CTimeNano int64 */
 }
 
+// TODO: maybe export this
+var statRequestAll = IPFSStatRequest{
+	Type: true, Size: true, Blocks: true,
+}
+
 type IPFSStatRequest struct {
 	Type   bool
 	Size   bool

@@ -9,6 +9,7 @@ import (
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -47,33 +48,51 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 
 	subInits := make([]func(), 0, subsystems)
 
-	if mRoot != nil {
-		mfsSub := new(mfs.FileSystem) //TODO: actual
-		subInits = append(subInits, mfsSub.Init)
-		overlay.mfs = mfsSub
+	{ // attach /ipfs
+		// TODO: use concrete type when it implements the full FS; the compiler hates embedding right now
+		//var pinfsSub pinfs.FileSystem
+		var pinfsSub fuselib.FileSystemInterface
+
+		ipfsSub := ipfs.NewFileSystem(ctx, core, []ipfs.Option{
+			ipfs.WithParent(pinfsSub),
+			ipfs.WithInitSignal(initChan),
+			ipfs.WithResourceLock(options.resourceLock),
+		}...)
+		subInits = append(subInits, ipfsSub.Init)
+
+		pinfsSub = pinfs.NewFileSystem(ctx, core, []pinfs.Option{
+			pinfs.WithParent(overlay),
+			pinfs.WithInitSignal(initChan),
+			pinfs.WithResourceLock(options.resourceLock),
+			pinfs.WithProxy(ipfsSub),
+		}...)
+		subInits = append(subInits, pinfsSub.Init)
+
+		overlay.ipfs = pinfsSub
 	}
 
-	ipfsSub := ipfs.NewFileSystem(ctx, core, []ipfs.Option{
-		ipfs.WithParent(overlay),
-		ipfs.WithInitSignal(initChan),
-		ipfs.WithResourceLock(options.resourceLock),
-	}...)
-	subInits = append(subInits, ipfsSub.Init)
-	overlay.ipfs = ipfsSub
-
-	/*
-		ipnsSub := &ipns.Filesystem{Base: provcom.NewBase(ctx)} //TODO: use actual
+	{ // /ipns
+		/*
+			ipnsSub := &ipns.Filesystem{Base: provcom.NewBase(ctx)} //TODO: use actual
+			subInits = append(subInits, ipnsSub.Init)
+			overlay.ipns = ipnsSub
+		*/
+		// [DBG] just clone IPFS for now
+		ipnsSub := ipfs.NewFileSystem(ctx, core, []ipfs.Option{
+			ipfs.WithParent(overlay),
+			ipfs.WithInitSignal(initChan),
+		}...)
 		subInits = append(subInits, ipnsSub.Init)
 		overlay.ipns = ipnsSub
-	*/
-	// [DBG] just clone IPFS for now
-	ipnsSub := ipfs.NewFileSystem(ctx, core, []ipfs.Option{
-		ipfs.WithParent(overlay),
-		ipfs.WithInitSignal(initChan),
-	}...)
-	subInits = append(subInits, ipnsSub.Init)
-	overlay.ipns = ipnsSub
-	//
+	}
+
+	{ // /file
+		if mRoot != nil {
+			mfsSub := new(mfs.FileSystem) //TODO: actual
+			subInits = append(subInits, mfsSub.Init)
+			overlay.mfs = mfsSub
+		}
+	}
 
 	overlay.initFunc = func() error {
 		for _, init := range subInits {
@@ -253,6 +272,8 @@ func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
 }
 
 func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int {
+	log.Debugf("Read - {%X}%q", fh, path)
+
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
 		panic(err) // FIXME: TODO: handle appropriately
@@ -310,7 +331,7 @@ func (fs *FileSystem) Readdir(path string,
 	fill func(name string, stat *fuselib.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) int {
-	log.Debugf("Readdir - %q", path)
+	log.Debugf("Readdir - {%X|%d}%q", fh, ofst, path)
 
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {

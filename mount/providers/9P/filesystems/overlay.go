@@ -31,10 +31,11 @@ type OverlayBase struct {
 	OperationsCtx    context.Context
 	OperationsCancel context.CancelFunc
 
-	/* Must be set to true upon `Close`, invalidates all future operations for this reference */
+	/* TODO: this should also be async protected
+	Must be set to true upon `Close`, invalidates all future operations for this reference */
 	Closed bool
 
-	/* Atomic value;
+	/* Atomic value; TODO: change this back to a bool and protect via mutexes; atomics will not work here
 	Must be set to non-zero if any reference opens I/O
 	and reset to 0 upon `Close` of the open reference */
 	Opened *uintptr

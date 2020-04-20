@@ -21,6 +21,8 @@ import (
 	"github.com/multiformats/go-multihash"
 )
 
+// TODO: [da5df057-6160-46b9-9a42-b207008076bd] remove this whole file; replace calls to it with the transform package
+
 // NOTE [2019.09.12]: QID's have a high collision probability
 // as a result we add a salt to hashes to attempt to mitigate this
 // for more context see: https://github.com/ipfs/go-ipfs/pull/6612#discussion_r321038649

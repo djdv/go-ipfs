@@ -84,6 +84,7 @@ func (fs *Filesystem) Getattr(path string, fStat *fuselib.Stat_t, fh uint64) int
 func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	fs.Lock()
 	defer fs.Unlock()
+	log.Debugf("Open - {%X}%q", flags, path)
 
 	switch path {
 	case "/" + filename:
@@ -230,7 +231,9 @@ func (self *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (e
 	}
 }
 
-func (self *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
+func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
+	log.Debugf("Read - {%X}%q", fh, path)
+
 	endofst := ofst + int64(len(buff))
 	if endofst > int64(len(contents)) {
 		endofst = int64(len(contents))
@@ -246,6 +249,8 @@ func (self *FileSystem) Readdir(path string,
 	fill func(name string, stat *fuselib.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) (errc int) {
+	log.Debugf("Readdir - {%X|%d}%q", fh, ofst, path)
+
 	fill(".", nil, 0)
 	fill("..", nil, 0)
 	fill(filename, nil, 0)

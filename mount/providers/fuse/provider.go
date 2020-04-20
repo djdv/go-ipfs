@@ -12,6 +12,7 @@ import (
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -40,10 +41,7 @@ type fuseProvider struct {
 }
 
 func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, opts ...provcom.Option) (*fuseProvider, error) {
-	options := new(provcom.Options)
-	for _, opt := range opts {
-		opt.Apply(options)
-	}
+	options := provcom.ParseOptions(opts...)
 
 	if options.ResourceLock == nil {
 		options.ResourceLock = mountcom.NewResourceLocker()
@@ -148,7 +146,10 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 	}
 
 	fsh = fuselib.NewFileSystemHost(fs)
-	//TODO: fsh.SetCapReaddirPlus(true)
+
+	if transform.CanReaddirPlus {
+		fsh.SetCapReaddirPlus(true)
+	}
 	fsh.SetCapCaseInsensitive(false)
 
 	return fsh, initSignal, nil

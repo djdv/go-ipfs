@@ -8,7 +8,7 @@ import (
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
-	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
+	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )

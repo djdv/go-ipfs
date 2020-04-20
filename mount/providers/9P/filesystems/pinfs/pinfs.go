@@ -3,7 +3,6 @@ package pinfs
 
 import (
 	"context"
-	gopath "path"
 	"runtime"
 	"sync/atomic"
 
@@ -11,9 +10,9 @@ import (
 	"github.com/hugelgupf/p9/p9"
 	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/ipfs"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
-	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 )
 
 var _ p9.File = (*File)(nil)
@@ -26,9 +25,9 @@ type File struct {
 	common.CoreBase
 	common.OverlayBase
 
-	ents          p9.Dirents
+	dir           transform.Directory
 	parent, proxy common.WalkRef
-	open          bool
+	open          bool // FIXME: this was added to the base class as an atomic value; we need to replace it here or there
 }
 
 func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachOption) p9.Attacher {
@@ -87,31 +86,13 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return p9.QID{}, 0, err
 	}
 
-	// IPFS core representation
-	pins, err := pd.Core.Pin().Ls(pd.OperationsCtx, coreoptions.Pin.Type.Recursive())
+	callCtx, cancel := pd.CallCtx()
+	defer cancel()
+	dir, err := transform.OpenDirPinfs(callCtx, pd.Core)
 	if err != nil {
-		return qid, 0, err
+		return p9.QID{}, 0, common.FileOpen
 	}
-
-	// 9P representation
-	pd.ents = make(p9.Dirents, 0, len(pins))
-
-	// actual conversion
-	for i, pin := range pins {
-		callCtx, cancel := pd.CallCtx()
-		subQid, err := common.CoreToQID(callCtx, pin.Path(), pd.Core)
-		if err != nil {
-			cancel()
-			return p9.QID{}, 0, err
-		}
-
-		pd.ents = append(pd.ents, p9.Dirent{
-			Name:   gopath.Base(pin.Path().String()),
-			Offset: uint64(i + 1),
-			QID:    subQid,
-		})
-		cancel()
-	}
+	pd.dir = dir
 
 	atomic.StoreUintptr(pd.Opened, 1)
 	pd.open = true
@@ -120,8 +101,22 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 }
 
 func (pd *File) Close() error {
+	// NOTE: [refactoring] this value should be significant enough to tell if we're open or not
+	// we still need close because of 9P semantics; (no re-open allowed)
+	if pd.dir == nil {
+		return common.FileNotOpen
+	}
+
+	// FIXME: not only is this check not atomic; it requires a critical section
+	// we want a conditional CAS which is 1 step too many
+	// if !open; return error; else swap value
+	// we can't do a cas style upset since it will set an erroneous value
+	if pd.open {
+		atomic.StoreUintptr(pd.Opened, 0)
+	}
+
 	pd.Closed = true
-	pd.ents = nil
+	pd.dir = nil
 
 	if pd.FilesystemCancel != nil {
 		pd.FilesystemCancel()
@@ -131,21 +126,18 @@ func (pd *File) Close() error {
 		pd.OperationsCancel()
 	}
 
-	if pd.open {
-		atomic.StoreUintptr(pd.Opened, 0)
-	}
-
 	return nil
 }
 
 func (pd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	pd.Logger.Debugf("Readdir")
 
-	if pd.ents == nil {
+	if pd.dir == nil {
 		return nil, common.FileNotOpen
 	}
 
-	return common.FlatReaddir(pd.ents, offset, count)
+	//return common.FlatReaddir(pd.dir, offset, count)
+	return pd.dir.Read(offset, uint64(count)).To9P()
 }
 
 /* WalkRef relevant */
@@ -182,7 +174,7 @@ func (pd *File) Step(name string) (common.WalkRef, error) {
 }
 
 func (pd *File) CheckWalk() error {
-	if pd.ents != nil {
+	if pd.dir != nil {
 		return common.FileOpen
 	}
 	return nil

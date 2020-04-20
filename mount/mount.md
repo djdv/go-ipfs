@@ -143,5 +143,41 @@ An example of this is not implementing 2 different forms of `Getattr` 1 for each
 There will likely be other ways we can find overlap to provide generalized code over specific code. Allowing for uniformity, as well as more code coverage with less tests.  
 Intermediate wrappers for file I/O that wrap the Core+MFS apis to make the layers for fuse.Read and p9.Read smaller. e.g. via something like `intermediate.CoreOpenFile(...) io.ReadWriter` is being tested.  
 
+A version of the `pinfs` (a directory which lists the node's pins as files and directories) has been implemented using this method. Its use within FUSE looks like this:
+```go 
+// OpenDir(){
+dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+// Readdir{
+entChan, err := fs.pinDir.Read(offset, requestedEntryCount).ToFuse()
+for ent := range entChan {
+	fill(ent.Name, ent.Stat, ent.Offset)
+}
+return OperationSuccess
+```
+Used within 9P, it's very similar
+
+```go 
+// Open(){
+dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+// Readdir(offset, count) (p9.Dirents, error) {
+return fs.pinDir.Read(offset, count).To9P()
+```
+The interface is still in progress, but currently looks like this
+```go
+type Directory interface {
+	// Read returns /at most/ count entries; or attempts to return all entires when count is 0
+	Read(offset, count uint64) directoryState
+	Seek(offset uint64) error
+	Close() error
+}
+
+type directoryState interface {
+	// TODO: ToGo() ([]os.Fileinfo, error)
+	To9P() (p9.Dirents, error)
+	ToFuse() (<-chan FuseStatGroup, error)
+	// Eventually: ToAndroidProv(), etc.
+}
+```
+
 It may be such that this transformation layer grows into a common file system interface in itself, which could be returned by one of the above interfaces.  
-e.g. `Provider.Instance() (FileSystem, error)` which wraps an implementation of some file system API (like FUSE), with transforms that allow for `FileSystem.Open()`.
+e.g. `Provider.Instance() (FileSystem, error)` which wraps an implementation of some file system API (like FUSE), with transforms that allow for `FileSystem.Open(...)`.

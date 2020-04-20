@@ -27,8 +27,8 @@ var (
 	ErrIOReadOnly = errors.New("write request on read-only system")
 )
 
-func IOFlagsFrom9P(nineFlagsAmusmentPark ninelib.OpenFlags) IOFlags {
-	switch nineFlagsAmusmentPark {
+func IOFlagsFrom9P(nineFlagsAmusementPark ninelib.OpenFlags) IOFlags {
+	switch nineFlagsAmusementPark {
 	case ninelib.ReadOnly:
 		return IOReadOnly
 	case ninelib.WriteOnly:

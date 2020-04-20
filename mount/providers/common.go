@@ -33,8 +33,6 @@ type (
 		sync.Mutex
 		mountcom.ResourceLock
 		ctx context.Context
-		//initSignal chan error
-		//mountTime fuse.Timespec // not relevant yet
 	}
 
 	ipfsCore struct {
@@ -53,8 +51,6 @@ type (
 	}
 )
 
-// TODO: these may be useless
-// we'll more likely want to just have providers implement the interfaces for them independently
 func NewBase(ctx context.Context, rl mountcom.ResourceLock) *base {
 	return &base{
 		ctx:          ctx,
