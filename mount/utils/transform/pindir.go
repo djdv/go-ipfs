@@ -21,11 +21,12 @@ var (
 // TODO: [async safe]
 // ToFuse should lock until it's done with its goroutine
 type pinDir struct {
-	core               coreiface.CoreAPI
-	ctx                context.Context
-	err                error
-	snapshot           []coreiface.Pin
-	currentPos, endPos uint64
+	core coreiface.CoreAPI
+	ctx  context.Context
+	err  error
+
+	pins, pinSlice []coreiface.Pin
+	cursor         uint64
 }
 
 func (pd *pinDir) To9P() (p9.Dirents, error) {
@@ -33,10 +34,8 @@ func (pd *pinDir) To9P() (p9.Dirents, error) {
 		return nil, pd.err
 	}
 
-	subSlice := pd.snapshot[pd.currentPos:pd.endPos]
-	nineEnts := make(p9.Dirents, 0, len(subSlice))
-
-	for _, pin := range subSlice {
+	nineEnts := make(p9.Dirents, 0, len(pd.pinSlice))
+	for _, pin := range pd.pinSlice {
 		callCtx, cancel := context.WithTimeout(pd.ctx, 10*time.Second)
 		subQid, err := coreToQID(callCtx, pin.Path(), pd.core)
 		if err != nil {
@@ -45,17 +44,17 @@ func (pd *pinDir) To9P() (p9.Dirents, error) {
 			return nil, err
 		}
 
-		pd.currentPos++
-
 		nineEnts = append(nineEnts, p9.Dirent{
 			Name:   gopath.Base(pin.Path().String()),
-			Offset: pd.currentPos,
+			Offset: pd.cursor,
 			QID:    subQid,
 		})
+
+		pd.cursor++
 		cancel()
 	}
 
-	return nineEnts, nil
+	return nineEnts, pd.err
 }
 
 func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
@@ -63,12 +62,10 @@ func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
 		return nil, pd.err
 	}
 
-	subSlice := pd.snapshot[pd.currentPos:pd.endPos]
 	dirChan := make(chan FuseStatGroup)
-
 	go func() {
 		defer close(dirChan)
-		for _, pin := range subSlice {
+		for _, pin := range pd.pinSlice {
 			select {
 			case <-pd.ctx.Done():
 				pd.err = pd.ctx.Err()
@@ -76,12 +73,10 @@ func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
 			default:
 			}
 
-			pd.currentPos++
-
 			var fStat *fuselib.Stat_t
 			if CanReaddirPlus {
 				callCtx, cancel := context.WithTimeout(pd.ctx, 10*time.Second)
-				iStat, _, err := GetAttrCore(callCtx, pin.Path(), pd.core, statRequestAll)
+				iStat, _, err := GetAttrCore(callCtx, pin.Path(), pd.core, IPFSStatRequestAll)
 				cancel()
 
 				// stat errors are not fatal; it's okay to return nil to fill
@@ -93,12 +88,14 @@ func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
 
 			dirChan <- FuseStatGroup{
 				gopath.Base(pin.Path().String()),
-				int64(pd.currentPos),
+				int64(pd.cursor),
 				fStat,
 			}
+
+			pd.cursor++
 		}
 	}()
-	return dirChan, nil
+	return dirChan, pd.err
 }
 
 func (pd *pinDir) Read(offset, count uint64) directoryState {
@@ -106,60 +103,51 @@ func (pd *pinDir) Read(offset, count uint64) directoryState {
 		return pd
 	}
 
-	if pd.snapshot == nil {
+	if offset == 0 { // (re)init
+		pins, err := pd.core.Pin().Ls(pd.ctx, coreoptions.Pin.Type.Recursive())
+		if err != nil {
+			pd.err = err
+			return pd
+		}
+		pd.pins = pins
+		pd.cursor = 1
+	}
+
+	if pd.pins == nil {
 		pd.err = errors.New("not opened") // TODO: replace err
 		return pd
 	}
 
-	sLen := uint64(len(pd.snapshot))
-
-	if offset > sLen {
-		pd.err = fmt.Errorf(errSeekFmt, offset, sLen)
+	if offset != pd.cursor-1 { // offset provided to us, was previously provided by us; or has since been invalidated
+		pd.err = fmt.Errorf("read offset %d is not valid", offset)
 		return pd
 	}
 
-	var end uint64
+	var (
+		sLen = uint64(len(pd.pins))
+		end  uint64
+	)
 	if count == 0 { // special case, returns all
 		end = sLen
 	} else {
-		end = uint64(offset + count)
+		end = offset + count
 		if end > sLen { // rebound
 			end = sLen
 		}
 	}
 
-	pd.currentPos = uint64(offset)
-	pd.endPos = end
+	pd.pinSlice = pd.pins[offset:end]
 	return pd
 }
 
-func (pd *pinDir) Seek(offset uint64) error {
-	if pd.err != nil { // refuse to operate
-		return pd.err
-	}
-
-	if sLen := uint64(len(pd.snapshot)); offset > sLen {
-		return fmt.Errorf(errSeekFmt, offset, sLen)
-	}
-
-	pd.currentPos = offset
-	return nil
-}
-
-func OpenDirPinfs(ctx context.Context, core coreiface.CoreAPI) (Directory, error) {
-	pins, err := core.Pin().Ls(ctx, coreoptions.Pin.Type.Recursive())
-	if err != nil {
-		return nil, err
-	}
-
+func OpenDirPinfs(ctx context.Context, core coreiface.CoreAPI) Directory {
 	return &pinDir{
-		core:     core,
-		ctx:      ctx,
-		snapshot: pins,
-	}, nil
+		core: core,
+		ctx:  ctx,
+	}
 }
 
 func (pd *pinDir) Close() error {
-	pd.snapshot = nil
+	pd.pins = nil
 	return nil
 }

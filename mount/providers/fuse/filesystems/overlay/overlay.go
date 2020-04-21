@@ -8,6 +8,7 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
@@ -72,13 +73,7 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 	}
 
 	{ // /ipns
-		/*
-			ipnsSub := &ipns.Filesystem{Base: provcom.NewBase(ctx)} //TODO: use actual
-			subInits = append(subInits, ipnsSub.Init)
-			overlay.ipns = ipnsSub
-		*/
-		// [DBG] just clone IPFS for now
-		ipnsSub := ipfs.NewFileSystem(ctx, core, []ipfs.Option{
+		ipnsSub := ipns.NewFileSystem(ctx, core, []ipfs.Option{
 			ipfs.WithParent(overlay),
 			ipfs.WithInitSignal(initChan),
 		}...)
@@ -242,6 +237,7 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	}
 
 	if targetFs == fs {
+		log.Error(fuselib.Error(-fuselib.ENOENT))
 		return -fuselib.ENOENT, fusecom.ErrorHandle
 	}
 
@@ -258,9 +254,11 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 	if targetFs == fs {
 		switch remainder {
 		case "ipfs", "ipns", "file", "":
-			stat.Mode = fuselib.S_IFDIR | 0555
+			stat.Mode |= fuselib.S_IFDIR
+			fusecom.ApplyPermissions(false, &stat.Mode)
 			return fusecom.OperationSuccess
 		default:
+			log.Error(fuselib.Error(-fuselib.ENOENT))
 			return -fuselib.ENOENT
 		}
 	}
@@ -280,6 +278,7 @@ func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int 
 	}
 
 	if targetFs == fs {
+		log.Error(fuselib.Error(-fuselib.EISDIR))
 		return -fuselib.EISDIR
 	}
 
@@ -324,7 +323,6 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	}
 
 	return targetFs.Opendir(remainder)
-
 }
 
 func (fs *FileSystem) Readdir(path string,

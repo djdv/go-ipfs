@@ -11,7 +11,6 @@ const errSeekFmt = "offset %d extends beyond directory bound %d"
 type Directory interface {
 	// Read returns /at most/ count entries; or attempts to return all entires when count is 0
 	Read(offset, count uint64) directoryState
-	Seek(offset uint64) error
 	Close() error
 }
 
@@ -24,6 +23,6 @@ type FuseStatGroup struct {
 // TODO: better name
 type directoryState interface {
 	// TODO: ToGo() ([]os.Fileinfo, error)
-	To9P() (p9.Dirents, error)
-	ToFuse() (<-chan FuseStatGroup, error)
+	To9P() (p9.Dirents, error)             // TODO: we might want to let the caller pass in a preallocated Dirents
+	ToFuse() (<-chan FuseStatGroup, error) // same but with a channel, in case they want it buffered
 }

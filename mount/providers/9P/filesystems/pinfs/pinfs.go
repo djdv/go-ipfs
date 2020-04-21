@@ -86,13 +86,7 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return p9.QID{}, 0, err
 	}
 
-	callCtx, cancel := pd.CallCtx()
-	defer cancel()
-	dir, err := transform.OpenDirPinfs(callCtx, pd.Core)
-	if err != nil {
-		return p9.QID{}, 0, common.FileOpen
-	}
-	pd.dir = dir
+	pd.dir = transform.OpenDirPinfs(pd.OperationsCtx, pd.Core)
 
 	atomic.StoreUintptr(pd.Opened, 1)
 	pd.open = true

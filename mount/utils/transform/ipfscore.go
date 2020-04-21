@@ -1,11 +1,11 @@
 package transform
 
 import (
-	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	"github.com/hugelgupf/p9/p9"
 	unixpb "github.com/ipfs/go-unixfs/pb"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
+
+//NOTE [2019.09.11]: IPFS CoreAPI abstracts over HAMT structures; Unixfs returns raw type
 
 func unixfsTypeToCoreType(ut unixpb.Data_DataType) coreiface.FileType {
 	switch ut {
@@ -19,33 +19,5 @@ func unixfsTypeToCoreType(ut unixpb.Data_DataType) coreiface.FileType {
 		return coreiface.TFile
 	default:
 		return coreiface.TUnknown
-	}
-}
-
-func coreTypeTo9PType(ct coreiface.FileType) p9.FileMode {
-	switch ct {
-	case coreiface.TDirectory:
-		return p9.ModeDirectory
-	case coreiface.TSymlink:
-		return p9.ModeSymlink
-	case coreiface.TFile:
-		return p9.ModeRegular
-	default:
-		return p9.FileMode(0)
-	}
-}
-
-type fuseFileType = uint32
-
-func coreTypeToFuseType(ct coreiface.FileType) fuseFileType {
-	switch ct {
-	case coreiface.TDirectory:
-		return fuselib.S_IFDIR
-	case coreiface.TSymlink:
-		return fuselib.S_IFLNK
-	case coreiface.TFile:
-		return fuselib.S_IFREG
-	default:
-		return 0
 	}
 }

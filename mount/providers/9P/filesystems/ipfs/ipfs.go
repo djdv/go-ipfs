@@ -28,17 +28,11 @@ type File struct {
 
 	// operation handle storage
 	file      transform.File
-	directory *directoryStream
+	directory transform.Directory
 
 	// optional WalkRef extension node
 	// (".." on root gets sent here if set)
 	Parent common.WalkRef
-}
-
-type directoryStream struct {
-	entryChan <-chan coreiface.DirEntry
-	cursor    uint64
-	err       error
 }
 
 func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachOption) p9.Attacher {
@@ -116,17 +110,18 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 
 	if qid.Type == p9.TypeDir { // handle directories
 		if len(id.Trail) == 0 { // handle the root itself (empty)
-			id.directory = &directoryStream{}
+			*id.Opened = 1 // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
 			return qid, 0, nil
 		}
 
 		// everything else
-		c, err := id.Core.Unixfs().Ls(id.OperationsCtx, id.CorePath())
+		dir, err := transform.CoreOpenDir(id.OperationsCtx, id.CorePath(), id.Core)
 		if err != nil {
 			return qid, 0, err
 		}
 
-		id.directory = &directoryStream{entryChan: c}
+		id.directory = dir
+		*id.Opened = 1 // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
 		return qid, 0, nil
 	}
 
@@ -165,18 +160,18 @@ func (id *File) Close() error {
 		id.OperationsCancel()
 	}
 
+	// [69419872-3e02-4b04-9d23-dce6318b7fb2] open/close async refactor
+	id.Closed = true
+	*id.Opened = 0
+
 	return err
 }
 
 func (id *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	id.Logger.Debugf("Readdir %q %d %d", id.String(), offset, count)
 
-	if id.directory == nil {
+	if *id.Opened == 0 { // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
 		return nil, fmt.Errorf("directory %q is not open for reading", id.String())
-	}
-
-	if id.directory.err != nil { // previous request must have failed
-		return nil, id.directory.err
 	}
 
 	// special case for root
@@ -184,48 +179,12 @@ func (id *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 		return nil, nil
 	}
 
-	if offset < id.directory.cursor {
-		return nil, fmt.Errorf("read offset %d is behind current entry %d, seeking backwards in directory streams is not supported", offset, id.directory.cursor)
+	if id.directory == nil {
+		return nil, common.FileNotOpen
 	}
 
-	ents := make(p9.Dirents, 0)
-
-	for len(ents) < int(count) {
-		select {
-		case entry, open := <-id.directory.entryChan:
-			if !open {
-				//id.OperationsCancel()
-				return ents, nil
-			}
-			if entry.Err != nil {
-				id.directory.err = entry.Err
-				return nil, entry.Err
-			}
-
-			// we consumed an entry
-			id.directory.cursor++
-
-			// skip processing the entry if its below the request offset
-			if offset > id.directory.cursor {
-				continue
-			}
-			nineEnt, err := common.CoreEntTo9Ent(entry)
-			if err != nil {
-				id.directory.err = err
-				return nil, err
-			}
-			nineEnt.Offset = id.directory.cursor
-			ents = append(ents, nineEnt)
-
-		case <-id.FilesystemCtx.Done():
-			id.directory.err = id.FilesystemCtx.Err()
-			id.Logger.Error(id.directory.err)
-			return ents, id.directory.err
-		}
-	}
-
-	id.Logger.Debugf("Readdir returning [%d]%v\n", len(ents), ents)
-	return ents, nil
+	//return common.FlatReaddir(pd.dir, offset, count)
+	return id.directory.Read(offset, uint64(count)).To9P()
 }
 
 func (id *File) ReadAt(p []byte, offset int64) (int, error) {

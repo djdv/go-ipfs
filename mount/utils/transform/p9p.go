@@ -3,14 +3,18 @@ package transform
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"hash/fnv"
 	"io"
 
 	"github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-cid"
+	unixpb "github.com/ipfs/go-unixfs/pb"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
+
+// this file contains all the data transforms for * -> 9P
 
 // TODO: [da5df057-6160-46b9-9a42-b207008076bd] extracted from 9P/utils; we need to evaluate what we want to keep and what to export
 
@@ -53,4 +57,45 @@ func cidToQIDPath(cid cid.Cid) uint64 {
 		panic(err)
 	}
 	return hasher.Sum64()
+}
+
+func unixfsTypeTo9Type(ut unixpb.Data_DataType) (p9.FileMode, error) {
+	switch ut {
+	//TODO: directories and hamt shards are not synonymous; HAMTs may need special handling
+	case unixpb.Data_Directory, unixpb.Data_HAMTShard:
+		return p9.ModeDirectory, nil
+	case unixpb.Data_Symlink:
+		return p9.ModeSymlink, nil
+	case unixpb.Data_File:
+		return p9.ModeRegular, nil
+	case unixpb.Data_Raw: //TODO [investigate]: the result of `mfs.WriteAt` produces a file of this type if the contents are small enough
+		return p9.ModeRegular, nil
+	default:
+		return p9.ModeRegular, fmt.Errorf("UFS data type %q was not expected, treating as regular file", ut)
+	}
+}
+
+func coreTypeTo9PType(ct coreiface.FileType) p9.FileMode {
+	switch ct {
+	case coreiface.TDirectory:
+		return p9.ModeDirectory
+	case coreiface.TSymlink:
+		return p9.ModeSymlink
+	case coreiface.TFile:
+		return p9.ModeRegular
+	default:
+		return p9.FileMode(0)
+	}
+}
+
+func coreDirEntryTo9Dirent(coreEnt coreiface.DirEntry) p9.Dirent {
+	entType := coreTypeTo9PType(coreEnt.Type)
+	return p9.Dirent{
+		Name: coreEnt.Name,
+		Type: entType.QIDType(),
+		QID: p9.QID{
+			Type: entType.QIDType(),
+			Path: cidToQIDPath(coreEnt.Cid),
+		},
+	}
 }

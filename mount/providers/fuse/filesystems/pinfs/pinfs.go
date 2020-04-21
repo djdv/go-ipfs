@@ -3,7 +3,6 @@ package pinfs
 import (
 	"context"
 
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
@@ -67,13 +66,21 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	log.Debugf("Open - {%X}%q", flags, path)
 
 	switch path { // TODO: use fh instead of path for this
+	case "":
+		// TODO: handle empty path (valid if fh is valid)
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT, fusecom.ErrorHandle
+
 	case "/":
-		return -fuse.EISDIR, fusecom.ErrorHandle
+		log.Error(fuselib.Error(-fuselib.EISDIR))
+		return -fuselib.EISDIR, fusecom.ErrorHandle
+
 	default:
 		if fs.proxy != nil {
 			return fs.proxy.Open(path, flags)
 		}
-		return -fuse.ENOENT, fusecom.ErrorHandle
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT, fusecom.ErrorHandle
 	}
 }
 
@@ -81,34 +88,73 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	log.Debugf("Opendir - %q", path)
 
-	dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
-	if err != nil {
-		// TODO: real values based on err
-		return -1, fusecom.ErrorHandle
-	}
+	switch path {
+	case "":
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT, fusecom.ErrorHandle
 
-	fs.pinDir = dir
-	return fusecom.OperationSuccess, todoHandle
+	case "/":
+		// TODO: async shenanigans
+		fs.pinDir = transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+		return fusecom.OperationSuccess, todoHandle
+
+	default:
+		if fs.proxy != nil {
+			return fs.proxy.Opendir(path)
+		}
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT, fusecom.ErrorHandle
+	}
 }
 
-// TODO: not finished; doesn't care about path yet
 func (fs *FileSystem) Releasedir(path string, fh uint64) int {
-	if fs.pinDir == nil {
+	switch path {
+	case "": // TODO: valid if fh is valid
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+
+	case "/":
+		// TODO: async shenanigans
+		if fs.pinDir == nil {
+			log.Error(fuselib.Error(-fuselib.EBADF))
+			return -fuselib.EBADF
+		}
+		return fusecom.OperationSuccess
+
+	default:
+		if fs.proxy != nil {
+			return fs.proxy.Releasedir(path, fh)
+		}
+		log.Error(fuselib.Error(-fuselib.EBADF))
 		return -fuselib.EBADF
 	}
-
-	fs.pinDir = nil
-	return fusecom.OperationSuccess
 }
 
 func (fs *FileSystem) Release(path string, fh uint64) int {
-	return fusecom.OperationSuccess
+	switch path {
+	case "": // TODO: valid if fh is valid
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+
+	case "/":
+		log.Errorf("wrong method Release, expecting Releasedir")
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+
+	default:
+		if fs.proxy != nil {
+			return fs.proxy.Release(path, fh)
+		}
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+	}
 }
 
 func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (errc int) {
 	log.Debugf("Getattr - {%X}%q", fh, path)
 
 	switch path { // TODO: use fh instead of path for this
+	// TODO: handle empty path (valid if fh is valid)
 	case "/":
 		stat.Mode = fuselib.S_IFDIR | 0555
 		return fusecom.OperationSuccess
@@ -116,6 +162,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 		if fs.proxy != nil {
 			return fs.proxy.Getattr(path, stat, fh)
 		}
+		log.Error(fuselib.Error(-fuselib.ENOENT))
 		return -fuselib.ENOENT
 	}
 }
@@ -124,11 +171,13 @@ func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int 
 	log.Debugf("Read - {%X}%q", fh, path)
 	switch path { // TODO: use fh instead of path for this
 	case "/":
-		return -fuse.EISDIR
+		log.Error(fuselib.Error(-fuselib.EISDIR))
+		return -fuselib.EISDIR
 	default:
 		if fs.proxy != nil {
 			return fs.proxy.Read(path, buff, ofst, fh)
 		}
+		log.Error(fuselib.Error(-fuselib.EBADF))
 		return -fuselib.EBADF
 	}
 }
@@ -145,20 +194,21 @@ func (fs *FileSystem) Readdir(path string,
 	}
 
 	if fs.pinDir == nil {
-		return -fuse.EBADF
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
 	}
-
-	// TODO: populate these stats
-	fill(".", nil, 0)
-	fill("..", nil, 0) // if parent !nil; parent.Getattr().ToFuse()
 
 	// TODO: [audit] int -> uint needs range checking
 	entChan, err := fs.pinDir.Read(uint64(ofst), 0).ToFuse()
 	if err != nil {
 		// TODO: inspect error
 		log.Error(err)
-		return -fuse.EBADF
+		return -fuselib.EBADF
 	}
+
+	// TODO: populate these stats
+	fill(".", nil, 0)
+	fill("..", nil, 0) // if parent !nil; parent.Getattr().ToFuse(
 
 	for ent := range entChan {
 		fusecom.ApplyPermissions(false, &ent.Stat.Mode)
