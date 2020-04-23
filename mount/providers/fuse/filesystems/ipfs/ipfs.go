@@ -11,6 +11,7 @@ import (
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/empty"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -107,30 +108,31 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 
 func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	log.Debugf("Opendir - %q", path)
+	var directory transform.Directory
 	switch path {
 	case "":
 		log.Error(fuselib.Error(-fuselib.ENOENT))
 		return -fuselib.ENOENT, fusecom.ErrorHandle
 
 	case "/":
-		// TODO: return valid empty dir
-		log.Error(fuselib.Error(-fuselib.EISDIR))
-		return -fuselib.EISDIR, fusecom.ErrorHandle
+		directory = empty.OpenDir()
 
 	default:
-		directory, err := ipfscore.OpenDir(fs.Ctx(), corepath.New(path[1:]), fs.Core())
+		coreDir, err := ipfscore.OpenDir(fs.Ctx(), corepath.New(path[1:]), fs.Core())
 		if err != nil {
 			log.Error(err)
 			return -fuselib.ENOENT, fusecom.ErrorHandle
 		}
-		handle, err := fs.directories.Add(directory)
-		if err != nil { // TODO: transform error
-			log.Error(fuselib.Error(-fuselib.ENFILE))
-			return -fuselib.ENFILE, fusecom.ErrorHandle
-		}
-
-		return fusecom.OperationSuccess, handle
+		directory = coreDir
 	}
+
+	handle, err := fs.directories.Add(directory)
+	if err != nil { // TODO: transform error
+		log.Error(fuselib.Error(-fuselib.ENFILE))
+		return -fuselib.ENFILE, fusecom.ErrorHandle
+	}
+
+	return fusecom.OperationSuccess, handle
 }
 
 func (fs *FileSystem) Releasedir(path string, fh uint64) int {
@@ -173,7 +175,8 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 		return -fuselib.ENOENT
 
 	case "/":
-		stat.Mode = fuselib.S_IFDIR | 0555
+		stat.Mode = fuselib.S_IFDIR
+		fusecom.ApplyPermissions(false, &stat.Mode)
 		return fusecom.OperationSuccess
 
 	default:
