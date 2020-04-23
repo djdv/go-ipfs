@@ -40,7 +40,11 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 	var fillOffset int64 = 2
 
 	for ent := range entChan {
-		ApplyPermissions(writable, &ent.Stat.Mode)
+		// stat will always be nil on platforms that have ReaddirPlus disabled
+		// and is not gauranteed to be filled on those that do
+		if ent.Stat != nil {
+			ApplyPermissions(writable, &ent.Stat.Mode)
+		}
 		if !fill(ent.Name, ent.Stat, fillOffset+ent.Offset) {
 			break
 		}

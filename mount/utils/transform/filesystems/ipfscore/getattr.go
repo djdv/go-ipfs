@@ -12,13 +12,7 @@ import (
 // TODO: [investigate] [b6150f2f-8689-4e60-a605-fd40c826c32d]
 // GetAttr resolves an IPFS API path and returns the attr, filled attr members, and error associated with the path
 func GetAttr(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
-	// translate from abstract path to CoreAPI resolved path
-	resolvedPath, err := core.ResolvePath(ctx, path)
-	if err != nil {
-		return nil, transform.IPFSStatRequest{}, err
-	}
-
-	ipldNode, err := core.Dag().Get(ctx, resolvedPath.Cid())
+	ipldNode, err := core.ResolveNode(ctx, path)
 	if err != nil {
 		return nil, transform.IPFSStatRequest{}, err
 	}
