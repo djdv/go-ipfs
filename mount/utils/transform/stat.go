@@ -1,6 +1,8 @@
 package transform
 
 import (
+	"runtime"
+
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/hugelgupf/p9/p9"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -33,7 +35,22 @@ type IPFSStatRequest struct {
 }
 
 func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
-	// TODO [saftey] we should probably panic if the uint64 source values exceed int64 positive range
+	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
+
+	if runtime.GOOS == "windows" {
+		if cs.FileType == coreiface.TSymlink {
+			return &fuselib.Stat_t{
+				Flags: fuselib.UF_ARCHIVE, // this is standard/conventional `mklink` will set this attribute
+				// this is standard/required
+				Mode:    fuselib.S_IFBLK,
+				Size:    0,
+				Blksize: 0,
+				Blocks:  0,
+				// time fields are okay
+			}
+		}
+	}
+
 	return &fuselib.Stat_t{
 		Mode:    coreTypeToFuseType(cs.FileType),
 		Size:    int64(cs.Size),
@@ -43,7 +60,7 @@ func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
 }
 
 func (cs *IPFSStat) To9P() *p9.Attr {
-	// TODO [saftey] we should probably panic if the uint64 source values exceed int64 positive range
+	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
 	return &p9.Attr{
 		Mode:      coreTypeTo9PType(cs.FileType),
 		Size:      cs.Size,

@@ -131,7 +131,7 @@ func (pd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	}
 
 	//return common.FlatReaddir(pd.dir, offset, count)
-	return pd.dir.Read(offset, uint64(count)).To9P()
+	return pd.dir.Readdir(offset, uint64(count)).To9P()
 }
 
 /* WalkRef relevant */

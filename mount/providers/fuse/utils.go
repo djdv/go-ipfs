@@ -32,19 +32,26 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 
 	switch runtime.GOOS {
 	case "windows": // expected target is WinFSP; use its options
+		// cgofuse expects an argument format broken up by components
+		// e.g. `mount.exe -o "uid=-1,volname=a valid name,gid=-1" --VolumePrefix=\localhost\UNC`
+		// is equivalent to this in Go:
+		//`[]string{"-o", "uid=-1,volname=a valid name,gid=-1", "--VolumePrefix=\\localhost\\UNC"}`
+		// refer to the WinFSP documentation for expected parameters and their literal format
+
 		// basic info
 		if namespace == mountinter.NamespaceAllInOne {
-			opts = `-o FileSystemName="IPFS",volname="IPFS"`
+			opts = "FileSystemName=IPFS,volname=IPFS"
 		} else {
-			opts = fmt.Sprintf("-o FileSystemName=%q,volname=%q", namespace.String(), namespace.String())
+			opts = fmt.Sprintf("FileSystemName=%s,volname=%s", namespace.String(), namespace.String())
 		}
 		// set the owner to be the same as the process (`daemon`'s or `mount`'s depending on background/foreground)
 		opts += ",uid=-1,gid=-1"
+		args = append(args, "-o", opts)
 
 		// convert UNC targets to WinFSP format
 		if len(target) > 2 && target[:2] == `\\` {
 			// NOTE: cgo-fuse/WinFSP UNC parameter uses single slash prefix
-			args = append(args, opts, fmt.Sprintf(`--VolumePrefix=%q`, target[1:]))
+			args = append(args, fmt.Sprintf(`--VolumePrefix=%s`, target[1:]))
 			break // don't set target value; UNC is handled by `VolumePrefix`
 		}
 

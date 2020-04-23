@@ -184,7 +184,7 @@ func (id *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	}
 
 	//return common.FlatReaddir(pd.dir, offset, count)
-	return id.directory.Read(offset, uint64(count)).To9P()
+	return id.directory.Readdir(offset, uint64(count)).To9P()
 }
 
 func (id *File) ReadAt(p []byte, offset int64) (int, error) {

@@ -93,7 +93,7 @@ func (cd *coreDir) ToFuse() (<-chan FuseStatGroup, error) {
 	return dirChan, cd.err
 }
 
-func (cd *coreDir) Read(offset, count uint64) directoryState {
+func (cd *coreDir) Readdir(offset, count uint64) directoryState {
 	if cd.err != nil { // refuse to operate
 		return cd
 	}

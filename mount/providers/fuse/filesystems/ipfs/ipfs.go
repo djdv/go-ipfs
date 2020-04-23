@@ -4,7 +4,9 @@ import (
 	"context"
 	"io"
 
+	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
+	files "github.com/ipfs/go-ipfs-files"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
@@ -16,8 +18,6 @@ import (
 
 var log logging.EventLogger = logging.Logger("fuse/ipfs")
 
-const todoHandle = 0
-
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
 
 type FileSystem struct {
@@ -25,8 +25,8 @@ type FileSystem struct {
 
 	initChan fusecom.InitSignal
 
-	file      transform.File
-	directory transform.Directory
+	files       fusecom.FileTable
+	directories fusecom.DirectoryTable
 
 	// TODO: remove this; packages should implement all interface methods within the package
 	fuselib.FileSystemBase
@@ -47,8 +47,10 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 	}
 
 	return &FileSystem{
-		IPFSCore: provcom.NewIPFSCore(ctx, core, options.resourceLock),
-		initChan: options.initSignal,
+		IPFSCore:    provcom.NewIPFSCore(ctx, core, options.resourceLock),
+		initChan:    options.initSignal,
+		files:       fusecom.NewFileTable(),
+		directories: fusecom.NewDirectoryTable(),
 	}
 }
 
@@ -73,6 +75,8 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	defer fs.Unlock()
 	log.Debugf("Open - {%X}%q", flags, path)
 
+	// TODO: parse flags
+
 	switch path {
 	case "":
 		// TODO: handle empty path (valid if fh is valid)
@@ -87,123 +91,17 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 			// TODO: proper error translations transError.ToFuse(), etc.
 			// EIO might not be appropriate here either ref: POSIX open()
 			log.Error(fuselib.Error(-fuselib.EIO))
-			return -fuselib.EIO, todoHandle
+			return -fuselib.EIO, fusecom.ErrorHandle
 		}
-		fs.file = file
+
+		handle, err := fs.files.Add(file)
+		if err != nil { // TODO: transform error
+			log.Error(fuselib.Error(-fuselib.ENFILE))
+			return -fuselib.ENFILE, fusecom.ErrorHandle
+		}
+
+		return fusecom.OperationSuccess, handle
 	}
-
-	return fusecom.OperationSuccess, todoHandle
-
-	/* old and gross; translate and slavage what you can from this arcane mess
-	log.Debugf("Open - Request {%X}%q", flags, path)
-	return 0, 0
-
-		if fs.AvailableHandles() == 0 {
-			log.Error("Open - all handle slots are filled")
-			return -fuselib.ENFILE, invalidIndex
-		}
-
-		// POSIX specifications
-		if flags&O_NOFOLLOW != 0 {
-			if indexErr == nil {
-				if nodeStat.Mode&fuselib.S_IFMT == fuselib.S_IFLNK {
-					log.Errorf("Open - nofollow requested but %q is a link", path)
-					return -fuselib.ELOOP, invalidIndex
-				}
-			}
-		}
-
-		if flags&fuselib.O_CREAT != 0 {
-			switch indexErr {
-			case os.ErrNotExist:
-				nodeType := unixfs.TFile
-				if flags&O_DIRECTORY != 0 {
-					nodeType = unixfs.TDirectory
-				}
-
-				callContext, cancel := deriveCallContext(fs.ctx)
-				defer cancel()
-				fErr, gErr := fsNode.Create(callContext, nodeType)
-				if gErr != nil {
-					log.Errorf("Create - %q: %s", path, gErr)
-					return fErr, invalidIndex
-				}
-				// node was created API side, clear create bits, jump back, and open it FS side
-				// respecting link restrictions
-				flags &^= (fuselib.O_EXCL | fuselib.O_CREAT)
-				goto lookup
-
-			case nil:
-				if flags&fuselib.O_EXCL != 0 {
-					log.Errorf("Create - exclusive flag provided but %q already exists", path)
-					return -fuselib.EEXIST, invalidIndex
-				}
-
-				if nodeStat.Mode&fuselib.S_IFMT == fuselib.S_IFDIR {
-					if flags&O_DIRECTORY == 0 {
-						log.Error("Create - regular file requested but %q resolved to an existing directory", path)
-						return -fuselib.EISDIR, invalidIndex
-					}
-				}
-			default:
-				log.Errorf("Create - unexpected %q: %s", path, indexErr)
-				return -fuselib.EACCES, invalidIndex
-			}
-		}
-
-		// Open proper -- resolves reference nodes
-		fsNode, err := fs.LookupPath(path)
-		if err != nil {
-			log.Errorf("Open - path err: %s", err)
-			return -fuselib.ENOENT, invalidIndex
-		}
-		fsNode.Lock()
-		defer fsNode.Unlock()
-
-		nodeStat, err = fsNode.Stat()
-		if err != nil {
-			log.Errorf("Open - node %q not initialized", path)
-			return -fuselib.EACCES, invalidIndex
-		}
-
-		if nodeStat.Mode&fuselib.S_IFMT != fuselib.S_IFLNK {
-			return -fuselib.ELOOP, invalidIndex //NOTE: this should never happen, lookup should resolve all
-		}
-
-		// if request is dir but node is dir
-		if (flags&O_DIRECTORY != 0) && (nodeStat.Mode&fuselib.S_IFMT != fuselib.S_IFDIR) {
-			log.Error("Open - Directory requested but %q does not resolve to a directory", path)
-			return -fuselib.ENOTDIR, invalidIndex
-		}
-
-		// if request was file but node is dir
-		if (flags&O_DIRECTORY == 0) && (nodeStat.Mode&fuselib.S_IFMT == fuselib.S_IFDIR) {
-			log.Error("Open - regular file requested but %q resolved to a directory", path)
-			return -fuselib.EISDIR, invalidIndex
-		}
-
-		callContext, cancel := deriveCallContext(fs.ctx)
-		defer cancel()
-
-		// io is an interface that points to a struct (generic/void*)
-		io, err := fsNode.YieldIo(callContext, unixfs.TFile)
-		if err != nil {
-			log.Errorf("Open - IO err %q %s", path, err)
-			return -fuselib.EIO, invalidIndex
-		}
-
-		// the address of io itself must remain the same across calls
-		// as we are sharing it with the OS
-		// we use the interface structure itself so that
-		// on our side we can change data sources
-		// without invalidating handles on the OS/client side
-		ifPtr := &io                                     // void *ifPtr = (FsFile*) io;
-		handle := uint64(uintptr(unsafe.Pointer(ifPtr))) // uint64_t handle = &ifPtr;
-		fsNode.Handles()[handle] = ifPtr                 //GC prevention of our double pointer; free upon Release()
-
-		log.Debugf("Open - Assigned [%X]%q", handle, fsNode)
-		return fusecom.FuseSuccess, handle
-	*/
 }
 
 func (fs *FileSystem) Opendir(path string) (int, uint64) {
@@ -224,26 +122,59 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 			log.Error(err)
 			return -fuselib.ENOENT, fusecom.ErrorHandle
 		}
-		fs.directory = directory
-		return fusecom.OperationSuccess, todoHandle
+		handle, err := fs.directories.Add(directory)
+		if err != nil { // TODO: transform error
+			log.Error(fuselib.Error(-fuselib.ENFILE))
+			return -fuselib.ENFILE, fusecom.ErrorHandle
+		}
+
+		return fusecom.OperationSuccess, handle
 	}
 }
 
 func (fs *FileSystem) Releasedir(path string, fh uint64) int {
+	log.Debugf("Releasedir - {%X}%q", fh, path)
+
+	if fh == fusecom.ErrorHandle {
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+	}
+
+	if err := fs.directories.Remove(fh); err != nil {
+		log.Error(err)
+		return -fuselib.EBADF
+	}
 	return fusecom.OperationSuccess
 }
 
 func (fs *FileSystem) Release(path string, fh uint64) int {
+	log.Debugf("Release - {%X}%q", fh, path)
+
+	if fh == fusecom.ErrorHandle {
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+	}
+
+	if err := fs.files.Remove(fh); err != nil {
+		log.Error(err)
+		return -fuselib.EBADF
+	}
+
 	return fusecom.OperationSuccess
 }
 
 func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int {
 	log.Debugf("Getattr - {%X}%q", fh, path)
+
 	switch path {
+	case "":
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+
 	case "/":
 		stat.Mode = fuselib.S_IFDIR | 0555
 		return fusecom.OperationSuccess
-		// TODO: handle empty path (valid if fh is valid)
+
 	default:
 		// expectation is to receive `/${multihash}`, not `/ipfs/${mulithash}`
 		iStat, _, err := transform.GetAttrCore(fs.Ctx(), corepath.New(path[1:]), fs.Core(), transform.IPFSStatRequestAll)
@@ -266,65 +197,107 @@ func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int 
 	// we also might want to store a file cursor to reduce calls to seek
 	// the same thing already happens internally so it's at worst the overhead of a call right now
 
+	if fh == fusecom.ErrorHandle {
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+	}
+
+	file, err := fs.files.Get(fh)
+	if err != nil {
+		log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+	}
+
 	if ofst < 0 {
 		log.Errorf("Read - Invalid offset {%d}[%X]%q", ofst, fh, path)
 		return -fuselib.EINVAL
 	}
 
-	if fileBound, err := fs.file.Size(); err == nil {
+	if fileBound, err := file.Size(); err == nil {
 		if ofst >= fileBound {
 			return 0 // POSIX expects this
 		}
 	}
 
 	if ofst != 0 {
-		_, err := fs.file.Seek(ofst, io.SeekStart)
+		_, err := file.Seek(ofst, io.SeekStart)
 		if err != nil {
 			log.Errorf("Read - seek error: %s", err)
 			return -fuselib.EIO
 		}
 	}
 
-	readBytes, err := fs.file.Read(buff)
+	readBytes, err := file.Read(buff)
 	if err != nil && err != io.EOF {
 		log.Errorf("Read - error: %s", err)
 		return -fuselib.EIO
 	}
 	return readBytes
 }
-
 func (fs *FileSystem) Readdir(path string,
 	fill func(name string, stat *fuselib.Stat_t, ofst int64) bool,
 	ofst int64,
-	fh uint64) (errc int) {
+	fh uint64) int {
 	log.Debugf("Readdir - {%X|%d}%q", fh, ofst, path)
 	// TODO: handle root path (empty directory)
 
-	// TODO: use fh instead of path for this
-	if fs.directory == nil {
+	if fh == fusecom.ErrorHandle {
 		log.Error(fuselib.Error(-fuselib.EBADF))
 		return -fuselib.EBADF
 	}
 
-	// TODO: [audit] int -> uint needs range checking
-	entChan, err := fs.directory.Read(uint64(ofst), 0).ToFuse()
+	directory, err := fs.directories.Get(fh)
 	if err != nil {
-		// TODO: inspect error
 		log.Error(fuselib.Error(-fuselib.EBADF))
 		return -fuselib.EBADF
 	}
 
-	fill(".", nil, 0)
-	fill("..", nil, 0) // if parent !nil; parent.Getattr().ToFuse()
-
-	for ent := range entChan {
-		log.Debugf("ent pre: %#v", ent)
-		fusecom.ApplyPermissions(false, &ent.Stat.Mode)
-		log.Debugf("ent post: %#v", ent)
-		if !fill(ent.Name, ent.Stat, ent.Offset) {
-			log.Debugf("Readdir - aborting, fill dropped {[%X]%q}", fh, path)
-			break
-		}
+	goErr, errNo := fusecom.FillDir(directory, false, fill, ofst)
+	if goErr != nil {
+		log.Error(goErr)
 	}
-	return fusecom.OperationSuccess
+
+	return errNo
+}
+
+func (fs *FileSystem) Readlink(path string) (int, string) {
+	log.Debugf("Readlink - %q", path)
+
+	switch path {
+	default:
+		break
+
+	case "/":
+		log.Warnf("Readlink - root path is an invalid request")
+		return -fuse.EINVAL, ""
+
+	case "":
+		log.Error("Readlink - empty request")
+		return -fuselib.ENOENT, ""
+	}
+
+	// TODO: timeout contexts
+	corePath := corepath.New(path[1:])
+	iStat, _, err := transform.GetAttrCore(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequest{Type: true})
+	if err != nil {
+		log.Error(err)
+		return -fuselib.ENOENT, ""
+	}
+
+	if iStat.FileType != coreiface.TSymlink {
+		log.Errorf("Readlink - {%s}%q is not a symlink", iStat.FileType, path)
+		return -fuse.EINVAL, ""
+	}
+
+	linkNode, err := fs.Core().Unixfs().Get(fs.Ctx(), corePath)
+	if err != nil {
+		log.Error(err)
+		return -fuse.EIO, ""
+	}
+
+	// NOTE: the implementation of this does no checks
+	// which is why we check the node's type above
+	linkActual := files.ToSymlink(linkNode)
+
+	return len(linkActual.Target), linkActual.Target
 }

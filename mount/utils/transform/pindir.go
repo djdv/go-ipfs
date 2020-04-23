@@ -98,7 +98,7 @@ func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
 	return dirChan, pd.err
 }
 
-func (pd *pinDir) Read(offset, count uint64) directoryState {
+func (pd *pinDir) Readdir(offset, count uint64) directoryState {
 	if pd.err != nil { // refuse to operate
 		return pd
 	}

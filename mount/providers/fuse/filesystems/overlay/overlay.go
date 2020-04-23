@@ -5,10 +5,11 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
+	config "github.com/ipfs/go-ipfs-config"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
@@ -73,12 +74,14 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 	}
 
 	{ // /ipns
+		/* TODO
 		ipnsSub := ipns.NewFileSystem(ctx, core, []ipfs.Option{
 			ipfs.WithParent(overlay),
 			ipfs.WithInitSignal(initChan),
 		}...)
 		subInits = append(subInits, ipnsSub.Init)
 		overlay.ipns = ipnsSub
+		*/
 	}
 
 	{ // /file
@@ -165,7 +168,29 @@ func (fs *FileSystem) Destroy() {
 }
 
 func (fs *FileSystem) Statfs(path string, stat *fuselib.Statfs_t) int {
-	return -fuselib.ENOSYS
+	log.Debugf("Statfs - Request %q", path)
+
+	if path == "" || path == "/" {
+		target, err := config.DataStorePath("")
+		if err != nil {
+			log.Errorf("Statfs - Config err %q: %v", path, err)
+			return -fuse.ENOENT
+		}
+
+		goErr, errNo := fusecom.Statfs(target, stat)
+		if err != nil {
+			log.Errorf("Statfs - err %q: %v", target, goErr)
+		}
+		return errNo
+	}
+
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Statfs(remainder, stat)
 }
 
 func (fs *FileSystem) Mknod(path string, mode uint32, dev uint64) int {
@@ -193,7 +218,26 @@ func (fs *FileSystem) Symlink(target string, newpath string) int {
 }
 
 func (fs *FileSystem) Readlink(path string) (int, string) {
-	return -fuselib.ENOSYS, ""
+	log.Debugf("Readlink - %q", path)
+	switch path {
+	default:
+		targetFs, remainder, err := fs.selectFS(path)
+		if err != nil {
+			log.Error(fuselib.Error(-fuselib.ENOENT))
+			return -fuselib.ENOENT, ""
+		}
+
+		return targetFs.Readlink(remainder)
+
+	case "/":
+		log.Warnf("Readlink - root path is an invalid request")
+		return -fuse.EINVAL, ""
+
+	case "":
+		log.Error("Readlink - empty request")
+		return -fuse.ENOENT, ""
+
+	}
 }
 
 func (fs *FileSystem) Rename(oldpath string, newpath string) int {
@@ -248,20 +292,16 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 	log.Debugf("Getattr - {%X}%q", fh, path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
 	}
-	// TODO: implement for real
+
 	if targetFs == fs {
-		switch remainder {
-		case "ipfs", "ipns", "file", "":
-			stat.Mode |= fuselib.S_IFDIR
-			fusecom.ApplyPermissions(false, &stat.Mode)
-			return fusecom.OperationSuccess
-		default:
-			log.Error(fuselib.Error(-fuselib.ENOENT))
-			return -fuselib.ENOENT
-		}
+		stat.Mode |= fuselib.S_IFDIR
+		fusecom.ApplyPermissions(false, &stat.Mode)
+		return fusecom.OperationSuccess
 	}
+
 	return targetFs.Getattr(remainder, stat, fh)
 }
 
@@ -339,8 +379,12 @@ func (fs *FileSystem) Readdir(path string,
 	if targetFs == fs {
 		fill(".", nil, 0)
 		fill("..", nil, 0)
-		fill("ipfs", nil, 0)
-		fill("ipns", nil, 0)
+		if fs.ipfs != nil {
+			fill("ipfs", nil, 0)
+		}
+		if fs.ipns != nil {
+			fill("ipns", nil, 0)
+		}
 		if fs.mfs != nil {
 			fill("file", nil, 0)
 		}
