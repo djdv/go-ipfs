@@ -8,7 +8,7 @@ import (
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
-	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	pinfs "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/pinfs"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -93,7 +93,7 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 		return -fuselib.ENOENT, fusecom.ErrorHandle
 
 	case "/":
-		pinDir := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+		pinDir := pinfs.OpenDir(fs.Ctx(), fs.Core())
 		handle, err := fs.directories.Add(pinDir)
 		if err != nil { // TODO: inspect/transfor error
 			log.Error(err)
@@ -230,4 +230,9 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 		log.Error("Readlink - empty request")
 		return -fuselib.ENOENT, ""
 	}
+}
+
+func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) {
+	log.Debugf("Create - {%X|%X}%q", flags, mode, path)
+	return fs.Open(path, flags) // TODO: implement for real
 }

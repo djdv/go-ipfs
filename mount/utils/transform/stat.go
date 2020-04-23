@@ -46,7 +46,7 @@ func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
 				Size:    0,
 				Blksize: 0,
 				Blocks:  0,
-				// time fields are okay
+				// other fields are okay
 			}
 		}
 	}

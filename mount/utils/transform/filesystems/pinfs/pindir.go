@@ -1,4 +1,4 @@
-package transform
+package pinfs
 
 import (
 	"context"
@@ -9,13 +9,17 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/hugelgupf/p9/p9"
+	provcom "github.com/ipfs/go-ipfs/mount/providers"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
+	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipld"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 )
 
 var (
-	_ Directory      = (*pinDir)(nil)
-	_ directoryState = (*pinDir)(nil)
+	_ transform.Directory      = (*pinDir)(nil)
+	_ transform.DirectoryState = (*pinDir)(nil)
 )
 
 // TODO: [async safe]
@@ -37,9 +41,16 @@ func (pd *pinDir) To9P() (p9.Dirents, error) {
 	nineEnts := make(p9.Dirents, 0, len(pd.pinSlice))
 	for _, pin := range pd.pinSlice {
 		callCtx, cancel := context.WithTimeout(pd.ctx, 10*time.Second)
-		subQid, err := coreToQID(callCtx, pin.Path(), pd.core)
+
+		pinPath := pin.Path()
+		node, err := pd.core.Dag().Get(callCtx, pinPath.Cid())
 		if err != nil {
-			cancel()
+			pd.err = err
+			return nil, err
+		}
+
+		stat, _, err := ipld.GetAttr(callCtx, node, transform.IPFSStatRequest{Type: true})
+		if err != nil {
 			pd.err = err
 			return nil, err
 		}
@@ -47,7 +58,7 @@ func (pd *pinDir) To9P() (p9.Dirents, error) {
 		nineEnts = append(nineEnts, p9.Dirent{
 			Name:   gopath.Base(pin.Path().String()),
 			Offset: pd.cursor,
-			QID:    subQid,
+			QID:    transform.CidToQID(pinPath.Cid(), stat.FileType),
 		})
 
 		pd.cursor++
@@ -57,12 +68,12 @@ func (pd *pinDir) To9P() (p9.Dirents, error) {
 	return nineEnts, pd.err
 }
 
-func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
+func (pd *pinDir) ToFuse() (<-chan transform.FuseStatGroup, error) {
 	if pd.err != nil {
 		return nil, pd.err
 	}
 
-	dirChan := make(chan FuseStatGroup)
+	dirChan := make(chan transform.FuseStatGroup)
 	go func() {
 		defer close(dirChan)
 		for _, pin := range pd.pinSlice {
@@ -74,9 +85,9 @@ func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
 			}
 
 			var fStat *fuselib.Stat_t
-			if CanReaddirPlus {
+			if provcom.CanReaddirPlus {
 				callCtx, cancel := context.WithTimeout(pd.ctx, 10*time.Second)
-				iStat, _, err := GetAttrCore(callCtx, pin.Path(), pd.core, IPFSStatRequestAll)
+				iStat, _, err := ipfscore.GetAttr(callCtx, pin.Path(), pd.core, transform.IPFSStatRequestAll)
 				cancel()
 
 				// stat errors are not fatal; it's okay to return nil to fill
@@ -86,7 +97,7 @@ func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
 				}
 			}
 
-			dirChan <- FuseStatGroup{
+			dirChan <- transform.FuseStatGroup{
 				gopath.Base(pin.Path().String()),
 				int64(pd.cursor),
 				fStat,
@@ -98,7 +109,7 @@ func (pd *pinDir) ToFuse() (<-chan FuseStatGroup, error) {
 	return dirChan, pd.err
 }
 
-func (pd *pinDir) Readdir(offset, count uint64) directoryState {
+func (pd *pinDir) Readdir(offset, count uint64) transform.DirectoryState {
 	if pd.err != nil { // refuse to operate
 		return pd
 	}
@@ -140,7 +151,7 @@ func (pd *pinDir) Readdir(offset, count uint64) directoryState {
 	return pd
 }
 
-func OpenDirPinfs(ctx context.Context, core coreiface.CoreAPI) Directory {
+func OpenDir(ctx context.Context, core coreiface.CoreAPI) *pinDir {
 	return &pinDir{
 		core: core,
 		ctx:  ctx,

@@ -1,4 +1,4 @@
-package transform
+package ipfscore
 
 import (
 	"context"
@@ -8,13 +8,15 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/hugelgupf/p9/p9"
+	provcom "github.com/ipfs/go-ipfs/mount/providers"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 var (
-	_ Directory      = (*coreDir)(nil)
-	_ directoryState = (*coreDir)(nil)
+	_ transform.Directory      = (*coreDir)(nil)
+	_ transform.DirectoryState = (*coreDir)(nil)
 )
 
 type (
@@ -48,7 +50,7 @@ func (cd *coreDir) To9P() (p9.Dirents, error) {
 	nineEnts := make(p9.Dirents, 0)
 	for coreEntry := range cd.exitChan {
 		// convert from core wrapper -> 9P
-		nineEnt := coreDirEntryTo9Dirent(coreEntry.DirEntry)
+		nineEnt := transform.CoreDirEntryTo9Dirent(coreEntry.DirEntry)
 		nineEnt.Offset = coreEntry.offset
 
 		nineEnts = append(nineEnts, nineEnt)
@@ -57,23 +59,23 @@ func (cd *coreDir) To9P() (p9.Dirents, error) {
 	return nineEnts, cd.err
 }
 
-func (cd *coreDir) ToFuse() (<-chan FuseStatGroup, error) {
+func (cd *coreDir) ToFuse() (<-chan transform.FuseStatGroup, error) {
 	if cd.err != nil {
 		return nil, cd.err
 	}
 
-	dirChan := make(chan FuseStatGroup)
+	dirChan := make(chan transform.FuseStatGroup)
 
 	go func() {
 		defer close(dirChan)
 		for coreEntry := range cd.exitChan {
 
 			var fStat *fuselib.Stat_t
-			if CanReaddirPlus {
+			if provcom.CanReaddirPlus {
 				callCtx, cancel := context.WithTimeout(cd.ctx, 10*time.Second)
 
 				subPath := corepath.Join(cd.path, coreEntry.DirEntry.Name)
-				iStat, _, err := GetAttrCore(callCtx, subPath, cd.core, IPFSStatRequestAll)
+				iStat, _, err := GetAttr(callCtx, subPath, cd.core, transform.IPFSStatRequestAll)
 				cancel()
 
 				// stat errors are not fatal; it's okay to return nil to fill
@@ -83,7 +85,7 @@ func (cd *coreDir) ToFuse() (<-chan FuseStatGroup, error) {
 				}
 			}
 
-			dirChan <- FuseStatGroup{
+			dirChan <- transform.FuseStatGroup{
 				coreEntry.Name,
 				int64(coreEntry.offset),
 				fStat,
@@ -93,7 +95,7 @@ func (cd *coreDir) ToFuse() (<-chan FuseStatGroup, error) {
 	return dirChan, cd.err
 }
 
-func (cd *coreDir) Readdir(offset, count uint64) directoryState {
+func (cd *coreDir) Readdir(offset, count uint64) transform.DirectoryState {
 	if cd.err != nil { // refuse to operate
 		return cd
 	}
@@ -160,9 +162,9 @@ func (cd *coreDir) Readdir(offset, count uint64) directoryState {
 	return cd
 }
 
-func CoreOpenDir(ctx context.Context, path corepath.Path, core coreiface.CoreAPI) (Directory, error) {
+func OpenDir(ctx context.Context, path corepath.Path, core coreiface.CoreAPI) (*coreDir, error) {
 	// do type checking of path
-	iStat, _, err := GetAttrCore(ctx, path, core, IPFSStatRequest{Type: true})
+	iStat, _, err := GetAttr(ctx, path, core, transform.IPFSStatRequest{Type: true})
 	if err != nil {
 		return nil, err
 	}

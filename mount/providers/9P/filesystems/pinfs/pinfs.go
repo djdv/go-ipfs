@@ -11,6 +11,7 @@ import (
 	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/ipfs"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/pinfs"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -86,7 +87,7 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return p9.QID{}, 0, err
 	}
 
-	pd.dir = transform.OpenDirPinfs(pd.OperationsCtx, pd.Core)
+	pd.dir = pinfs.OpenDir(pd.OperationsCtx, pd.Core)
 
 	atomic.StoreUintptr(pd.Opened, 1)
 	pd.open = true

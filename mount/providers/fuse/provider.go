@@ -12,7 +12,6 @@ import (
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
-	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -147,9 +146,7 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 
 	fsh = fuselib.NewFileSystemHost(fs)
 
-	if transform.CanReaddirPlus {
-		fsh.SetCapReaddirPlus(true)
-	}
+	fsh.SetCapReaddirPlus(provcom.CanReaddirPlus)
 	fsh.SetCapCaseInsensitive(false)
 
 	return fsh, initSignal, nil

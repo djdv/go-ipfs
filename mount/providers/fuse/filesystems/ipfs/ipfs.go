@@ -11,6 +11,7 @@ import (
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
@@ -86,7 +87,7 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 		log.Error(fuselib.Error(-fuselib.EISDIR))
 		return -fuselib.EISDIR, fusecom.ErrorHandle
 	default:
-		file, err := transform.CoreOpenFile(fs.Ctx(), corepath.New(path[1:]), fs.Core(), transform.IOFlagsFromFuse(flags))
+		file, err := ipfscore.OpenFile(fs.Ctx(), corepath.New(path[1:]), fs.Core(), transform.IOFlagsFromFuse(flags))
 		if err != nil {
 			// TODO: proper error translations transError.ToFuse(), etc.
 			// EIO might not be appropriate here either ref: POSIX open()
@@ -117,7 +118,7 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 		return -fuselib.EISDIR, fusecom.ErrorHandle
 
 	default:
-		directory, err := transform.CoreOpenDir(fs.Ctx(), corepath.New(path[1:]), fs.Core())
+		directory, err := ipfscore.OpenDir(fs.Ctx(), corepath.New(path[1:]), fs.Core())
 		if err != nil {
 			log.Error(err)
 			return -fuselib.ENOENT, fusecom.ErrorHandle
@@ -177,7 +178,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 
 	default:
 		// expectation is to receive `/${multihash}`, not `/ipfs/${mulithash}`
-		iStat, _, err := transform.GetAttrCore(fs.Ctx(), corepath.New(path[1:]), fs.Core(), transform.IPFSStatRequestAll)
+		iStat, _, err := ipfscore.GetAttr(fs.Ctx(), corepath.New(path[1:]), fs.Core(), transform.IPFSStatRequestAll)
 		if err != nil {
 			log.Error(err)
 			return -fuselib.ENOENT
@@ -278,7 +279,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 
 	// TODO: timeout contexts
 	corePath := corepath.New(path[1:])
-	iStat, _, err := transform.GetAttrCore(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequest{Type: true})
+	iStat, _, err := ipfscore.GetAttr(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequest{Type: true})
 	if err != nil {
 		log.Error(err)
 		return -fuselib.ENOENT, ""
@@ -295,9 +296,14 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 		return -fuse.EIO, ""
 	}
 
-	// NOTE: the implementation of this does no checks
+	// NOTE: the implementation of this does no type checks
 	// which is why we check the node's type above
 	linkActual := files.ToSymlink(linkNode)
 
 	return len(linkActual.Target), linkActual.Target
+}
+
+func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) {
+	log.Debugf("Create - {%X|%X}%q", flags, mode, path)
+	return fs.Open(path, flags) // TODO: implement for real
 }
