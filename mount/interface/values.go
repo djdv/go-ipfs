@@ -19,15 +19,18 @@ const (
 
 //go:generate stringer -type=Namespace -trimprefix=Namespace -linecomment
 const (
-	// TODO: consider renaming AllInOne to Overlay or simillar
+	// TODO: consider renaming AllInOne to Overlay or similar
 	// NOTE:
 	// NamespaceAll should be implemented by conductors; targeting all available namespaces
 	// NamespaceAllInOne should be implemented by providers
 
 	NamespaceNone Namespace = iota
+	NamespaceCore
 	NamespaceIPFS
 	NamespaceIPNS
 	NamespaceFiles
+	NamespacePinFS
+	NamespaceKeyFS
 	// mounts all namespaces to their config or default targets
 	NamespaceAll
 	// mounts all namespaces within a single directory to a single target
@@ -64,10 +67,13 @@ func (pairs TargetCollections) String() string {
 }
 
 func ParseNamespace(in string) Namespace {
+	// core/ipld namespace is omitted for now
 	return map[string]Namespace{
 		strings.ToLower(NamespaceIPFS.String()):     NamespaceIPFS,
 		strings.ToLower(NamespaceIPNS.String()):     NamespaceIPNS,
 		strings.ToLower(NamespaceFiles.String()):    NamespaceFiles,
+		strings.ToLower(NamespacePinFS.String()):    NamespacePinFS,
+		strings.ToLower(NamespaceKeyFS.String()):    NamespaceKeyFS,
 		strings.ToLower(NamespaceAll.String()):      NamespaceAll,
 		strings.ToLower(NamespaceAllInOne.String()): NamespaceAllInOne,
 	}[strings.ToLower(in)]

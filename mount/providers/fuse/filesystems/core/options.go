@@ -1,4 +1,4 @@
-package ipfs
+package ipfscore
 
 import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"

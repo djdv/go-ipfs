@@ -9,16 +9,19 @@ func _() {
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
 	_ = x[NamespaceNone-0]
-	_ = x[NamespaceIPFS-1]
-	_ = x[NamespaceIPNS-2]
-	_ = x[NamespaceFiles-3]
-	_ = x[NamespaceAll-4]
-	_ = x[NamespaceAllInOne-5]
+	_ = x[NamespaceCore-1]
+	_ = x[NamespaceIPFS-2]
+	_ = x[NamespaceIPNS-3]
+	_ = x[NamespaceFiles-4]
+	_ = x[NamespacePinFS-5]
+	_ = x[NamespaceKeyFS-6]
+	_ = x[NamespaceAll-7]
+	_ = x[NamespaceAllInOne-8]
 }
 
-const _Namespace_name = "NoneIPFSIPNSFilesAllOverlay"
+const _Namespace_name = "NoneCoreIPFSIPNSFilesPinFSKeyFSAllOverlay"
 
-var _Namespace_index = [...]uint8{0, 4, 8, 12, 17, 20, 27}
+var _Namespace_index = [...]uint8{0, 4, 8, 12, 16, 21, 26, 31, 34, 41}
 
 func (i Namespace) String() string {
 	if i < 0 || i >= Namespace(len(_Namespace_index)-1) {

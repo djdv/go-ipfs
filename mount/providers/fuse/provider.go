@@ -9,7 +9,9 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
+	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	gomfs "github.com/ipfs/go-mfs"
@@ -134,12 +136,9 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 		fs = overlay.NewFileSystem(ctx, core, oOps...)
 
 	case mountinter.NamespaceIPFS:
-		iOps := []ipfs.Option{
-			ipfs.WithInitSignal(initSignal),
-		}
-		fs = ipfs.NewFileSystem(ctx, core, iOps...)
+		fs = ipfs.NewFileSystem(ctx, core, ipfscore.WithInitSignal(initSignal))
 	case mountinter.NamespaceIPNS:
-		fallthrough
+		fs = ipns.NewFileSystem(ctx, core, ipfscore.WithInitSignal(initSignal))
 	case mountinter.NamespaceFiles:
 		return nil, nil, fmt.Errorf("not implemented yet: %v", namespace)
 	}

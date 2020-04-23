@@ -8,6 +8,7 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/hugelgupf/p9/p9"
+	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -86,9 +87,9 @@ func (cd *coreDir) ToFuse() (<-chan transform.FuseStatGroup, error) {
 			}
 
 			dirChan <- transform.FuseStatGroup{
-				coreEntry.Name,
-				int64(coreEntry.offset),
-				fStat,
+				Name:   coreEntry.Name,
+				Offset: int64(coreEntry.offset),
+				Stat:   fStat,
 			}
 		}
 	}()
@@ -162,22 +163,29 @@ func (cd *coreDir) Readdir(offset, count uint64) transform.DirectoryState {
 	return cd
 }
 
-func OpenDir(ctx context.Context, path corepath.Path, core coreiface.CoreAPI) (*coreDir, error) {
+func OpenDir(ctx context.Context, ns mountinter.Namespace, path string, core coreiface.CoreAPI) (*coreDir, error) {
+	// func OpenDir(ctx context.Context, path corepath.Path, core coreiface.CoreAPI) (*coreDir, error) {
+
+	fullPath, err := joinRoot(ns, path)
+	if err != nil {
+		return nil, err
+	}
+
 	// do type checking of path
-	iStat, _, err := GetAttr(ctx, path, core, transform.IPFSStatRequest{Type: true})
+	iStat, _, err := GetAttr(ctx, fullPath, core, transform.IPFSStatRequest{Type: true})
 	if err != nil {
 		return nil, err
 	}
 
 	if iStat.FileType != coreiface.TDirectory {
 		// TODO: [ad4c44e0-a93f-4333-92d2-7a2aeccce3ef] typedef errors
-		return nil, fmt.Errorf("%q (type: %s) is not a diretory", path.String(), iStat.FileType.String())
+		return nil, fmt.Errorf("%q (type: %s) is not a diretory", fullPath.String(), iStat.FileType.String())
 	}
 
 	return &coreDir{
 		core: core,
 		ctx:  ctx,
-		path: path,
+		path: fullPath,
 	}, nil
 }
 

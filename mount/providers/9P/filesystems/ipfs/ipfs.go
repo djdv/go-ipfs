@@ -8,6 +8,7 @@ import (
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
+	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
@@ -116,7 +117,8 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		}
 
 		// everything else
-		dir, err := ipfscore.OpenDir(id.OperationsCtx, id.CorePath(), id.Core)
+		// TODO: refactor; currently uses a constant namespace; should pull from the node
+		dir, err := ipfscore.OpenDir(id.OperationsCtx, mountinter.NamespaceIPFS, id.Base.String(), id.Core)
 		if err != nil {
 			return qid, 0, err
 		}
@@ -129,7 +131,7 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	callCtx, cancel := id.CallCtx()
 	defer cancel()
 
-	file, err := ipfscore.OpenFile(callCtx, id.CorePath(), id.Core, transform.IOFlagsFrom9P(mode))
+	file, err := ipfscore.OpenFile(callCtx, mountinter.NamespaceIPFS, id.Base.String(), id.Core, transform.IOFlagsFrom9P(mode))
 	if err != nil {
 		return qid, 0, err
 	}

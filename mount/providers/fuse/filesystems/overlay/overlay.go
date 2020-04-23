@@ -3,13 +3,16 @@ package overlay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	config "github.com/ipfs/go-ipfs-config"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
+	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
@@ -50,16 +53,20 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 
 	subInits := make([]func(), 0, subsystems)
 
-	{ // attach /ipfs
-		// TODO: use concrete type when it implements the full FS; the compiler hates embedding right now
-		//var pinfsSub pinfs.FileSystem
-		var pinfsSub fuselib.FileSystemInterface
+	{ // attach /ipfs + /ipns
 
-		ipfsSub := ipfs.NewFileSystem(ctx, core, []ipfs.Option{
-			ipfs.WithParent(pinfsSub),
-			ipfs.WithInitSignal(initChan),
-			ipfs.WithResourceLock(options.resourceLock),
-		}...)
+		// pinfs + ipfs
+		var (
+			pinfsSub *pinfs.FileSystem
+			// keyfsSub *keyfs.FileSystem // TODO
+		)
+
+		coreOpts := []ipfscore.Option{
+			ipfscore.WithInitSignal(initChan),
+			ipfscore.WithResourceLock(options.resourceLock),
+		}
+
+		ipfsSub := ipfs.NewFileSystem(ctx, core, append(coreOpts, ipfscore.WithParent(pinfsSub))...)
 		subInits = append(subInits, ipfsSub.Init)
 
 		pinfsSub = pinfs.NewFileSystem(ctx, core, []pinfs.Option{
@@ -71,17 +78,13 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 		subInits = append(subInits, pinfsSub.Init)
 
 		overlay.ipfs = pinfsSub
-	}
 
-	{ // /ipns
-		/* TODO
-		ipnsSub := ipns.NewFileSystem(ctx, core, []ipfs.Option{
-			ipfs.WithParent(overlay),
-			ipfs.WithInitSignal(initChan),
-		}...)
+		// keyfs + ipns
+		// TODO: populate keyfs
+		//ipnsSub := ipns.NewFileSystem(ctx, core, append(coreOpts, ipfscore.WithParent(keyfsSub))...)
+		ipnsSub := ipns.NewFileSystem(ctx, core, append(coreOpts, ipfscore.WithParent(overlay))...)
 		subInits = append(subInits, ipnsSub.Init)
 		overlay.ipns = ipnsSub
-		*/
 	}
 
 	{ // /file
@@ -141,11 +144,11 @@ func (fs *FileSystem) selectFS(path string) (fuselib.FileSystemInterface, string
 			return fs.ipns, pathRemainder, nil
 		case "file":
 			if fs.mfs == nil {
-				return nil, "", errors.New("TODO: real error")
+				return nil, "", errors.New("mfs is not attached")
 			}
 			return fs.mfs, pathRemainder, nil
 		default:
-			return nil, "", errors.New("TODO: real error")
+			return nil, "", fmt.Errorf("requested subsystem %q is not attached", namespace)
 		}
 
 	}
@@ -292,7 +295,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 	log.Debugf("Getattr - {%X}%q", fh, path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		log.Error(fuselib.Error(-fuselib.ENOENT))
+		log.Error(err)
 		return -fuselib.ENOENT
 	}
 
