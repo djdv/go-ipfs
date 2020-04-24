@@ -2,6 +2,7 @@ package ipfscore
 
 import (
 	"context"
+	"errors"
 	"io"
 	gopath "path"
 	"strings"
@@ -94,16 +95,23 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 		// TODO: handle empty path (valid if fh is valid)
 		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
 		return -fuselib.ENOENT, fusecom.ErrorHandle
+
 	case "/":
+		// TODO: transform error
 		fs.log.Error(fuselib.Error(-fuselib.EISDIR))
 		return -fuselib.EISDIR, fusecom.ErrorHandle
+
 	default:
 		file, err := ipfscore.OpenFile(fs.Ctx(), fs.namespace, path[1:], fs.Core(), transform.IOFlagsFromFuse(flags))
 		if err != nil {
-			// TODO: proper error translations transError.ToFuse(), etc.
-			// EIO might not be appropriate here either ref: POSIX open()
-			fs.log.Error(fuselib.Error(-fuselib.EIO))
-			return -fuselib.EIO, fusecom.ErrorHandle
+			fs.log.Error(err)
+
+			errNo := -fuselib.EIO
+			var ioErr *transform.IOError
+			if errors.As(err, &ioErr) {
+				errNo = ioErr.ToFuse()
+			}
+			return errNo, fusecom.ErrorHandle
 		}
 
 		handle, err := fs.files.Add(file)
@@ -210,7 +218,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 }
 
 func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int {
-	fs.log.Debugf("Read - {%X}%q", fh, path)
+	fs.log.Debugf("Read - Request {%X|%d}%q", fh, ofst, path)
 
 	// TODO: [review] we need to do things on failure
 	// the OS typically triggers a close, but we shouldn't expect it to invalidate this record for us

@@ -2,7 +2,6 @@ package ipfscore
 
 import (
 	"context"
-	"fmt"
 
 	files "github.com/ipfs/go-ipfs-files"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
@@ -25,22 +24,24 @@ func (cio *coreFile) Seek(offset int64, whence int) (int64, error) {
 func OpenFile(ctx context.Context, ns mountinter.Namespace, path string, core coreiface.CoreAPI, flags transform.IOFlags) (*coreFile, error) {
 	fullPath, err := joinRoot(ns, path)
 	if err != nil {
-		return nil, err
+		return nil, &transform.IOError{ExternalErr: err}
 	}
 
 	switch flags {
 	case transform.IOWriteOnly, transform.IOReadWrite:
-		return nil, transform.ErrIOReadOnly
+		return nil, &transform.ErrIOReadOnly
 	}
 
 	apiNode, err := core.Unixfs().Get(ctx, fullPath)
 	if err != nil {
-		return nil, err
+		return nil, &transform.IOError{ExternalErr: err}
 	}
 
 	fileNode, ok := apiNode.(files.File)
 	if !ok {
-		return nil, fmt.Errorf("%q does not appear to be a file: %T", fullPath.String(), apiNode)
+		// TODO: fill in error string when sensible
+		// return nil, fmt.Errorf("%q does not appear to be a file: %T", fullPath.String(), apiNode)
+		return nil, &transform.ErrNotFile
 	}
 
 	return &coreFile{f: fileNode}, nil
