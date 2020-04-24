@@ -93,9 +93,13 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 		return -fuselib.ENOENT, fusecom.ErrorHandle
 
 	case "/":
-		pinDir := pinfs.OpenDir(fs.Ctx(), fs.Core())
+		pinDir, err := pinfs.OpenDir(fs.Ctx(), fs.Core())
+		if err != nil { // TODO: inspect/transform error
+			log.Error(err)
+			return -fuselib.ENOENT, fusecom.ErrorHandle
+		}
 		handle, err := fs.directories.Add(pinDir)
-		if err != nil { // TODO: inspect/transfor error
+		if err != nil { // TODO: inspect/transform error
 			log.Error(err)
 			return -fuselib.ENFILE, fusecom.ErrorHandle
 		}
@@ -182,11 +186,6 @@ func (fs *FileSystem) Readdir(path string,
 	ofst int64,
 	fh uint64) int {
 	log.Debugf("Readdir - {%X|%d}%q", fh, ofst, path)
-
-	if fh == fusecom.ErrorHandle {
-		log.Error(fuselib.Error(-fuselib.EBADF))
-		return -fuselib.EBADF
-	}
 
 	if path != "/" && fs.proxy != nil {
 		return fs.proxy.Readdir(path, fill, ofst, fh)

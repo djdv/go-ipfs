@@ -2,8 +2,6 @@ package ipfscore
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
@@ -37,10 +35,10 @@ type coreDir struct {
 	cancel context.CancelFunc
 	err    error
 
-	path      corepath.Path
-	entryChan entryChan
-	exitChan  exitChan
-	cursor    uint64
+	path                     corepath.Path
+	entryChan                entryChan
+	exitChan                 exitChan
+	cursor, validOffsetBound uint64 // See Filldir remark [53efa63b-7d75-4a5c-96c9-47e2dc7c6e6b] for directory bound info
 }
 
 func (cd *coreDir) To9P() (p9.Dirents, error) {
@@ -101,10 +99,13 @@ func (cd *coreDir) Readdir(offset, count uint64) transform.DirectoryState {
 		return cd
 	}
 
-	if offset == 0 { // initialize
+	// reinit // rewinddir
+	if offset == 0 && cd.cursor != 1 { // only reset if we've actually moved
 		if cd.cancel != nil { // close previous request (if any)
 			cd.cancel()
 		}
+		close(cd.exitChan)
+
 		operationContext, cancel := context.WithCancel(cd.ctx)
 		cd.cancel = cancel
 
@@ -120,17 +121,16 @@ func (cd *coreDir) Readdir(offset, count uint64) transform.DirectoryState {
 		cd.cursor = 1
 	}
 
-	if cd.entryChan == nil {
-		cd.err = errors.New("not opened") // TODO: replace err
+	if offset < cd.validOffsetBound || offset > cd.cursor {
+		// return NULL dirent to reader
+		close(cd.exitChan)
 		return cd
 	}
 
-	if offset != cd.cursor-1 { // offset provided to us, was previously provided by us; or has since been invalidated
-		cd.err = fmt.Errorf("read offset %d is not valid", offset)
-		return cd
-	}
+	// TODO: we need to cache entries received for seekdir to work properly
+	// for now we rely on FUSE to handle it or callers to go forward only
 
-	untilEndOfStream := count == 0
+	untilEndOfStream := count == 0 // special case, go forever
 
 	go func() {
 		defer close(cd.exitChan)
@@ -153,6 +153,7 @@ func (cd *coreDir) Readdir(offset, count uint64) transform.DirectoryState {
 				// send it to whichever translation method wants to receive it
 				cd.exitChan <- coreEntry{DirEntry: entry, offset: cd.cursor}
 				cd.cursor++
+				cd.validOffsetBound++
 
 			case <-cd.ctx.Done():
 				cd.err = cd.ctx.Err()
@@ -171,25 +172,29 @@ func OpenDir(ctx context.Context, ns mountinter.Namespace, path string, core cor
 		return nil, err
 	}
 
-	// do type checking of path
-	iStat, _, err := GetAttr(ctx, fullPath, core, transform.IPFSStatRequest{Type: true})
+	operationContext, cancel := context.WithCancel(ctx)
+
+	dirChan, err := core.Unixfs().Ls(operationContext, fullPath)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
-	if iStat.FileType != coreiface.TDirectory {
-		// TODO: [ad4c44e0-a93f-4333-92d2-7a2aeccce3ef] typedef errors
-		return nil, fmt.Errorf("%q (type: %s) is not a diretory", fullPath.String(), iStat.FileType.String())
-	}
-
 	return &coreDir{
-		core: core,
-		ctx:  ctx,
-		path: fullPath,
+		core:      core,
+		ctx:       ctx,
+		cursor:    1,
+		entryChan: dirChan,
+		exitChan:  make(exitChan),
+		cancel:    cancel,
+		path:      fullPath,
 	}, nil
 }
 
 func (cd *coreDir) Close() error {
-	cd.exitChan = nil
+	if cd.cancel != nil {
+		cd.cancel()
+	}
+	close(cd.exitChan)
 	return nil
 }

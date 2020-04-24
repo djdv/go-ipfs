@@ -87,7 +87,11 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return p9.QID{}, 0, err
 	}
 
-	pd.dir = pinfs.OpenDir(pd.OperationsCtx, pd.Core)
+	pinDir, err := pinfs.OpenDir(pd.OperationsCtx, pd.Core)
+	if err != nil {
+		return p9.QID{}, 0, err
+	}
+	pd.dir = pinDir
 
 	atomic.StoreUintptr(pd.Opened, 1)
 	pd.open = true
