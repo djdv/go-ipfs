@@ -48,7 +48,7 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 		options.resourceLock = mountcom.NewResourceLocker()
 	}
 
-	if options.log != nil {
+	if options.log == nil {
 		options.log = logging.Logger("fuse/ipld")
 	}
 
