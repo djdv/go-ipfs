@@ -168,6 +168,7 @@ func (fs *FileSystem) Init() {
 }
 
 func (fs *FileSystem) Destroy() {
+	log.Debugf("Destroy - Requested")
 }
 
 func (fs *FileSystem) Statfs(path string, stat *fuselib.Statfs_t) int {
@@ -196,103 +197,8 @@ func (fs *FileSystem) Statfs(path string, stat *fuselib.Statfs_t) int {
 	return targetFs.Statfs(remainder, stat)
 }
 
-func (fs *FileSystem) Mknod(path string, mode uint32, dev uint64) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Mkdir(path string, mode uint32) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Unlink(path string) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Rmdir(path string) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Link(oldpath string, newpath string) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Symlink(target string, newpath string) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Readlink(path string) (int, string) {
-	log.Debugf("Readlink - %q", path)
-	switch path {
-	default:
-		targetFs, remainder, err := fs.selectFS(path)
-		if err != nil {
-			log.Error(fuselib.Error(-fuselib.ENOENT))
-			return -fuselib.ENOENT, ""
-		}
-
-		return targetFs.Readlink(remainder)
-
-	case "/":
-		log.Warnf("Readlink - root path is an invalid request")
-		return -fuse.EINVAL, ""
-
-	case "":
-		log.Error("Readlink - empty request")
-		return -fuse.ENOENT, ""
-
-	}
-}
-
-func (fs *FileSystem) Rename(oldpath string, newpath string) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Chmod(path string, mode uint32) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Chown(path string, uid uint32, gid uint32) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Utimens(path string, tmsp []fuselib.Timespec) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Access(path string, mask uint32) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) {
-	log.Debugf("Create - {%X|%X}%q", flags, mode, path)
-	return fs.Open(path, flags) // TODO: implement for real
-}
-
-func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
-	log.Debugf("Open - {%X}%q", flags, path)
-	/* TODO: verify this; source libfuse docs
-	Creation (O_CREAT, O_EXCL, O_NOCTTY) flags will be filtered out / handled by the kernel.
-	Access modes (O_RDONLY, O_WRONLY, O_RDWR, O_EXEC, O_SEARCH) should be used by the filesystem to check if the operation is permitted. If the -o default_permissions mount option is given, this check is already done by the kernel before calling open() and may thus be omitted by the filesystem.
-	*/
-
-	// TODO: verify this
-	// go fuselib handles O_DIRECTORY for us, if dir operations are performed here; assume open(..., O_DIRECTORY) was passed
-
-	targetFs, remainder, err := fs.selectFS(path)
-	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
-	}
-
-	if targetFs == fs {
-		log.Error(fuselib.Error(-fuselib.ENOENT))
-		return -fuselib.ENOENT, fusecom.ErrorHandle
-	}
-
-	return targetFs.Open(remainder, flags)
-}
-
 func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int {
-	log.Debugf("Getattr - {%X}%q", fh, path)
+	log.Debugf("Getattr - Request {%X}%q", fh, path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
 		log.Error(err)
@@ -308,54 +214,8 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 	return targetFs.Getattr(remainder, stat, fh)
 }
 
-func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int {
-	log.Debugf("Read - {%X}%q", fh, path)
-
-	targetFs, remainder, err := fs.selectFS(path)
-	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
-	}
-
-	if targetFs == fs {
-		log.Error(fuselib.Error(-fuselib.EISDIR))
-		return -fuselib.EISDIR
-	}
-
-	return targetFs.Read(remainder, buff, ofst, fh)
-}
-
-func (fs *FileSystem) Write(path string, buff []byte, ofst int64, fh uint64) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Flush(path string, fh uint64) int {
-	return -fuselib.ENOSYS
-}
-
-func (fs *FileSystem) Release(path string, fh uint64) int {
-	log.Debugf("Release - {%X}%q", fh, path)
-	targetFs, remainder, err := fs.selectFS(path)
-	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
-	}
-
-	if targetFs == fs {
-		return fusecom.OperationSuccess // TODO: implement for real
-	}
-
-	return targetFs.Release(remainder, fh)
-}
-
-func (fs *FileSystem) Fsync(path string, datasync bool, fh uint64) int {
-	return -fuselib.ENOSYS
-}
-
 func (fs *FileSystem) Opendir(path string) (int, uint64) {
-	log.Debugf("Opendir - %q", path)
+	log.Debugf("Opendir - Request %q", path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
 		panic(err) // FIXME: TODO: handle appropriately
@@ -368,11 +228,25 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	return targetFs.Opendir(remainder)
 }
 
+func (fs *FileSystem) Releasedir(path string, fh uint64) int {
+	log.Debugf("Releasedir - Request {%X}%q", fh, path)
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		panic(err) // FIXME: TODO: handle appropriately
+	}
+
+	if targetFs == fs {
+		return fusecom.OperationSuccess // TODO: implement for real
+	}
+
+	return targetFs.Releasedir(remainder, fh)
+}
+
 func (fs *FileSystem) Readdir(path string,
 	fill func(name string, stat *fuselib.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) int {
-	log.Debugf("Readdir - {%X|%d}%q", fh, ofst, path)
+	log.Debugf("Readdir - Request {%X|%d}%q", fh, ofst, path)
 
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
@@ -397,7 +271,31 @@ func (fs *FileSystem) Readdir(path string,
 	return targetFs.Readdir(remainder, fill, ofst, fh)
 }
 
-func (fs *FileSystem) Releasedir(path string, fh uint64) int {
+func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
+	log.Debugf("Open - Request {%X}%q", flags, path)
+	/* TODO: verify this; source libfuse docs
+	Creation (O_CREAT, O_EXCL, O_NOCTTY) flags will be filtered out / handled by the kernel.
+	Access modes (O_RDONLY, O_WRONLY, O_RDWR, O_EXEC, O_SEARCH) should be used by the filesystem to check if the operation is permitted. If the -o default_permissions mount option is given, this check is already done by the kernel before calling open() and may thus be omitted by the filesystem.
+	*/
+
+	// TODO: verify this
+	// go fuselib handles O_DIRECTORY for us, if dir operations are performed here; assume open(..., O_DIRECTORY) was passed
+
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		panic(err) // FIXME: TODO: handle appropriately
+	}
+
+	if targetFs == fs {
+		log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT, fusecom.ErrorHandle
+	}
+
+	return targetFs.Open(remainder, flags)
+}
+
+func (fs *FileSystem) Release(path string, fh uint64) int {
+	log.Debugf("Release - Request {%X}%q", fh, path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
 		panic(err) // FIXME: TODO: handle appropriately
@@ -407,25 +305,149 @@ func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 		return fusecom.OperationSuccess // TODO: implement for real
 	}
 
-	return targetFs.Releasedir(remainder, fh)
+	return targetFs.Release(remainder, fh)
+}
+
+func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int {
+	log.Debugf("Read - Request {%X|%d}%q", fh, ofst, path)
+
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		panic(err) // FIXME: TODO: handle appropriately
+	}
+
+	if targetFs == fs {
+		log.Error(fuselib.Error(-fuselib.EISDIR))
+		return -fuselib.EISDIR
+	}
+
+	return targetFs.Read(remainder, buff, ofst, fh)
+}
+
+func (fs *FileSystem) Readlink(path string) (int, string) {
+	log.Debugf("Readlink - Request %q", path)
+	switch path {
+	default:
+		targetFs, remainder, err := fs.selectFS(path)
+		if err != nil {
+			log.Error(fuselib.Error(-fuselib.ENOENT))
+			return -fuselib.ENOENT, ""
+		}
+
+		return targetFs.Readlink(remainder)
+
+	case "/":
+		log.Warnf("Readlink - root path is an invalid request")
+		return -fuse.EINVAL, ""
+
+	case "":
+		log.Error("Readlink - empty request")
+		return -fuse.ENOENT, ""
+
+	}
+}
+
+func (fs *FileSystem) Mknod(path string, mode uint32, dev uint64) int {
+	log.Errorf("Mknod - Request {%X|%d}%q", mode, dev, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Mkdir(path string, mode uint32) int {
+	log.Errorf("Mkdir - Request {%X}%q", mode, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Unlink(path string) int {
+	log.Errorf("Unlink - Request %q", path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Rmdir(path string) int {
+	log.Errorf("Rmdir - Request %q", path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Link(oldpath string, newpath string) int {
+	log.Errorf("Link - Request %q<->%q", oldpath, newpath)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Symlink(target string, newpath string) int {
+	log.Errorf("Symlink - Request %q->%q", newpath, target)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Rename(oldpath string, newpath string) int {
+	log.Errorf("Rename - Request %q->%q", oldpath, newpath)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Chmod(path string, mode uint32) int {
+	log.Errorf("Chmod - Request {%X}%q", mode, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Chown(path string, uid uint32, gid uint32) int {
+	log.Errorf("Chown - Request {%d|%d}%q", uid, gid, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Utimens(path string, tmsp []fuselib.Timespec) int {
+	log.Errorf("Utimens - Request {%v}%q", tmsp, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Access(path string, mask uint32) int {
+	log.Errorf("Access - Request {%X}%q", mask, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) {
+	log.Errorf("Create - Request {%X|%X}%q", flags, mode, path)
+	return fs.Open(path, flags) // TODO: implement for real
+}
+
+func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
+	log.Errorf("Truncate - Request {%X|%d}%q", fh, size, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Write(path string, buff []byte, ofst int64, fh uint64) int {
+	log.Errorf("Write - Request {%X|%d|%d}%q", fh, len(buff), ofst, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Flush(path string, fh uint64) int {
+	log.Debugf("Flush - Request {%X}%q", fh, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Fsync(path string, datasync bool, fh uint64) int {
+	log.Errorf("Fsync - Request {%X|%t}%q", fh, datasync, path)
+	return -fuselib.ENOSYS
 }
 
 func (fs *FileSystem) Fsyncdir(path string, datasync bool, fh uint64) int {
+	log.Errorf("Fsyncdir - Request {%X|%t}%q", fh, datasync, path)
 	return -fuselib.ENOSYS
 }
 
 func (fs *FileSystem) Setxattr(path string, name string, value []byte, flags int) int {
+	log.Errorf("Setxattr - Request {%X|%s|%d}%q", flags, name, len(value), path)
 	return -fuselib.ENOSYS
 }
 
 func (fs *FileSystem) Getxattr(path string, name string) (int, []byte) {
+	log.Errorf("Getxattr - Request {%s}%q", name, path)
 	return -fuselib.ENOSYS, nil
 }
 
 func (fs *FileSystem) Removexattr(path string, name string) int {
+	log.Errorf("Removexattr - Request {%s}%q", name, path)
 	return -fuselib.ENOSYS
 }
 
 func (fs *FileSystem) Listxattr(path string, fill func(name string) bool) int {
+	log.Errorf("Listxattr - Request %q", path)
 	return -fuselib.ENOSYS
 }
