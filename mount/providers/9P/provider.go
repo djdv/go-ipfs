@@ -107,6 +107,7 @@ func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 
 	var closureErr error
 	if pr.listener == nil {
+		fmt.Println("spinning up")
 		// spin up a listener
 		// TODO: split the socket listener from the server instance itself; e.g. break up listen() into listen()+newServer(manet.Listener)
 		if err := pr.listen(); err != nil {
@@ -116,6 +117,7 @@ func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 		// we spawned a listener, if the mount fails, clean it up; otherwise don't
 		defer func() {
 			if closureErr != nil {
+				fmt.Println("spinup err:", closureErr)
 				pr.maybeCleanupListener()
 			}
 		}()
@@ -199,7 +201,9 @@ func (pr *p9pProvider) listen() error {
 	if err != nil {
 		return err
 	}
-	pr.listener = listener
+	pr.listener = listener // FIXME: pr.listener is being nilled before the goroutine runs
+	// this happens when the user tries to mount but doesn't have permissions to
+	// so Graft kill the socket
 
 	// construct and launch the 9P resource server
 	pr.serverClosed = make(chan struct{}) // [async] conditional variable
@@ -212,7 +216,10 @@ func (pr *p9pProvider) listen() error {
 	// launch the  resource server instance in the background until `Close` is called
 	// store error on the fs object then close our syncing channel (see use in `Close`)
 	go func() {
-		err := server.Serve(manet.NetListener(pr.listener))
+		// FIXME: see above ^
+		// err := server.Serve(manet.NetListener(pr.listener))
+		// HACK:
+		err := server.Serve(manet.NetListener(listener))
 
 		// [async] we expect `net.Accept` to fail when the filesystem context has been canceled (for any reason)
 		if pr.ctx.Err() != nil {
@@ -233,11 +240,14 @@ func (pr *p9pProvider) listen() error {
 }
 
 func (pr *p9pProvider) maybeCleanupListener() error {
+	fmt.Println("maybe close listener?")
 	if pr.instances.Length() == 0 { // don't keep the listener alive if we have no instances
+		fmt.Println("maybe -> yes")
 		err := pr.listener.Close()
 		pr.listener = nil
 		return err
 	}
+	fmt.Println("maybe -> no")
 	return nil
 }
 
