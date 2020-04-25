@@ -4,9 +4,9 @@ import (
 	"context"
 
 	files "github.com/ipfs/go-ipfs-files"
-	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
+	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 var _ transform.File = (*coreFile)(nil)
@@ -21,18 +21,14 @@ func (cio *coreFile) Seek(offset int64, whence int) (int64, error) {
 	return cio.f.Seek(offset, whence)
 }
 
-func OpenFile(ctx context.Context, ns mountinter.Namespace, path string, core coreiface.CoreAPI, flags transform.IOFlags) (*coreFile, error) {
-	fullPath, err := joinRoot(ns, path)
-	if err != nil {
-		return nil, &transform.IOError{ExternalErr: err}
-	}
-
+//func OpenFile(ctx context.Context, ns mountinter.Namespace, path string, core coreiface.CoreAPI, flags transform.IOFlags) (*coreFile, error) {
+func OpenFile(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, flags transform.IOFlags) (*coreFile, error) {
 	switch flags {
 	case transform.IOWriteOnly, transform.IOReadWrite:
 		return nil, &transform.ErrIOReadOnly
 	}
 
-	apiNode, err := core.Unixfs().Get(ctx, fullPath)
+	apiNode, err := core.Unixfs().Get(ctx, path)
 	if err != nil {
 		return nil, &transform.IOError{ExternalErr: err}
 	}

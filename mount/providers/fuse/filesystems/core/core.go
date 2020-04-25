@@ -102,7 +102,13 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 		return -fuselib.EISDIR, fusecom.ErrorHandle
 
 	default:
-		file, err := ipfscore.OpenFile(fs.Ctx(), fs.namespace, path[1:], fs.Core(), transform.IOFlagsFromFuse(flags))
+		fullPath, err := fusecom.JoinRoot(fs.namespace, path)
+		if err != nil {
+			fs.log.Error(err)
+			return -fuse.ENOENT, fusecom.ErrorHandle
+		}
+
+		file, err := ipfscore.OpenFile(fs.Ctx(), fullPath, fs.Core(), transform.IOFlagsFromFuse(flags))
 		if err != nil {
 			fs.log.Error(err)
 
@@ -136,7 +142,12 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 		directory = empty.OpenDir()
 
 	default:
-		coreDir, err := ipfscore.OpenDir(fs.Ctx(), fs.namespace, path[1:], fs.Core())
+		fullPath, err := fusecom.JoinRoot(fs.namespace, path)
+		if err != nil {
+			fs.log.Error(err)
+			return -fuselib.ENOENT, fusecom.ErrorHandle
+		}
+		coreDir, err := ipfscore.OpenDir(fs.Ctx(), fullPath, fs.Core())
 		if err != nil {
 			fs.log.Error(err)
 			return -fuselib.ENOENT, fusecom.ErrorHandle
@@ -205,7 +216,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 		// or something else
 		fullPath := corepath.New(gopath.Join("/", strings.ToLower(fs.namespace.String()), path))
 
-		iStat, _, err := ipfscore.GetAttr(fs.Ctx(), fullPath, fs.Core(), transform.IPFSStatRequestAll)
+		iStat, _, err := transform.GetAttr(fs.Ctx(), fullPath, fs.Core(), transform.IPFSStatRequestAll)
 		if err != nil {
 			fs.log.Error(err)
 			return -fuselib.ENOENT
@@ -305,7 +316,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 
 	// TODO: timeout contexts
 	corePath := corepath.New(path[1:])
-	iStat, _, err := ipfscore.GetAttr(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequest{Type: true})
+	iStat, _, err := transform.GetAttr(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequest{Type: true})
 	if err != nil {
 		fs.log.Error(err)
 		return -fuselib.ENOENT, ""

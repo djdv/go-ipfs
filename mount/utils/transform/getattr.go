@@ -1,11 +1,12 @@
-package ipld
+package transform
 
 import (
 	"context"
 
-	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	ipld "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-unixfs"
+	coreiface "github.com/ipfs/interface-go-ipfs-core"
+	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 // TODO [2019.09.12; anyone]
@@ -14,11 +15,22 @@ import (
 // context: https://github.com/ipfs/go-ipfs/pull/6612/files#r322989041
 const ufs1BlockSize = 256 << 1
 
+// TODO: [investigate] [b6150f2f-8689-4e60-a605-fd40c826c32d]
+// GetAttr resolves an IPFS API path and returns the attr, filled attr members, and error associated with the path
+func GetAttr(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
+	ipldNode, err := core.ResolveNode(ctx, path)
+	if err != nil {
+		return nil, IPFSStatRequest{}, err
+	}
+
+	return ipldAttr(ctx, ipldNode, req)
+}
+
 // returns attr, filled members, error
-func GetAttr(ctx context.Context, node ipld.Node, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
+func ipldAttr(ctx context.Context, node ipld.Node, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
 	var (
-		attr        transform.IPFSStat
-		filledAttrs transform.IPFSStatRequest
+		attr        IPFSStat
+		filledAttrs IPFSStatRequest
 	)
 	ufsNode, err := unixfs.ExtractFSNode(node)
 	if err != nil {
@@ -26,7 +38,7 @@ func GetAttr(ctx context.Context, node ipld.Node, req transform.IPFSStatRequest)
 	}
 
 	if req.Type {
-		attr.FileType, filledAttrs.Type = transform.UnixfsTypeToCoreType(ufsNode.Type()), true
+		attr.FileType, filledAttrs.Type = UnixfsTypeToCoreType(ufsNode.Type()), true
 	}
 
 	if req.Blocks {

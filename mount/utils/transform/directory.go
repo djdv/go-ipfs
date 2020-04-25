@@ -5,6 +5,7 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/hugelgupf/p9/p9"
+	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 // TODO: local errors -> common error package, maybe under mount interface/errors.go?
@@ -14,6 +15,17 @@ type Directory interface {
 	// Read returns /at most/ count entries; or attempts to return all entires when count is 0
 	Readdir(offset, count uint64) DirectoryState
 	io.Closer
+}
+
+type StreamSource interface {
+	Open() (<-chan DirectoryStreamEntry, error)
+	Close() error
+}
+
+type DirectoryStreamEntry interface {
+	Name() string
+	Path() corepath.Path
+	Error() error
 }
 
 type FuseStatGroup struct {

@@ -1,20 +1,17 @@
 package fusecommon
 
 import (
+	"fmt"
+	gopath "path"
+
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
+	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 type fillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 
-// [53efa63b-7d75-4a5c-96c9-47e2dc7c6e6b]
-// NOTE: [SUS `seekdir`] says the result is unspecified if the caller provides an arbitrary value
-// or a value provided prior to a call to `rewinddir`
-// in our implementations of `readdir`, we forbid using old `telldir` values after `rewinddir` (readdir with and offset of 0)
-// and constrain offsets to be within [arbitrary-bound:cursor]
-// be aware the API calling us may intercept these calls and handle them itself
-// as per the standard, you cannot rely on any specific behavior exhibited
-// (unless you're calling the Go methods directly)
 func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset int64) (error, int) {
 	// TODO: [audit] int -> uint needs range checking
 	entChan, err := directory.Readdir(uint64(offset), 0).ToFuse()
@@ -59,4 +56,19 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 		}
 	}
 	return nil, OperationSuccess
+}
+
+func JoinRoot(ns mountinter.Namespace, path string) (corepath.Path, error) {
+	var rootPath string
+	switch ns {
+	default:
+		return nil, fmt.Errorf("unsupported namespace: %s", ns.String())
+	case mountinter.NamespaceIPFS:
+		rootPath = "/ipfs"
+	case mountinter.NamespaceIPNS:
+		rootPath = "/ipns"
+	case mountinter.NamespaceCore:
+		rootPath = "/ipld"
+	}
+	return corepath.New(gopath.Join(rootPath, path)), nil
 }
