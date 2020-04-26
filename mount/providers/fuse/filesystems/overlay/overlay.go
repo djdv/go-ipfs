@@ -32,6 +32,9 @@ type FileSystem struct {
 	filesRoot *gomfs.Root           // use fs.filesAPI after it's initalized
 
 	// persistant
+	// FIXME: zap logger implies newly created logs will respect the zapconfig's set Level
+	// however this doesn't seem to be the case in go-log
+	// `ipfs daemon --debug` will not print debug log infor for these created logs despite being spawned from a config who's level should now be set to `debug`
 	log                  logging.EventLogger
 	ipfs, ipns, filesAPI fuselib.FileSystemInterface
 }
