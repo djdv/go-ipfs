@@ -72,3 +72,12 @@ func JoinRoot(ns mountinter.Namespace, path string) (corepath.Path, error) {
 	}
 	return corepath.New(gopath.Join(rootPath, path)), nil
 }
+
+// TODO: this is mostly here as a placeholder/marker until we figure out how best to standardize permissions
+// not everything should have the execute bit set but this isn't stored anywhere for us to fetch either
+func ApplyPermissions(fsWritable bool, mode *uint32) {
+	*mode |= IRXA &^ (fuselib.S_IXOTH) // |0554
+	if fsWritable {
+		*mode |= (fuselib.S_IWGRP | fuselib.S_IWUSR) // |0220
+	}
+}

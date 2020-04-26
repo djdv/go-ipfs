@@ -19,7 +19,7 @@ import (
 )
 
 // FIXME: cgofuse has its own signal/interrupt handler
-// we need to fork it to remove it and handle forcing cleanup ourselve
+// we need to fork it to remove it and handle forcing cleanup ourselves
 
 type fuseProvider struct {
 	sync.Mutex

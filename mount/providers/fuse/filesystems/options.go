@@ -29,6 +29,10 @@ func ApplyOptions(existingSet *Settings, opts ...Option) {
 	if existingSet.ResourceLock == nil {
 		existingSet.ResourceLock = mountcom.NewResourceLocker()
 	}
+
+	if existingSet.Log == nil {
+		existingSet.Log = logging.Logger("fuse")
+	}
 }
 
 // WithInitSignal provides a channel that will receive a signal from within fs.Init()
@@ -38,7 +42,7 @@ func WithInitSignal(ic InitSignal) Option {
 
 // WithLog replaces the default logger
 func WithLog(l logging.EventLogger) Option {
-	return logOpt(logOptContainer{l})
+	return LogOpt(logOptContainer{l})
 }
 
 // WithParent provides a reference to a node that will act as a parent to the systems own root
@@ -53,7 +57,7 @@ func WithResourceLock(rl mountcom.ResourceLock) Option {
 
 type (
 	initSignalOpt            InitSignal
-	logOpt                   logOptContainer
+	LogOpt                   logOptContainer
 	logOptContainer          struct{ logging.EventLogger }
 	parentOpt                parentOptContainer
 	parentOptContainer       struct{ fuselib.FileSystemInterface }
@@ -65,7 +69,7 @@ func (ic initSignalOpt) apply(opts *Settings) {
 	opts.InitSignal = InitSignal(ic)
 }
 
-func (lc logOpt) apply(opts *Settings) {
+func (lc LogOpt) apply(opts *Settings) {
 	opts.Log = logging.EventLogger(lc.EventLogger)
 }
 
