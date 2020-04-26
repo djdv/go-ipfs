@@ -9,11 +9,11 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
+	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
+	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -123,22 +123,35 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 		fsh        *fuselib.FileSystemHost
 		fs         fuselib.FileSystemInterface
 		initSignal = make(chan error)
+		commonOpts = []fusecom.Option{
+			fusecom.WithInitSignal(initSignal),
+			// TODO: fusecom.WithResourceLock(options.resourceLock),
+		}
 	)
 
 	switch namespace {
 	default:
 		return nil, nil, fmt.Errorf("unknown namespace: %v", namespace)
 	case mountinter.NamespaceAllInOne:
-		oOps := []overlay.Option{
-			overlay.WithInitSignal(initSignal),
-			//overlay.WithMFSRoot(*mroot), // FIXME: unchecked pointer
+		oOps := []overlay.Option{overlay.WithCommon(commonOpts...)}
+		if mroot != nil {
+			oOps = append(oOps, overlay.WithMFSRoot(*mroot))
 		}
+
 		fs = overlay.NewFileSystem(ctx, core, oOps...)
 
 	case mountinter.NamespaceIPFS:
-		fs = ipfs.NewFileSystem(ctx, core, ipfscore.WithInitSignal(initSignal))
+		fs = ipfscore.NewFileSystem(ctx, core,
+			ipfscore.WithCommon(append(commonOpts,
+				fusecom.WithLog(logging.Logger("fuse/ipfs")),
+			)...),
+		)
 	case mountinter.NamespaceIPNS:
-		fs = ipns.NewFileSystem(ctx, core, ipfscore.WithInitSignal(initSignal))
+		fs = ipfscore.NewFileSystem(ctx, core,
+			ipfscore.WithCommon(append(commonOpts,
+				fusecom.WithLog(logging.Logger("fuse/ipns")),
+			)...),
+		)
 	case mountinter.NamespaceFiles:
 		return nil, nil, fmt.Errorf("not implemented yet: %v", namespace)
 	}

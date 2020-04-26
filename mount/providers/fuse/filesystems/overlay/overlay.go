@@ -9,13 +9,11 @@ import (
 	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	config "github.com/ipfs/go-ipfs-config"
+	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipfs"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
-	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -32,21 +30,19 @@ type FileSystem struct {
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
-	options := new(options)
-	for _, opt := range opts {
-		opt.apply(options)
-	}
-	if options.resourceLock == nil {
-		options.resourceLock = mountcom.NewResourceLocker()
-	}
+	settings := parseOptions(opts...)
 
 	var (
-		overlay    = &FileSystem{initChan: options.initSignal}
+		overlay    = &FileSystem{initChan: settings.InitSignal}
 		subsystems = 2
 		initChan   = make(fusecom.InitSignal)
+		commonOpts = []fusecom.Option{
+			fusecom.WithInitSignal(initChan),
+			fusecom.WithResourceLock(settings.ResourceLock),
+		}
 	)
 
-	mRoot := options.filesAPIRoot
+	mRoot := settings.filesAPIRoot
 	if mRoot != nil {
 		subsystems++
 	}
@@ -61,20 +57,20 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 			// keyfsSub *keyfs.FileSystem // TODO
 		)
 
-		coreOpts := []ipfscore.Option{
-			ipfscore.WithInitSignal(initChan),
-			ipfscore.WithResourceLock(options.resourceLock),
-		}
-
-		ipfsSub := ipfs.NewFileSystem(ctx, core, append(coreOpts, ipfscore.WithParent(pinfsSub))...)
+		ipfsSub := ipfscore.NewFileSystem(ctx, core, ipfscore.WithCommon(
+			append(commonOpts,
+				fusecom.WithParent(pinfsSub),
+				fusecom.WithLog(logging.Logger("fuse/ipfs")))...),
+			ipfscore.WithNamespace(mountinter.NamespaceIPFS),
+		)
 		subInits = append(subInits, ipfsSub.Init)
 
-		pinfsSub = pinfs.NewFileSystem(ctx, core, []pinfs.Option{
-			pinfs.WithParent(overlay),
-			pinfs.WithInitSignal(initChan),
-			pinfs.WithResourceLock(options.resourceLock),
+		pinfsSub = pinfs.NewFileSystem(ctx, core, pinfs.WithCommon(
+			append(commonOpts,
+				fusecom.WithParent(overlay))...),
 			pinfs.WithProxy(ipfsSub),
-		}...)
+		)
+
 		subInits = append(subInits, pinfsSub.Init)
 
 		overlay.ipfs = pinfsSub
@@ -82,7 +78,13 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 		// keyfs + ipns
 		// TODO: populate keyfs
 		//ipnsSub := ipns.NewFileSystem(ctx, core, append(coreOpts, ipfscore.WithParent(keyfsSub))...)
-		ipnsSub := ipns.NewFileSystem(ctx, core, append(coreOpts, ipfscore.WithParent(overlay))...)
+		ipnsSub := ipfscore.NewFileSystem(ctx, core, ipfscore.WithCommon(
+			append(commonOpts,
+				fusecom.WithParent(overlay),
+				fusecom.WithLog(logging.Logger("fuse/ipns")))...),
+			ipfscore.WithNamespace(mountinter.NamespaceIPNS),
+		)
+
 		subInits = append(subInits, ipnsSub.Init)
 		overlay.ipns = ipnsSub
 	}

@@ -13,7 +13,6 @@ import (
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
-	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/empty"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
@@ -40,30 +39,17 @@ type FileSystem struct {
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
-	options := new(options)
-	for _, opt := range opts {
-		opt.apply(options)
-	}
+	settings := parseOptions(opts...)
 
-	if options.resourceLock == nil {
-		options.resourceLock = mountcom.NewResourceLocker()
-	}
-
-	if options.log == nil {
-		options.log = logging.Logger("fuse/ipld")
-	}
-
-	if options.namespace == mountinter.NamespaceNone {
-		options.namespace = mountinter.NamespaceCore
+	if settings.namespace == mountinter.NamespaceNone {
+		settings.namespace = mountinter.NamespaceCore
 	}
 
 	return &FileSystem{
-		IPFSCore:    provcom.NewIPFSCore(ctx, core, options.resourceLock),
-		initChan:    options.initSignal,
-		files:       fusecom.NewFileTable(),
-		directories: fusecom.NewDirectoryTable(),
-		log:         options.log,
-		namespace:   options.namespace,
+		IPFSCore:  provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
+		initChan:  settings.InitSignal,
+		log:       settings.Log,
+		namespace: settings.namespace,
 	}
 }
 
@@ -72,10 +58,13 @@ func (fs *FileSystem) Init() {
 	defer fs.Unlock()
 	fs.log.Debug("init")
 
-	/*
-		fs.handles = make(fsHandles)
-		fs.mountTime = fuselib.Now()
-	*/
+	fs.files = fusecom.NewFileTable()
+	fs.directories = fusecom.NewDirectoryTable()
+
+	// optionals may have already been set by the constructor
+	if fs.log == nil {
+		fs.log = logging.Logger("fuse/ipld")
+	}
 
 	defer fs.log.Debug("init finished")
 	if c := fs.initChan; c != nil {

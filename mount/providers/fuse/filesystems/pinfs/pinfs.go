@@ -7,7 +7,6 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
-	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	pinfs "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/pinfs"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -29,20 +28,12 @@ type FileSystem struct {
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
-	options := new(options)
-	for _, opt := range opts {
-		opt.apply(options)
-	}
-
-	if options.resourceLock == nil {
-		options.resourceLock = mountcom.NewResourceLocker()
-	}
+	settings := parseOptions(opts...)
 
 	return &FileSystem{
-		IPFSCore:    provcom.NewIPFSCore(ctx, core, options.resourceLock),
-		initChan:    options.initSignal,
-		proxy:       options.proxy,
-		directories: fusecom.NewDirectoryTable(),
+		IPFSCore: provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
+		initChan: settings.InitSignal,
+		proxy:    settings.proxy,
 	}
 }
 
@@ -51,10 +42,8 @@ func (fs *FileSystem) Init() {
 	defer fs.Unlock()
 	log.Debug("init")
 
-	/*
-		fs.handles = make(fsHandles)
-		fs.mountTime = fuselib.Now()
-	*/
+	// fs.mountTime = fuselib.Now()
+	fs.directories = fusecom.NewDirectoryTable()
 
 	defer log.Debug("init finished")
 	if c := fs.initChan; c != nil {

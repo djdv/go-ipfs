@@ -2,35 +2,22 @@ package keyfs
 
 import (
 	"context"
-	gopath "path"
-	"time"
+	"errors"
 
-	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	"github.com/hugelgupf/p9/p9"
-	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
-	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 )
 
-func OpenDir(ctx context.Context, core coreiface.CoreAPI) (transform.Directory), error) {
-	keys, err := core.Key().List(ctx)
-	if err != nil {
-		return nil, err
+func OpenDir(ctx context.Context, keyAPI coreiface.KeyAPI) (transform.Directory, error) {
+
+	keyStream := &streamTranslator{
+		ctx:    ctx,
+		keyAPI: keyAPI,
 	}
 
-keys, keySlice           []coreiface.Key
-	cursor, validOffsetBound uint64 // See Filldir remark [53efa63b-7d75-4a5c-96c9-47e2dc7c6e6b] for directory bound info
-
-	return &keyDir{
-		core:   core,
-		ctx:    ctx,
-		cursor: 1,
-		keys:   keys,
-	}, nil
+	return ipfscore.OpenStream(ctx, keyStream)
 }
-	
 
 type streamTranslator struct {
 	ctx    context.Context
@@ -44,11 +31,12 @@ func (ks *streamTranslator) Open() (<-chan transform.DirectoryStreamEntry, error
 	}
 
 	listContext, cancel := context.WithCancel(ks.ctx)
-	keys, err := ks.keyAPI.Lists(listContext)
+	keys, err := ks.keyAPI.List(listContext)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
+	ks.keys = keys
 	ks.cancel = cancel
 	return translateEntries(listContext, keys), nil
 }
@@ -66,7 +54,7 @@ type keyTranslator struct {
 	coreiface.Key
 }
 
-func (_ *keyTranslator) Error() error         { return nil }
+func (_ *keyTranslator) Error() error { return nil }
 
 func translateEntries(ctx context.Context, keys []coreiface.Key) <-chan transform.DirectoryStreamEntry {
 	out := make(chan transform.DirectoryStreamEntry)
