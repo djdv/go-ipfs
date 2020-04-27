@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	gopath "path"
+	"path/filepath"
 	"strings"
 
 	"github.com/billziss-gh/cgofuse/fuse"
@@ -324,5 +325,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	// which is why we check the node's type above
 	linkActual := files.ToSymlink(linkNode)
 
-	return len(linkActual.Target), linkActual.Target
+	// NOTE: paths returned here get sent back to the FUSE library
+	// they should not be native paths
+	return fusecom.OperationSuccess, filepath.ToSlash(linkActual.Target)
 }

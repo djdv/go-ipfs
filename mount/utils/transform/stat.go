@@ -40,13 +40,9 @@ func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
 	if runtime.GOOS == "windows" {
 		if cs.FileType == coreiface.TSymlink {
 			return &fuselib.Stat_t{
-				Flags: fuselib.UF_ARCHIVE, // this is standard/conventional `mklink` will set this attribute
-				// this is standard/required
-				Mode:    fuselib.S_IFBLK,
-				Size:    0,
-				Blksize: 0,
-				Blocks:  0,
-				// other fields are okay
+				Mode:  fuselib.S_IFLNK,
+				Flags: fuselib.UF_ARCHIVE, // this is conventional `mklink` will set this attribute
+				// NOTE: size omitted for the same reason
 			}
 		}
 	}
