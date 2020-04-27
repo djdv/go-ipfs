@@ -142,12 +142,14 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 
 	case mountinter.NamespaceIPFS:
 		fs = ipfscore.NewFileSystem(ctx, core,
+			ipfscore.WithNamespace(namespace),
 			ipfscore.WithCommon(append(commonOpts,
 				fusecom.WithLog(logging.Logger("fuse/ipfs")),
 			)...),
 		)
 	case mountinter.NamespaceIPNS:
 		fs = ipfscore.NewFileSystem(ctx, core,
+			ipfscore.WithNamespace(namespace),
 			ipfscore.WithCommon(append(commonOpts,
 				fusecom.WithLog(logging.Logger("fuse/ipns")),
 			)...),
