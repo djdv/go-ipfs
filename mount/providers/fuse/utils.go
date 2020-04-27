@@ -3,7 +3,9 @@ package mountfuse
 import (
 	"errors"
 	"fmt"
+	"os/user"
 	"runtime"
+	"strings"
 
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 )
@@ -59,8 +61,31 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 		retTarget = target
 	case "linux":
 		// [2020.04.18] cgofuse currently backed by hanwen/go-fuse on linux; their optset doesn't support our desire
-		// libfuse: opts = fmt.Sprintf(`-o fsname="ipfs",subtype="fuse.%s"`, namespace.String())
+		// libfuse: opts = fmt.Sprintf(`-o fsname=ipfs,subtype=fuse.%s`, namespace.String())
 		fallthrough
+	case "darwin":
+		if namespace == mountinter.NamespaceAllInOne {
+			// TODO: see if we can provide `volicon` via an IPFS path; or make the overlay provide one via `/.VolumeIcon.icns` on darwin
+			opts = "fsname=IPFS,volname=IPFS"
+		} else {
+			opts = fmt.Sprintf("fsname=%s,volname=%s", namespace.String(), namespace.String())
+		}
+
+		args = append(args, "-o", opts)
+
+		// TODO reconsider if we should leave this hack in
+		// macfuse takes this literally and will make a mountpoint as `./~/target` not `/home/user/target`
+		if strings.HasPrefix(target, "~") {
+			usr, err := user.Current()
+			if err != nil {
+				panic(err)
+			}
+			retTarget = usr.HomeDir + target[1:]
+			break
+		}
+
+		retTarget = target
+
 	default:
 		retTarget = target
 	}

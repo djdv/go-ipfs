@@ -81,6 +81,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 	case "/":
 		stat.Mode = fuselib.S_IFDIR
 		fusecom.ApplyPermissions(false, &stat.Mode)
+		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 
 	default:
@@ -99,6 +100,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 
 		*stat = *iStat.ToFuse()
 		fusecom.ApplyPermissions(false, &stat.Mode)
+		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 	}
 }

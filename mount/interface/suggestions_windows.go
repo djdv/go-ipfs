@@ -1,8 +1,23 @@
 package mountinter
 
-// TODO: use a UNC path if the API allows
 func init() {
-	platformTargetRoot = func() string { return `I:\` } // I:\ipfs, I:\ipns, I:\file...
-	suggestedNamespace = func() Namespace { return NamespaceAllInOne }
 	suggestedProvider = func() ProviderType { return ProviderFuse }
+	suggestedNamespaces = func() []Namespace {
+		return []Namespace{
+			NamespaceIPFS,
+			NamespaceIPNS,
+			// NamespaceFiles, not implemented yet
+		}
+	}
+	platformMountRoot = func() string { return `\\localhost\` }
+	// \\localhost\ipfs, \\localhost\ipns, \\localhost\file
+	suggestedTargets = func() []string {
+		return []string{
+			platformMountRoot() + "ipfs",
+			platformMountRoot() + "ipns",
+			// platformTargetRoot() + "file", not implemented yet
+		}
+	}
+
+	allInOnePath = func() string { return platformMountRoot() + "ipfs" }
 }

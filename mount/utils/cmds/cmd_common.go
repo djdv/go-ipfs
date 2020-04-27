@@ -4,6 +4,8 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"runtime"
 	"strings"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
@@ -44,9 +46,10 @@ const (
 	cmdDaemonDescPrefix = "(if using --mount) "
 
 	daemonCmdMountKwd     = "mount"
-	daemonCmdProviderKwd  = "mount-" + cmdProviderKwd
-	daemonCmdNamespaceKwd = "mount-" + cmdNamespaceKwd
-	daemonCmdTargetKwd    = "mount-" + cmdPathKwd
+	daemonCmdMountPrefix  = daemonCmdMountKwd + "-"
+	daemonCmdProviderKwd  = daemonCmdMountPrefix + cmdProviderKwd
+	daemonCmdNamespaceKwd = daemonCmdMountPrefix + cmdNamespaceKwd
+	daemonCmdTargetKwd    = daemonCmdMountPrefix + cmdPathKwd
 )
 
 var cmdSharedOpts = []cmds.Option{
@@ -54,6 +57,11 @@ var cmdSharedOpts = []cmds.Option{
 	cmds.StringOption(cmdNamespaceKwd, cmdNamespaceDesc),
 	cmds.StringOption(cmdPathKwd, cmdPathDesc),
 }
+
+var (
+	errParamNotProvided   = errors.New("parameter was not provided")
+	errConfigNotProviding = errors.New("config does not provide requested value")
+)
 
 // keep this as is in case we want to extend this later
 // if we switch to an int enum nobody has to change anything except the parseRequest logic
@@ -68,20 +76,22 @@ type transformFunc func(string) string
 
 func parseRequest(daemonRequest requestType, req *cmds.Request, nodeConf *config.Config) (mountinter.ProviderType, mountinter.TargetCollections, error) {
 	// parse flags if provided, otherwise fallback to config values
+	// priority: args > conf > platform specific suggestions
 
 	// TODO: define our new values in the config structure + parser + init
 	// (Mounts.Provider; Mounts.Namespace; Mounts.Files; Mounts.Target?)
 	// right now we can't pull from undefined values obviously
 
-	// priority: args > conf > suggestion
-
+	// daemon requests are the same as mount requests, except prefixed
+	// we'll translate the parameters to match when parsing
 	var transform transformFunc
 	if daemonRequest {
-		transform = func(param string) string { return "mount-" + param }
+		transform = func(param string) string { return daemonCmdMountPrefix + param }
 	} else {
 		transform = func(param string) string { return param }
 	}
 
+	// --provider=
 	var provider mountinter.ProviderType
 	if providerString, found := req.Options[transform(cmdProviderKwd)].(string); found {
 		provider = mountinter.ParseProvider(providerString)
@@ -89,35 +99,25 @@ func parseRequest(daemonRequest requestType, req *cmds.Request, nodeConf *config
 		provider = mountinter.SuggestedProvider()
 	}
 
-	namespaces, err := parseNamespace(req, transform)
+	// --namespace=
+	namespaces, err := parseNamespace(req, transform, nodeConf)
 	if err != nil {
 		return mountinter.ProviderNone, nil, err
 	}
 
-	if len(namespaces) == 1 {
-		if namespaces[0] == mountinter.NamespaceAll {
-			// expand special case
-			namespaces = []mountinter.Namespace{mountinter.NamespaceIPFS, mountinter.NamespaceIPNS, mountinter.NamespaceFiles}
-		}
-	}
-
-	targetCollections, err := parseTarget(req, transform, nodeConf, namespaces)
+	// --target=
+	targets, err := parseTarget(req, transform, nodeConf, namespaces)
 	if err != nil {
 		return mountinter.ProviderNone, nil, err
 	}
 
-	appendProviderParameters(provider, targetCollections)
+	targetCollections, err := combine(provider, namespaces, targets)
+	if err != nil {
+		return mountinter.ProviderNone, nil, err
+
+	}
 
 	return provider, targetCollections, nil
-}
-
-func appendProviderParameters(provider mountinter.ProviderType, targets mountinter.TargetCollections) {
-	if provider == mountinter.ProviderPlan9Protocol {
-		for i, target := range targets {
-			//TODO: [consider] we could template namespace and let the provider handle it ${API_NAMESPACE}
-			targets[i].Parameter = fmt.Sprintf("/unix/$IPFS_HOME/9p.%s.sock", target.Namespace.String())
-		}
-	}
 }
 
 func MountNode(res cmds.ResponseEmitter, daemon *core.IpfsNode, provider mountinter.ProviderType, targets mountinter.TargetCollections) error {
@@ -142,8 +142,28 @@ func MountNode(res cmds.ResponseEmitter, daemon *core.IpfsNode, provider mountin
 	return nil
 }
 
-func parseNamespace(req *cmds.Request, t transformFunc) ([]mountinter.Namespace, error) {
+func parseNamespace(req *cmds.Request, t transformFunc, nodeConf *config.Config) ([]mountinter.Namespace, error) {
 	// use args if provided
+	namespaces, err := parseNamespaceArgs(req, t)
+	if err == errParamNotProvided {
+		// otherwise pull from config
+		namespaces, err = parseNamespaceConfig(nodeConf)
+		if err == errConfigNotProviding {
+			//  otherwise fallback to suggestions
+			namespaces = mountinter.SuggestedNamespaces()
+			err = nil
+		}
+	}
+
+	// expand convenience case
+	if len(namespaces) == 1 && namespaces[0] == mountinter.NamespaceAll {
+		namespaces = []mountinter.Namespace{mountinter.NamespaceIPFS, mountinter.NamespaceIPNS, mountinter.NamespaceFiles}
+	}
+
+	return namespaces, err
+}
+
+func parseNamespaceArgs(req *cmds.Request, t transformFunc) ([]mountinter.Namespace, error) {
 	if namespaceString, found := req.Options[t(cmdNamespaceKwd)].(string); found {
 		namespaceStrings, err := csv.NewReader(strings.NewReader(namespaceString)).Read()
 		if err != nil {
@@ -154,59 +174,102 @@ func parseNamespace(req *cmds.Request, t transformFunc) ([]mountinter.Namespace,
 		for _, ns := range namespaceStrings {
 			namespaces = append(namespaces, mountinter.ParseNamespace(ns))
 		}
+
 		return namespaces, nil
-
 	}
-
-	// TODO: pull from config values here
-
-	// fallback to suggestions
-	return []mountinter.Namespace{mountinter.SuggestedNamespace()}, nil
+	return nil, errParamNotProvided
 }
 
-func parseTarget(req *cmds.Request, t transformFunc, nodeconf *config.Config, namespaces []mountinter.Namespace) (mountinter.TargetCollections, error) {
+// TODO: config structure around this has not be defined
+func parseNamespaceConfig(nodeConf *config.Config) ([]mountinter.Namespace, error) {
+	return nil, errConfigNotProviding
+}
+
+func parseTarget(req *cmds.Request, t transformFunc, nodeConf *config.Config, namespaces []mountinter.Namespace) ([]string, error) {
 	// use args if provided
+	targets, err := parseTargetArgs(req, t)
+	if err == errParamNotProvided {
+		// otherwise pull from config
+		targets, err = parseTargetConfig(nodeConf, namespaces)
+		if err == errConfigNotProviding {
+			//  otherwise fallback to suggestions
+			targets = mountinter.SuggestedTargets()
+			if len(targets) != len(namespaces) {
+				return targets, errors.New("platform target defaults clash with provided namespace, please specify both namespace and target parameters")
+			}
+			err = nil
+		}
+	}
+
+	return targets, err
+}
+
+func parseTargetArgs(req *cmds.Request, t transformFunc) ([]string, error) {
 	if targetString, found := req.Options[t(cmdPathKwd)].(string); found {
 		targets, err := csv.NewReader(strings.NewReader(targetString)).Read()
 		if err != nil {
 			return nil, err
 		}
-
-		if tLen, nLen := len(targets), len(namespaces); tLen != nLen {
-			return nil, fmt.Errorf("namespace and target count to not match(%d|%d)", tLen, nLen)
-		}
-
-		var collections mountinter.TargetCollections
-		for i, t := range targets {
-			collections = append(collections, mountinter.TargetCollection{Namespace: namespaces[i], Target: t})
-		}
-
-		return collections, nil
+		return targets, nil
 	}
+	return nil, errParamNotProvided
+}
 
-	// pull targets from config
-	var collections mountinter.TargetCollections
+func parseTargetConfig(nodeConf *config.Config, namespaces []mountinter.Namespace) ([]string, error) {
+	var targets []string
+
+	// TODO: config defaults have to change to some kind of portable format
+	// ideally a templated value like `${mountroot}ipfs`, `${mountroot}ipns`, etc.
+	// until then we have this nasty hack
+	defaultConfig, err := config.Init(ioutil.Discard, 2048)
+	if runtime.GOOS == "windows" {
+		if err != nil {
+			return nil, err
+		}
+	}
 	for _, ns := range namespaces {
-		var targ string
-
-		// TODO: we need to modify the config to append files and maybe AIO
-		// in any case we need to inspect the values to make sure they're both 1) not empty 2) platform independent
-		// something like templates might help e.g. ${ROOT}mnt rather than /mnt; on Windows this would resolve to `$current-vol\mnt`
-		// as is, the defaults are not great on Windows
 		switch ns {
 		case mountinter.NamespaceIPFS:
-			targ = nodeconf.Mounts.IPFS
+			if runtime.GOOS == "windows" && defaultConfig.Mounts.IPFS == nodeConf.Mounts.IPFS {
+				targets = append(targets, mountinter.MountRoot()+"ipfs")
+				continue
+			}
+			targets = append(targets, nodeConf.Mounts.IPFS)
 		case mountinter.NamespaceIPNS:
-			targ = nodeconf.Mounts.IPNS
+			if runtime.GOOS == "windows" && defaultConfig.Mounts.IPNS == nodeConf.Mounts.IPNS {
+				targets = append(targets, mountinter.MountRoot()+"ipns")
+				continue
+			}
+			targets = append(targets, nodeConf.Mounts.IPNS)
 		case mountinter.NamespaceFiles:
-			targ = "/file"
+			// TODO: config value default + platform portability
+			targets = append(targets, mountinter.MountRoot()+"file")
 		case mountinter.NamespaceAllInOne:
-			targ = "/mnt"
+			// TODO: config value default + platform portability
+			targets = append(targets, mountinter.SuggestedAllInOnePath())
 		default:
-			return nil, fmt.Errorf("unexpected namespace: %v", ns)
+			return nil, fmt.Errorf("unexpected namespace: %s", ns.String())
+		}
+	}
+	return targets, nil
+}
+
+func combine(provider mountinter.ProviderType, namespaces []mountinter.Namespace, targets []string) ([]mountinter.TargetCollection, error) {
+	if tLen, nLen := len(targets), len(namespaces); tLen != nLen {
+		return nil, fmt.Errorf("namespace and target count do not match(%d|%d)", tLen, nLen)
+	}
+
+	var collections mountinter.TargetCollections
+	for i, t := range targets {
+		var providerParam string
+		switch provider {
+		case mountinter.ProviderPlan9Protocol:
+			providerParam = fmt.Sprintf("/unix/$IPFS_HOME/9p.%s.sock", namespaces[i].String())
 		}
 
-		collections = append(collections, mountinter.TargetCollection{Namespace: ns, Target: targ})
+		collections = append(collections,
+			mountinter.TargetCollection{Namespace: namespaces[i], Target: t, Parameter: providerParam},
+		)
 	}
 	return collections, nil
 }

@@ -236,6 +236,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 	if targetFs == fs {
 		stat.Mode |= fuselib.S_IFDIR
 		fusecom.ApplyPermissions(false, &stat.Mode)
+		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 	}
 
@@ -285,6 +286,8 @@ func (fs *FileSystem) Readdir(path string,
 	}
 
 	if targetFs == fs {
+		//TODO: handle offsets; we need real directory objects with real caching
+		// OS X HATES this and kills us when we fake it
 		fill(".", nil, 0)
 		fill("..", nil, 0)
 		if fs.ipfs != nil {
@@ -407,7 +410,7 @@ func (fs *FileSystem) Access(path string, mask uint32) int {
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
 		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
-		return -fuselib.ENOENT
+		return -fuselib.ENOSYS
 	}
 
 	return targetFs.Access(remainder, mask)

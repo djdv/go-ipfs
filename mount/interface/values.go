@@ -38,9 +38,24 @@ const (
 )
 
 var (
-	suggestedNamespace = func() Namespace { return NamespaceAll }
-	suggestedProvider  = func() ProviderType { return ProviderPlan9Protocol }
-	platformTargetRoot = func() string { return "/" }
+	// replace any number of these in init() for platform specific suggestions
+	suggestedProvider   = func() ProviderType { return ProviderPlan9Protocol }
+	suggestedNamespaces = func() []Namespace {
+		return []Namespace{
+			NamespaceIPFS, // TODO: ipfs -> pinfs
+			NamespaceIPNS, // ipns -> keyfs
+			// NamespaceFiles, // not implemented yet
+		}
+	}
+	platformMountRoot = func() string { return "/" }
+	suggestedTargets  = func() []string {
+		return []string{
+			platformMountRoot() + "ipfs",
+			platformMountRoot() + "ipns",
+			// platformTargetRoot() + "file", // not implemented yet
+		}
+	}
+	allInOnePath = func() string { return "/mnt/ipfs" }
 )
 
 // TODO: I still don't like this name;
@@ -90,6 +105,18 @@ func SuggestedProvider() ProviderType {
 	return suggestedProvider()
 }
 
-func SuggestedNamespace() Namespace {
-	return suggestedNamespace()
+func SuggestedNamespaces() []Namespace {
+	return suggestedNamespaces()
+}
+
+func SuggestedTargets() []string {
+	return suggestedTargets()
+}
+
+func SuggestedAllInOnePath() string {
+	return allInOnePath()
+}
+
+func MountRoot() string {
+	return platformMountRoot()
 }

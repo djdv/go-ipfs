@@ -1,5 +1,3 @@
-// +build !windows,!darwin
-
 package fusecommon
 
 import (
@@ -31,7 +29,5 @@ func statfsUnix(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	fStatfs.Bavail = sysStat.Bavail
 	fStatfs.Files = sysStat.Files
 	fStatfs.Ffree = sysStat.Ffree
-	fStatfs.Frsize = uint64(sysStat.Frsize)
-	fStatfs.Namemax = uint64(sysStat.Namelen)
 	return nil, OperationSuccess
 }

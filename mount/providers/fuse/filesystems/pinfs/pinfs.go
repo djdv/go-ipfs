@@ -70,6 +70,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 		// but would be useful if documented
 		stat.Mode = fuselib.S_IFDIR
 		fusecom.ApplyPermissions(false, &stat.Mode)
+		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 
 	default:
