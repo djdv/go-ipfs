@@ -14,26 +14,15 @@ import (
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 )
 
-/* XXX: this entire file is gross; try not to look at it
-we have to parse 3 different sources of strings; in priority order they are
+/*
+We have to parse 3 different sources of strings; in priority order they are
 1) command line 2) config file 3) platform reccomended fallback
-the command line flags, could be 1 of 2 sets, from the command `ipfs mount` or `ipfs daemon`
-which use different parameter keywords depending on the command invoked
-e.g. `ipfs mount --ipfs-path="/path"` == `ipfs daemon --mount --mount-ipfs="/path"`
-we then transmogrify all that into a psuedo associative array so we can parse it into static typed values
+the command line flags, could come from 1 of 2 commands, `ipfs mount` or `ipfs daemon`
+which use the same keywords except prefixed in the case of `daemon`
+e.g. `ipfs mount --target="/path"` == `ipfs daemon --mount --mount-target="/path"`
 */
 
 const (
-	/* TODO: [discuss] ask if we can break compat so we can employ a consistent prefix pattern
-	daemon commands should be EXACTLY the same as the mount/unmount commands
-	just prefixed with `--mount`
-	i.e. `daemon --mount --mount-ipfs-path`, not `daemon --mount --mount-ipfs`
-	to match `ipfs mount --ipfs-path=`
-
-	this would make parsing easier (a lot less redundancy) and be friendlier to people writing scripts
-	(so they don't have to remember 2 parameters instead of 1 + a subcommand prefix)
-	*/
-
 	cmdProviderKwd  = "provider"
 	cmdNamespaceKwd = "namespace"
 	cmdPathKwd      = "target"
