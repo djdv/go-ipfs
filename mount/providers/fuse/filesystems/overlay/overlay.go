@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
@@ -49,10 +48,6 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 		resLock:  settings.ResourceLock,
 	}
 }
-
-// TODO: we can fetch the calling function from runtime
-// we should investigate if we can fetch its argument stack and automatically proxy the request
-// ^ don't be crazy though
 
 // string: subpath
 func (fs *FileSystem) selectFS(path string) (fuselib.FileSystemInterface, string, error) {
@@ -251,7 +246,8 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	fs.log.Debugf("Opendir - Request %q", path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
+		fs.log.Error(err)
+		return -fuselib.ENOENT, fusecom.ErrorHandle
 	}
 
 	if targetFs == fs {
@@ -265,7 +261,8 @@ func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 	fs.log.Debugf("Releasedir - Request {%X}%q", fh, path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
+		fs.log.Error(err)
+		return -fuselib.EBADF
 	}
 
 	if targetFs == fs {
@@ -283,7 +280,8 @@ func (fs *FileSystem) Readdir(path string,
 
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
+		fs.log.Error(err)
+		return -fuselib.EBADF
 	}
 
 	if targetFs == fs {
@@ -316,7 +314,8 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
+		fs.log.Error(err)
+		return -fuselib.ENOENT, fusecom.ErrorHandle
 	}
 
 	if targetFs == fs {
@@ -331,7 +330,8 @@ func (fs *FileSystem) Release(path string, fh uint64) int {
 	fs.log.Debugf("Release - Request {%X}%q", fh, path)
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
+		fs.log.Error(err)
+		return -fuselib.EBADF
 	}
 
 	if targetFs == fs {
@@ -346,7 +346,8 @@ func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int 
 
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {
-		panic(err) // FIXME: TODO: handle appropriately
+		fs.log.Error(err)
+		return -fuselib.EBADF
 	}
 
 	if targetFs == fs {
@@ -363,7 +364,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	default:
 		targetFs, remainder, err := fs.selectFS(path)
 		if err != nil {
-			fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+			fs.log.Error(err)
 			return -fuselib.ENOENT, ""
 		}
 
@@ -371,11 +372,11 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 
 	case "/":
 		fs.log.Warnf("Readlink - root path is an invalid request")
-		return -fuse.EINVAL, ""
+		return -fuselib.EINVAL, ""
 
 	case "":
 		fs.log.Error("Readlink - empty request")
-		return -fuse.ENOENT, ""
+		return -fuselib.ENOENT, ""
 
 	}
 }
@@ -387,7 +388,7 @@ func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) 
 	default:
 		targetFs, remainder, err := fs.selectFS(path)
 		if err != nil {
-			fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+			fs.log.Error(err)
 			return -fuselib.ENOENT, fusecom.ErrorHandle
 		}
 
@@ -395,6 +396,217 @@ func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) 
 
 	case "":
 		fs.log.Error("Create - empty request")
-		return -fuse.ENOENT, fusecom.ErrorHandle
+		return -fuselib.ENOENT, fusecom.ErrorHandle
 	}
+}
+
+// boilerplate
+// TODO: consider writing a code generator BaseFileSystem -> proxy implementation with selector template
+
+func (fs *FileSystem) Access(path string, mask uint32) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Access(remainder, mask)
+}
+
+func (fs *FileSystem) Setxattr(path string, name string, value []byte, flags int) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Setxattr(remainder, name, value, flags)
+}
+
+func (fs *FileSystem) Getxattr(path string, name string) (int, []byte) {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT, nil
+	}
+
+	return targetFs.Getxattr(remainder, name)
+}
+
+func (fs *FileSystem) Removexattr(path string, name string) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Removexattr(remainder, name)
+}
+
+func (fs *FileSystem) Listxattr(path string, fill func(name string) bool) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Listxattr(remainder, fill)
+}
+
+func (fs *FileSystem) Chmod(path string, mode uint32) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Chmod(remainder, mode)
+}
+
+func (fs *FileSystem) Chown(path string, uid uint32, gid uint32) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Chown(remainder, uid, gid)
+}
+
+func (fs *FileSystem) Utimens(path string, tmsp []fuselib.Timespec) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Utimens(remainder, tmsp)
+}
+
+func (fs *FileSystem) Mknod(path string, mode uint32, dev uint64) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	fs.log.Errorf("mknod test fs: %#v path:%q, remainder: %q, err: %s", targetFs, path, remainder, err)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Mknod(remainder, mode, dev)
+}
+
+func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	fs.log.Errorf("truncate test fs: %#v path:%q, remainder: %q, err: %s", targetFs, path, remainder, err)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Truncate(remainder, size, fh)
+}
+
+func (fs *FileSystem) Write(path string, buff []byte, ofst int64, fh uint64) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.EBADF
+	}
+
+	return targetFs.Write(remainder, buff, ofst, fh)
+}
+
+func (fs *FileSystem) Link(oldpath string, newpath string) int {
+	targetFs, remainder, err := fs.selectFS(oldpath)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Link(remainder, newpath)
+}
+
+func (fs *FileSystem) Unlink(path string) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Unlink(remainder)
+}
+
+func (fs *FileSystem) Mkdir(path string, mode uint32) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Mkdir(remainder, mode)
+}
+
+func (fs *FileSystem) Rmdir(path string) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Rmdir(remainder)
+}
+
+func (fs *FileSystem) Symlink(target string, newpath string) int {
+	targetFs, remainder, err := fs.selectFS(newpath)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Symlink(target, remainder)
+}
+
+// TODO: review
+func (fs *FileSystem) Rename(oldpath string, newpath string) int {
+	return -fuselib.ENOSYS
+
+	targetFs, oldRemainder, err := fs.selectFS(oldpath)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	_, newRemainder, err := fs.selectFS(newpath)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.ENOENT
+	}
+
+	return targetFs.Symlink(oldRemainder, newRemainder)
+}
+
+func (fs *FileSystem) Flush(path string, fh uint64) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.EBADF
+	}
+	return targetFs.Flush(remainder, fh)
+}
+
+func (fs *FileSystem) Fsync(path string, datasync bool, fh uint64) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.EBADF
+	}
+	return targetFs.Fsync(remainder, datasync, fh)
+}
+
+func (fs *FileSystem) Fsyncdir(path string, datasync bool, fh uint64) int {
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuselib.EBADF
+	}
+	return targetFs.Fsyncdir(remainder, datasync, fh)
 }
