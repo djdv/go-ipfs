@@ -16,6 +16,8 @@ import (
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
+	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/ipfs"
+	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/ipns"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/keyfs"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/9P/filesystems/overlay"
@@ -295,19 +297,27 @@ func newServer(ctx context.Context, namespace mountinter.Namespace, core coreifa
 
 	switch namespace {
 	case mountinter.NamespaceIPFS:
-		ops = append(ops, common.Logger(logging.Logger("9IPFS")))
+		ops = append(ops, common.Logger(logging.Logger("9P/IPFS")))
+		attacher = ipfs.Attacher(ctx, core, ops...)
+
+	case mountinter.NamespacePinFS:
+		ops = append(ops, common.Logger(logging.Logger("9P/PinFS")))
 		attacher = pinfs.Attacher(ctx, core, ops...)
 
 	case mountinter.NamespaceIPNS:
-		ops = append(ops, common.Logger(logging.Logger("9IPNS")))
+		ops = append(ops, common.Logger(logging.Logger("9P/IPNS")))
+		attacher = ipns.Attacher(ctx, core, ops...)
+
+	case mountinter.NamespaceKeyFS:
+		ops = append(ops, common.Logger(logging.Logger("9P/KeyFS")))
 		attacher = keyfs.Attacher(ctx, core, ops...)
 
 	case mountinter.NamespaceFiles:
-		ops = append(ops, common.Logger(logging.Logger("9Files")))
+		ops = append(ops, common.Logger(logging.Logger("9P/FilesAPI")))
 		attacher = mfs.Attacher(ctx, core, ops...)
 
 	case mountinter.NamespaceAllInOne:
-		ops = append(ops, common.Logger(logging.Logger("9overlay")))
+		ops = append(ops, common.Logger(logging.Logger("9P/Overlay")))
 		attacher = overlay.Attacher(ctx, core, ops...)
 
 	default:

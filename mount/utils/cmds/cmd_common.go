@@ -218,7 +218,8 @@ func parseTargetConfig(nodeConf *config.Config, namespaces []mountinter.Namespac
 	}
 	for _, ns := range namespaces {
 		switch ns {
-		case mountinter.NamespaceIPFS:
+		// TODO: separate IPFS/PinFS in this context; same for now
+		case mountinter.NamespaceIPFS, mountinter.NamespacePinFS:
 			if runtime.GOOS == "windows" && defaultConfig.Mounts.IPFS == nodeConf.Mounts.IPFS {
 				targets = append(targets, mountinter.MountRoot()+"ipfs")
 				continue

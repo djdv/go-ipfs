@@ -100,11 +100,13 @@ func (fs *FileSystem) Init() {
 
 		if c := fs.initChan; c != nil {
 			c <- retErr
+			close(fs.initChan)
 		}
 
+		fs.log.Errorf("init finished")
 	}()
 
-	ipfsSub, err := fs.attachIPFS()
+	ipfsSub, err := fs.attachPinFS()
 	if err != nil {
 		retErr = err
 		return
@@ -128,38 +130,18 @@ func (fs *FileSystem) Init() {
 	}
 }
 
-func (fs *FileSystem) attachIPFS() (fuselib.FileSystemInterface, error) {
+func (fs *FileSystem) attachPinFS() (fuselib.FileSystemInterface, error) {
 	initChan := make(fusecom.InitSignal)
-	commonOpts := []fusecom.Option{
-		fusecom.WithInitSignal(initChan),
-		fusecom.WithResourceLock(fs.resLock),
-	}
 
-	var pinfsSubsys fuselib.FileSystemInterface
-
-	// handle `/ipfs/*` requests via core
-	ipfsSubsys := ipfscore.NewFileSystem(fs.Ctx(), fs.Core(),
-		ipfscore.WithNamespace(mountinter.NamespaceIPFS),
-		ipfscore.WithCommon(append(commonOpts, fusecom.WithParent(pinfsSubsys))...),
-	)
-
-	go ipfsSubsys.Init()
-	if err := <-initChan; err != nil {
-		return nil, err
-	}
-
-	// handle `/ipfs` requests via pinfs
-	pinfsSubsys = pinfs.NewFileSystem(fs.Ctx(), fs.Core(),
-		pinfs.WithProxy(ipfsSubsys),
-		pinfs.WithCommon(append(commonOpts, fusecom.WithParent(fs))...),
+	pinfsSubsys := pinfs.NewFileSystem(fs.Ctx(), fs.Core(),
+		pinfs.WithCommon(
+			fusecom.WithInitSignal(initChan),
+			fusecom.WithResourceLock(fs.resLock),
+		),
 	)
 
 	go pinfsSubsys.Init()
-	if err := <-initChan; err != nil {
-		return nil, err
-	}
-
-	return pinfsSubsys, nil
+	return pinfsSubsys, <-initChan
 }
 
 func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
@@ -174,7 +156,8 @@ func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
 	// handle `/ipns/*` requests via core
 	ipnsSubsys := ipfscore.NewFileSystem(fs.Ctx(), fs.Core(),
 		ipfscore.WithNamespace(mountinter.NamespaceIPNS),
-		ipfscore.WithCommon(append(commonOpts, fusecom.WithParent(keyfsSubsys))...),
+		ipfscore.WithCommon(append(commonOpts,
+			fusecom.WithParent(keyfsSubsys))...),
 	)
 
 	go ipnsSubsys.Init()

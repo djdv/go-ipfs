@@ -12,8 +12,8 @@ import (
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
-	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -122,10 +122,10 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 	var (
 		fsh        *fuselib.FileSystemHost
 		fs         fuselib.FileSystemInterface
-		initSignal = make(chan error)
+		initSignal = make(fusecom.InitSignal)
 		commonOpts = []fusecom.Option{
 			fusecom.WithInitSignal(initSignal),
-			// TODO: fusecom.WithResourceLock(options.resourceLock),
+			// TODO: fusecom.WithResourceLock(options.resourceLock), pass in from caller
 		}
 	)
 
@@ -140,19 +140,12 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 
 		fs = overlay.NewFileSystem(ctx, core, oOps...)
 
-	case mountinter.NamespaceIPFS:
+	case mountinter.NamespacePinFS:
+		fs = pinfs.NewFileSystem(ctx, core, pinfs.WithCommon(commonOpts...))
+	case mountinter.NamespaceIPFS, mountinter.NamespaceIPNS:
 		fs = ipfscore.NewFileSystem(ctx, core,
 			ipfscore.WithNamespace(namespace),
-			ipfscore.WithCommon(append(commonOpts,
-				fusecom.WithLog(logging.Logger("fuse/ipfs")),
-			)...),
-		)
-	case mountinter.NamespaceIPNS:
-		fs = ipfscore.NewFileSystem(ctx, core,
-			ipfscore.WithNamespace(namespace),
-			ipfscore.WithCommon(append(commonOpts,
-				fusecom.WithLog(logging.Logger("fuse/ipns")),
-			)...),
+			ipfscore.WithCommon(commonOpts...),
 		)
 	case mountinter.NamespaceFiles:
 		return nil, nil, fmt.Errorf("not implemented yet: %v", namespace)

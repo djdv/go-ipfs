@@ -3,7 +3,6 @@ package pinfs
 import (
 	"fmt"
 
-	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	logging "github.com/ipfs/go-log"
 )
@@ -11,14 +10,11 @@ import (
 type (
 	Option interface{ apply(*settings) }
 
-	commonOpts  []fusecom.Option
-	fsContainer struct{ fuselib.FileSystemInterface }
-	proxyOpt    fsContainer
+	commonOpts []fusecom.Option
 )
 
 type settings struct {
 	fusecom.Settings
-	proxy fuselib.FileSystemInterface // if provided, will be used to relay subdirectory requests to another system
 }
 
 func parseOptions(opts ...Option) *settings {
@@ -65,12 +61,4 @@ func WithCommon(opts ...fusecom.Option) Option {
 }
 func (co commonOpts) apply(set *settings) {
 	fusecom.ApplyOptions(&set.Settings, ([]fusecom.Option)(co)...)
-}
-
-// WithProxy provides a reference to a node that will act as a proxy for subrequests of this root
-func WithProxy(p fuselib.FileSystemInterface) Option {
-	return proxyOpt(fsContainer{p})
-}
-func (fc proxyOpt) apply(set *settings) {
-	set.proxy = fuselib.FileSystemInterface(fc.FileSystemInterface)
 }

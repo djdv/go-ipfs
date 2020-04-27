@@ -42,7 +42,7 @@ var (
 	suggestedProvider   = func() ProviderType { return ProviderPlan9Protocol }
 	suggestedNamespaces = func() []Namespace {
 		return []Namespace{
-			NamespaceIPFS, // TODO: ipfs -> pinfs
+			NamespacePinFS,
 			NamespaceIPNS, // ipns -> keyfs
 			// NamespaceFiles, // not implemented yet
 		}

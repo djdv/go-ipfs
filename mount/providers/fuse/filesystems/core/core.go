@@ -54,16 +54,18 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 
 func (fs *FileSystem) Init() {
 	fs.Lock()
-	defer fs.Unlock()
 	fs.log.Debug("init")
+	defer func() {
+		fs.Unlock()
+		if c := fs.initChan; c != nil {
+			close(fs.initChan)
+		}
+		fs.log.Errorf("init finished")
+	}()
 
 	fs.files = fusecom.NewFileTable()
 	fs.directories = fusecom.NewDirectoryTable()
 
-	defer fs.log.Debug("init finished")
-	if c := fs.initChan; c != nil {
-		c <- nil
-	}
 }
 
 func (fs *FileSystem) Destroy() {
