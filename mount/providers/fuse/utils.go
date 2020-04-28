@@ -62,7 +62,8 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 	case "linux":
 		// [2020.04.18] cgofuse currently backed by hanwen/go-fuse on linux; their optset doesn't support our desire
 		// libfuse: opts = fmt.Sprintf(`-o fsname=ipfs,subtype=fuse.%s`, namespace.String())
-		fallthrough
+		retTarget = target
+
 	case "darwin":
 		if namespace == mountinter.NamespaceAllInOne {
 			// TODO: see if we can provide `volicon` via an IPFS path; or make the overlay provide one via `/.VolumeIcon.icns` on darwin
