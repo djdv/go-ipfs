@@ -21,19 +21,20 @@ import (
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
 
 type FileSystem struct {
-	fusecom.SharedMethods // TODO: remove; we need to proxy all requests
 	provcom.IPFSCore
 	//provcom.MFS
 
 	// init relevant - do not use outside of init(); they will be nil
-	initChan  fusecom.InitSignal
-	resLock   mountcom.ResourceLock // call methods on fs.(Request|Release) instead
-	filesRoot *gomfs.Root           // use fs.filesAPI after it's initalized
+	initChan    fusecom.InitSignal
+	resLock     mountcom.ResourceLock // call methods on fs.(Request|Release) instead
+	filesRoot   *gomfs.Root           // use fs.filesAPI after it's initalized
+	directories []string
 
-	// persistant
 	// FIXME: zap logger implies newly created logs will respect the zapconfig's set Level
 	// however this doesn't seem to be the case in go-log
-	// `ipfs daemon --debug` will not print debug log infor for these created logs despite being spawned from a config who's level should now be set to `debug`
+	// `ipfs daemon --debug` will not print debug log for these created logs despite being spawned from a config who's level should now be set to `debug`
+
+	// persistant
 	log                  logging.EventLogger
 	ipfs, ipns, filesAPI fuselib.FileSystemInterface
 }
@@ -120,6 +121,13 @@ func (fs *FileSystem) Init() {
 	}
 	fs.ipns = ipnsSub
 
+	fs.directories = []string{
+		".",
+		"..",
+		"ipfs",
+		"ipns",
+	}
+
 	if fs.filesRoot != nil {
 		filesSub, err := fs.attachFilesAPI()
 		if err != nil {
@@ -127,11 +135,13 @@ func (fs *FileSystem) Init() {
 			return
 		}
 		fs.filesAPI = filesSub
+		capacity := len(fs.directories) + 1 // this slice lives forever; so cap the reslice to save less bytes than this comment takes
+		fs.directories = append(fs.directories, "file")[:capacity:capacity]
 	}
 }
 
 func (fs *FileSystem) attachPinFS() (fuselib.FileSystemInterface, error) {
-	initChan := make(fusecom.InitSignal)
+	initChan := make(fusecom.InitSignal) // closed by subsystem
 
 	pinfsSubsys := pinfs.NewFileSystem(fs.Ctx(), fs.Core(),
 		pinfs.WithCommon(
@@ -141,11 +151,23 @@ func (fs *FileSystem) attachPinFS() (fuselib.FileSystemInterface, error) {
 	)
 
 	go pinfsSubsys.Init()
-	return pinfsSubsys, <-initChan
+	var retErr error
+	for err := range initChan {
+		// TODO: [general] zap-ify all the logs
+		if err != nil {
+			fs.log.Errorf("subsystem init failed:%s", err)
+			retErr = err // last err returned but all logged
+		}
+	}
+
+	return pinfsSubsys, retErr
 }
 
 func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
-	initChan := make(fusecom.InitSignal)
+	initChan := make(fusecom.InitSignal) // closed by subsystem
+
+	// TODO: lint
+
 	commonOpts := []fusecom.Option{
 		fusecom.WithInitSignal(initChan),
 		fusecom.WithResourceLock(fs.resLock),
@@ -161,8 +183,14 @@ func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
 	)
 
 	go ipnsSubsys.Init()
-	if err := <-initChan; err != nil {
-		return nil, err
+	var retErr error
+	for err := range initChan {
+		// TODO: [general] zap-ify all the logs
+		fs.log.Errorf("subsystem init failed:%s", err)
+		retErr = err // last err returned
+	}
+	if retErr != nil {
+		return nil, retErr
 	}
 
 	// handle `/ipns` requests via keyfs
@@ -179,7 +207,7 @@ func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
 	}
 	*/
 
-	return ipnsSubsys, nil
+	return ipnsSubsys, retErr
 }
 
 func (fs *FileSystem) attachFilesAPI() (fuselib.FileSystemInterface, error) {
@@ -206,6 +234,10 @@ func (fs *FileSystem) attachFilesAPI() (fuselib.FileSystemInterface, error) {
 func (fs *FileSystem) Destroy() {
 	//TODO: call on subsystems
 	fs.log.Debugf("Destroy - Requested")
+}
+
+func (*FileSystem) Statfs(path string, stat *fuselib.Statfs_t) int {
+	return (*fusecom.SharedMethods).Statfs(nil, path, stat)
 }
 
 func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int {
@@ -269,20 +301,19 @@ func (fs *FileSystem) Readdir(path string,
 	}
 
 	if targetFs == fs {
-		//TODO: handle offsets; we need real directory objects with real caching
-		// OS X HATES this and kills us when we fake it
-		fill(".", nil, 0)
-		fill("..", nil, 0)
-		if fs.ipfs != nil {
-			fill("ipfs", nil, 0)
+		dLen := int64(len(fs.directories))
+		if ofst > dLen {
+			return -fuselib.ENOENT
 		}
-		if fs.ipns != nil {
-			fill("ipns", nil, 0)
+
+		for ofst != dLen {
+			name := fs.directories[ofst]
+			ofst++
+			if !fill(name, nil, ofst) {
+				break
+			}
 		}
-		if fs.filesAPI != nil {
-			fill("file", nil, 0)
-		}
-		return fusecom.OperationSuccess // TODO: implement for real
+		return fusecom.OperationSuccess
 	}
 
 	return targetFs.Readdir(remainder, fill, ofst, fh)

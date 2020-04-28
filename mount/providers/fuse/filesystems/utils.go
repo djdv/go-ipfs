@@ -16,7 +16,6 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 	// TODO: [audit] int -> uint needs range checking
 	entChan, err := directory.Readdir(uint64(offset), 0).ToFuse()
 	if err != nil {
-		// TODO: inspect/transform error
 		return err, -fuselib.ENOENT
 	}
 

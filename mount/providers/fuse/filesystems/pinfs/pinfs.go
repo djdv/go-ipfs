@@ -60,7 +60,6 @@ func (fs *FileSystem) Init() {
 
 	// proxy subrequests to IPFS
 	initChan := make(fusecom.InitSignal)
-	//defer close(initChan)
 	ipfsSubsys := ipfscore.NewFileSystem(fs.Ctx(), fs.Core(),
 		ipfscore.WithNamespace(mountinter.NamespaceIPFS),
 		ipfscore.WithCommon(
@@ -71,14 +70,17 @@ func (fs *FileSystem) Init() {
 	)
 
 	go ipfsSubsys.Init()
-	if retErr = <-initChan; retErr != nil {
-		return
+	for err := range initChan {
+		if err != nil {
+			fs.log.Errorf("subsystem init failed:%s", err)
+			retErr = err // last err returned but all logged
+		}
 	}
+
 	fs.ipfs = ipfsSubsys
 
 	// fs.mountTime = fuselib.Now()
 	fs.directories = fusecom.NewDirectoryTable()
-
 }
 
 func (fs *FileSystem) Destroy() {
