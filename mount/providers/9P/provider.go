@@ -109,7 +109,7 @@ func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 
 	var closureErr error
 	if pr.listener == nil {
-		fmt.Println("spinning up")
+		fmt.Println("spinning up 9P listener")
 		// spin up a listener
 		// TODO: split the socket listener from the server instance itself; e.g. break up listen() into listen()+newServer(manet.Listener)
 		if err := pr.listen(); err != nil {
@@ -119,7 +119,7 @@ func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 		// we spawned a listener, if the mount fails, clean it up; otherwise don't
 		defer func() {
 			if closureErr != nil {
-				fmt.Println("spinup err:", closureErr)
+				fmt.Println("error encountered, closing listener:", closureErr)
 				pr.maybeCleanupListener()
 			}
 		}()
@@ -132,6 +132,7 @@ func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 
 	if err := pr.mount(target); err != nil {
 		closureErr = err
+		fmt.Println("failed to mount, likely the node instance doesn't have mount permissions")
 		return nil, err
 	}
 
