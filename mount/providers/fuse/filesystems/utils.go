@@ -1,6 +1,7 @@
 package fusecommon
 
 import (
+	"errors"
 	"fmt"
 	gopath "path"
 
@@ -13,16 +14,22 @@ import (
 type fillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 
 func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset int64) (error, int) {
-	// TODO: [audit] int -> uint needs range checking
-	entChan, err := directory.Readdir(uint64(offset), 0).ToFuse()
-	if err != nil {
-		return err, -fuselib.ENOENT
-	}
-
-	// dots are optional in POSIX but everyone expects them
-	// lots of things break without them so we use them
+	// dots are optional in POSIX but lots of things break without them, so we fill them in
 	// NOTE: we let the OS populate the stats because it's not worth the complexity yet
-	// later this may change to add 2 closed procedures for self/parent; self|parentResolve()(*stat, error)
+	// later this may change to add 2 closed procedures for self/parent; `{self|parent}Resolve()(*stat, error)`
+
+	// Returning entries with offset value 0 has a special meaning in FUSE
+	// so all returned offsets values are expected to be 0>
+	// FillDir expects the input directory to follow this convention, and supply us with offsets 0>
+	// to avoid overlap, or range requirements
+	// we sum our local (dot) offset with the entry's offset to get a value suitable to return
+	// and do the inverse to get the directory's input offset value (from a value we previously returned)
+	// rel: SUSv7 `readdir`, `seekdir`, `telldir`
+
+	const dotOffsetBase = 2 // 0th index for Readdir return values
+
+	var relativeOffset uint64 // offset used for input, adjusting for dots if any
+
 	switch offset {
 	case 0:
 		if !fill(".", nil, 1) {
@@ -33,15 +40,15 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 		if !fill("..", nil, 2) {
 			return nil, OperationSuccess
 		}
+	default:
+		// TODO: [audit] int -> uint needs range check
+		relativeOffset = uint64(offset) - dotOffsetBase
 	}
 
-	// offset 0 has special meaning in FUSE
-	// so all offset values in our API are expected to be non-0
-	// more specifically, they're expected to start at 1 and increase incrementally
-	// we account for our dots as taking offset positions 1 and 2 in every directory
-	// we'll then sum our local offset with the offset of the independent entries
-	// to result in the final offset returned to FUSE
-	var fillOffset int64 = 2
+	entChan, err := directory.Readdir(relativeOffset, 0).ToFuse()
+	if err != nil {
+		return err, -fuselib.ENOENT
+	}
 
 	for ent := range entChan {
 		// stat will always be nil on platforms that have ReaddirPlus disabled
@@ -50,7 +57,7 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 			ApplyPermissions(writable, &ent.Stat.Mode)
 		}
 
-		if !fill(ent.Name, ent.Stat, fillOffset+ent.Offset) {
+		if !fill(ent.Name, ent.Stat, dotOffsetBase+ent.Offset) {
 			break
 		}
 	}
@@ -79,4 +86,16 @@ func ApplyPermissions(fsWritable bool, mode *uint32) {
 	if fsWritable {
 		*mode |= (fuselib.S_IWGRP | fuselib.S_IWUSR) // |0220
 	}
+}
+
+// TODO: same placehold message as ApplyPermissions
+// we'll likely replace instances of this with something more sophisticated
+func CheckOpenFlagsBasic(writable bool, flags int) (error, int) {
+	// NOTE: SUSv7 doesn't include O_APPEND for EROFS; despite this being a write flag
+	// we're counting it for now, but may remove this if it causes compatability problems
+	const mutableFlags = fuselib.O_WRONLY | fuselib.O_RDWR | fuselib.O_APPEND | fuselib.O_CREAT | fuselib.O_TRUNC
+	if flags&mutableFlags != 0 && !writable {
+		return errors.New("write flags provided for read only system"), -fuselib.EROFS
+	}
+	return nil, OperationSuccess
 }

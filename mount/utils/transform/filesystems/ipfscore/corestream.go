@@ -18,6 +18,18 @@ var (
 	_ transform.DirectoryState = (*coreDirectoryStream)(nil)
 )
 
+type offsetStreamEntry interface {
+	transform.DirectoryStreamEntry
+	Offset() uint64
+}
+
+type offsetEntry struct {
+	transform.DirectoryStreamEntry
+	offset uint64
+}
+
+func (oe *offsetEntry) Offset() uint64 { return oe.offset }
+
 type coreDirectoryStream struct {
 	core coreiface.CoreAPI
 	ctx  context.Context
@@ -32,7 +44,7 @@ type coreDirectoryStream struct {
 	// left unbounded, opening something like the Wikipedia root might get us killed
 	entryCache               []transform.DirectoryStreamEntry
 	in                       <-chan transform.DirectoryStreamEntry // from arbitrary source
-	out                      chan transform.DirectoryStreamEntry   // from us to us (from Readdir to translation methods)
+	out                      chan offsetStreamEntry                // from us to us (from Readdir to translation methods)
 	cursor, validOffsetBound uint64
 }
 
@@ -47,8 +59,7 @@ func OpenStream(ctx context.Context, streamSource transform.StreamSource, core c
 		core:         core,
 		streamSource: streamSource,
 		// TODO: entryCache: make([]transform.DirectoryStreamEntry),
-		in:     newStream,
-		cursor: 1,
+		in: newStream,
 	}, nil
 }
 
@@ -69,7 +80,7 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 	}
 
 	// reinit / `rewinddir`
-	if offset == 0 && cs.cursor != 1 { // only reset if we've actually moved
+	if offset == 0 && cs.cursor != 0 { // only reset if we've actually moved
 		// close old stream
 		if cs.err = cs.streamSource.Close(); cs.err != nil {
 			return cs
@@ -108,11 +119,11 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 	// TODO: cache lookup here; forward only for now (excluding unspecified FUSE behavior)
 
 	if offset > 0 { // convert a previously supplied `telldir` value back to a real offset
-		cs.cursor = (offset % cs.validOffsetBound) + 1 // the actual `seekdir` portion
+		cs.cursor = (offset % cs.validOffsetBound) // the actual `seekdir` portion
 	}
 
 	untilEndOfStream := count == 0 // special case, go until end of stream
-	cs.out = make(chan transform.DirectoryStreamEntry)
+	cs.out = make(chan offsetStreamEntry)
 
 	go func() {
 		defer close(cs.out)
@@ -133,13 +144,19 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 					return
 				}
 
-				// TODO cache store here
-				// checks have passed, consider this entry consumed
+				// TODO cache entry in some store here
+
+				// entry has been consumed, advance the relative cursor and absolute upper bound
 				cs.cursor++
 				cs.validOffsetBound++
 
-				// send the entry through to whichever translation method wants to receive it
-				cs.out <- entry
+				// checks have passed, assign the highest-valid-offset value to the entry
+				// and send it to whichever translation method wants to receive it
+				cs.out <- &offsetEntry{
+					DirectoryStreamEntry: entry,
+					offset:               cs.validOffsetBound,
+				}
+
 			}
 		}
 	}()
@@ -171,7 +188,7 @@ func (cs *coreDirectoryStream) To9P() (p9.Dirents, error) {
 
 		nineEnts = append(nineEnts, p9.Dirent{
 			Name:   ent.Name(),
-			Offset: cs.validOffsetBound,
+			Offset: ent.Offset(),
 			QID:    transform.CidToQID(path.Cid(), iStat.FileType),
 		})
 
@@ -204,7 +221,7 @@ func (cs *coreDirectoryStream) ToFuse() (<-chan transform.FuseStatGroup, error) 
 
 			fuseOut <- transform.FuseStatGroup{
 				Name:   ent.Name(),
-				Offset: int64(cs.validOffsetBound), // TODO: [audit] uint->int
+				Offset: int64(ent.Offset()), // TODO: [audit] uint->int
 				Stat:   fStat,
 			}
 		}

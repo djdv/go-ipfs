@@ -186,7 +186,11 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	defer fs.Unlock()
 	fs.log.Debugf("Open - {%X}%q", flags, path)
 
-	// TODO: parse flags
+	goErr, errNo := fusecom.CheckOpenFlagsBasic(false, flags)
+	if goErr != nil {
+		fs.log.Error(goErr)
+		return errNo, fusecom.ErrorHandle
+	}
 
 	switch path {
 	case "":

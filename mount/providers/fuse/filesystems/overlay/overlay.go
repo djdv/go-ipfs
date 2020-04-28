@@ -321,13 +321,12 @@ func (fs *FileSystem) Readdir(path string,
 
 func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	fs.log.Debugf("Open - Request {%X}%q", flags, path)
-	/* TODO: verify this; source libfuse docs
-	Creation (O_CREAT, O_EXCL, O_NOCTTY) flags will be filtered out / handled by the kernel.
-	Access modes (O_RDONLY, O_WRONLY, O_RDWR, O_EXEC, O_SEARCH) should be used by the filesystem to check if the operation is permitted. If the -o default_permissions mount option is given, this check is already done by the kernel before calling open() and may thus be omitted by the filesystem.
-	*/
 
-	// TODO: verify this
-	// go fuselib handles O_DIRECTORY for us, if dir operations are performed here; assume open(..., O_DIRECTORY) was passed
+	goErr, errNo := fusecom.CheckOpenFlagsBasic(false, flags)
+	if goErr != nil {
+		fs.log.Error(goErr)
+		return errNo, fusecom.ErrorHandle
+	}
 
 	targetFs, remainder, err := fs.selectFS(path)
 	if err != nil {

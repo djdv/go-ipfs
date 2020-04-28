@@ -246,7 +246,7 @@ func parseTargetConfig(nodeConf *config.Config, namespaces []mountinter.Namespac
 
 func combine(provider mountinter.ProviderType, namespaces []mountinter.Namespace, targets []string) ([]mountinter.TargetCollection, error) {
 	if tLen, nLen := len(targets), len(namespaces); tLen != nLen {
-		return nil, fmt.Errorf("namespace and target count do not match(%d|%d)", tLen, nLen)
+		return nil, fmt.Errorf("namespace and target count do not match([%d]namespaces:%v|[%d]targets:%v)", nLen, namespaces, tLen, targets)
 	}
 
 	var collections mountinter.TargetCollections
