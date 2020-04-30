@@ -3,8 +3,11 @@ package mfs
 import (
 	"fmt"
 
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-mfs"
 )
+
+var _ transform.File = (*mfsIOWrapper)(nil)
 
 type mfsIOWrapper struct{ f mfs.FileDescriptor }
 
@@ -16,7 +19,7 @@ func (mio *mfsIOWrapper) Seek(offset int64, whence int) (int64, error) {
 	return mio.f.Seek(offset, whence)
 }
 
-func MFSOpenFile(mroot *mfs.Root, path string, flags IOFlags) (File, error) {
+func OpenFile(mroot *mfs.Root, path string, flags transform.IOFlags) (*mfsIOWrapper, error) {
 	mfsNode, err := mfs.Lookup(mroot, path)
 	if err != nil {
 		return nil, err

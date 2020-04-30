@@ -7,16 +7,17 @@ import (
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
+	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-func OpenDir(ctx context.Context, keyAPI coreiface.KeyAPI) (transform.Directory, error) {
+func OpenDir(ctx context.Context, core coreiface.CoreAPI) (transform.Directory, error) {
 
 	keyStream := &streamTranslator{
 		ctx:    ctx,
-		keyAPI: keyAPI,
+		keyAPI: core.Key(),
 	}
 
-	return ipfscore.OpenStream(ctx, keyStream)
+	return ipfscore.OpenStream(ctx, keyStream, core)
 }
 
 type streamTranslator struct {
@@ -36,7 +37,7 @@ func (ks *streamTranslator) Open() (<-chan transform.DirectoryStreamEntry, error
 		cancel()
 		return nil, err
 	}
-	ks.keys = keys
+
 	ks.cancel = cancel
 	return translateEntries(listContext, keys), nil
 }
@@ -54,7 +55,9 @@ type keyTranslator struct {
 	coreiface.Key
 }
 
-func (_ *keyTranslator) Error() error { return nil }
+func (ke *keyTranslator) Path() corepath.Path { return ke.Key.Path() }
+func (ke *keyTranslator) Name() string        { return ke.Key.Name() }
+func (_ *keyTranslator) Error() error         { return nil }
 
 func translateEntries(ctx context.Context, keys []coreiface.Key) <-chan transform.DirectoryStreamEntry {
 	out := make(chan transform.DirectoryStreamEntry)

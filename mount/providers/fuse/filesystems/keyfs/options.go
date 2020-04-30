@@ -1,4 +1,4 @@
-package mfs
+package keyfs
 
 import (
 	"fmt"
@@ -49,7 +49,7 @@ func maybeAppendLog(comOpts commonOpts) commonOpts {
 	}
 
 	if !logWasProvided {
-		comOpts = append(comOpts, fusecom.WithLog(logging.Logger("fuse/mfs")))
+		comOpts = append(comOpts, fusecom.WithLog(logging.Logger("fuse/keyfs")))
 		fmt.Println(comOpts)
 	}
 	return comOpts
