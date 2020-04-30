@@ -43,18 +43,15 @@ type conductor struct {
 func NewConductor(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *conductor {
 	// TODO: reconsider default; we probably want to switch InForeGround
 	// to InBackground(true) and default to foreground `Graft`ing
-	options := new(options) // defaults are the zero values
-	for _, opt := range opts {
-		opt.apply(options)
-	}
+	settings := parseOptions(opts...)
 
 	return &conductor{
 		ctx:          ctx,
 		core:         core,
 		resLock:      mountcom.NewResourceLocker(),
 		instances:    mountcom.NewInstanceCollection(),
-		foreground:   options.foreground,
-		filesAPIRoot: options.filesAPIRoot,
+		foreground:   settings.foreground,
+		filesAPIRoot: settings.filesAPIRoot,
 	}
 }
 
