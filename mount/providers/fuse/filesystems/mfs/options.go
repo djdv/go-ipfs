@@ -31,7 +31,7 @@ func parseOptions(opts ...Option) *settings {
 	}
 
 	// if a log was not provided, provide a more specific default
-	//comOpts = maybeAppendLog(comOpts)
+	comOpts = maybeAppendLog(comOpts)
 
 	// apply common opts for embedded settings
 	fusecom.ApplyOptions(&settings.Settings, comOpts...)

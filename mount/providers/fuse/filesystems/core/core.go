@@ -3,6 +3,7 @@ package ipfscore
 import (
 	"context"
 	"errors"
+	"io"
 	gopath "path"
 	"path/filepath"
 	"strings"
@@ -56,10 +57,10 @@ func (fs *FileSystem) Init() {
 	fs.log.Debug("init")
 	defer func() {
 		fs.Unlock()
-		if c := fs.initChan; c != nil {
+		if fs.initChan != nil {
 			close(fs.initChan)
 		}
-		fs.log.Errorf("init finished")
+		fs.log.Debugf("init finished")
 	}()
 
 	fs.files = fusecom.NewFileTable()
@@ -246,7 +247,7 @@ func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int 
 	}
 
 	err, retVal := fusecom.ReadFile(file, buff, ofst)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		fs.log.Error(err)
 	}
 	return retVal

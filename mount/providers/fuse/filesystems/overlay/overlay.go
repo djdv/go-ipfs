@@ -104,11 +104,13 @@ func (fs *FileSystem) Init() {
 		}
 
 		if c := fs.initChan; c != nil {
-			c <- retErr
-			close(fs.initChan)
+			if retErr != nil {
+				c <- retErr
+			}
+			close(c)
 		}
 
-		fs.log.Errorf("init finished")
+		fs.log.Debugf("init finished")
 	}()
 
 	ipfsSub, err := fs.attachPinFS()
