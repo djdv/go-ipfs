@@ -135,16 +135,22 @@ baz
 
 func prettifyWhere(m map[mountinter.ProviderType][]string) string {
 	var s strings.Builder
+	provEnd := len(m) - 1
+	var pIndex int
 	for prov, targets := range m {
 		s.WriteString(prov.String() + ": [")
 		tEnd := len(targets) - 1
 		for i, targ := range targets {
 			s.WriteString(targ)
-			if i != tEnd {
+			if i < tEnd {
 				s.WriteString(", ")
 			}
 		}
-		s.WriteString("]")
+		s.WriteRune(']')
+		if pIndex < provEnd {
+			s.WriteRune(' ')
+		}
+		pIndex++
 	}
 	if s.Len() == 0 {
 		return "No mounts are active"

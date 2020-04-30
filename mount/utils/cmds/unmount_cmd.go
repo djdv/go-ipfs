@@ -63,15 +63,18 @@ var UnmountCmd = &cmds.Command{
 
 		retErrString.WriteString("failed to detach: ")
 
-		for _, pair := range targets {
+		tEnd := len(targets) - 1
+		for i, pair := range targets {
 			if err := daemon.Mount.Detach(pair.Target); err != nil {
 				failed = true
-				retErrString.WriteString(fmt.Sprintf("{\"%s\", error: %s} ", pair.Target, err.Error()))
+				retErrString.WriteString(fmt.Sprintf("{\"%s\", error: %s}", pair.Target, err.Error()))
+				if i < tEnd {
+					retErrString.WriteRune(' ')
+				}
 			}
 		}
 		if failed {
-			// TODO: how about not putting the extra space in the first place 👀
-			err := errors.New(strings.TrimPrefix(retErrString.String(), " "))
+			err := errors.New(retErrString.String())
 			cmds.EmitOnce(res, err)
 			return err
 		}
