@@ -38,7 +38,7 @@ func ipldAttr(ctx context.Context, node ipld.Node, req IPFSStatRequest) (*IPFSSt
 	}
 
 	if req.Type {
-		attr.FileType, filledAttrs.Type = UnixfsTypeToCoreType(ufsNode.Type()), true
+		attr.FileType, filledAttrs.Type = unixfsTypeToCoreType(ufsNode.Type()), true
 	}
 
 	if req.Blocks {

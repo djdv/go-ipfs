@@ -3,6 +3,7 @@ package fusecommon
 import (
 	"errors"
 	"fmt"
+	"io"
 	gopath "path"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
@@ -12,6 +13,7 @@ import (
 )
 
 type fillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
+type errno = int
 
 func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset int64) (error, int) {
 	// dots are optional in POSIX but lots of things break without them, so we fill them in
@@ -90,7 +92,7 @@ func ApplyPermissions(fsWritable bool, mode *uint32) {
 
 // TODO: same placehold message as ApplyPermissions
 // we'll likely replace instances of this with something more sophisticated
-func CheckOpenFlagsBasic(writable bool, flags int) (error, int) {
+func CheckOpenFlagsBasic(writable bool, flags int) (error, errno) {
 	// NOTE: SUSv7 doesn't include O_APPEND for EROFS; despite this being a write flag
 	// we're counting it for now, but may remove this if it causes compatability problems
 	const mutableFlags = fuselib.O_WRONLY | fuselib.O_RDWR | fuselib.O_APPEND | fuselib.O_CREAT | fuselib.O_TRUNC
@@ -98,4 +100,95 @@ func CheckOpenFlagsBasic(writable bool, flags int) (error, int) {
 		return errors.New("write flags provided for read only system"), -fuselib.EROFS
 	}
 	return nil, OperationSuccess
+}
+
+func CheckOpenPathBasic(path string) (error, int) {
+	switch path {
+	case "":
+		return fuselib.Error(-fuselib.ENOENT), -fuselib.ENOENT
+	case "/":
+		return fuselib.Error(-fuselib.EISDIR), -fuselib.EISDIR
+	default:
+		return nil, OperationSuccess
+	}
+}
+
+func ReleaseFile(table FileTable, handle uint64) (error, errno) {
+	file, err := table.Get(handle)
+	if err != nil {
+		return err, -fuselib.EBADF
+	}
+
+	// SUSv7 `close` (parphrased)
+	// if errors are encountered, the result of the handle is unspecified
+	// for us specifically, we'll remove the handle regardless of its close return
+
+	if err := table.Remove(handle); err != nil {
+		// TODO: if the error is not found we need to panic or return a severe error
+		// this should not be possible
+		return err, -fuselib.EBADF
+	}
+
+	return file.Close(), OperationSuccess
+}
+
+func ReleaseDir(table DirectoryTable, handle uint64) (error, errno) {
+	dir, err := table.Get(handle)
+	if err != nil {
+		return err, -fuselib.EBADF
+	}
+
+	if err := table.Remove(handle); err != nil {
+		// TODO: if the error is not found we need to panic or return a severe error
+		// this should not be possible
+		return err, -fuselib.EBADF
+	}
+
+	// NOTE: even if close fails, we return system success
+	// the relevant standard errors do not apply here; `releasedir` is not expected to fail
+	// the handle was valid [EBADF], and we didn't get interupted by the system [EINTR]
+	// if the returned error is not nil, it's an implementation fault that needs to be amended
+	// in the directory interface implementation returned to us from the table
+	return dir.Close(), OperationSuccess
+}
+
+func ReadFile(file transform.File, buff []byte, ofst int64) (error, errno) {
+	if len(buff) == 0 {
+		return nil, 0
+	}
+
+	if ofst < 0 {
+		return fmt.Errorf("invalid offset %d", ofst), -fuselib.EINVAL
+	}
+
+	if fileBound, err := file.Size(); err == nil {
+		if ofst >= fileBound {
+			return nil, 0 // POSIX expects this
+		}
+	}
+
+	if ofst != 0 {
+		_, err := file.Seek(ofst, io.SeekStart)
+		if err != nil {
+			return fmt.Errorf("offset seek error: %s", err), -fuselib.EIO
+		}
+	}
+
+	buffLen := len(buff)
+	readBytes, err := file.Read(buff)
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("Read - error: %s", err), -fuselib.EIO
+	}
+
+	// io.Reader:
+	// Even if Read returns n < len(p), it may use all of p as scratch space during the call.
+	// we want to assure these are 0'd
+	if readBytes < buffLen {
+		for i := readBytes; i != buffLen; i++ {
+			buff[i] = 0
+		}
+	}
+
+	// EOF will be returned if it was provided
+	return err, readBytes
 }

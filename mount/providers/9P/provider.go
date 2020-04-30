@@ -95,6 +95,9 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString
 	}, nil
 }
 
+// TODO: support targets that start with `maddr://` which just creates the socket and doesn't mount
+// useful for systems that don't have fuse but do have plan9port, as well as allowing remote mounting
+// e.g. starting the service on a TCP port would allow you to mount the instance on another machine
 func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 	pr.Lock()
 	defer pr.Unlock()

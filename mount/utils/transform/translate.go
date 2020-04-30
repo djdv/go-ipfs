@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"os"
 
 	"github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-cid"
@@ -28,8 +29,7 @@ const saltSize = 32
 var qidGeneratorSalt []byte
 
 //NOTE [2019.09.11]: IPFS CoreAPI abstracts over HAMT structures; Unixfs returns raw type
-
-func UnixfsTypeToCoreType(ut unixpb.Data_DataType) coreiface.FileType {
+func unixfsTypeToCoreType(ut unixpb.Data_DataType) coreiface.FileType {
 	switch ut {
 	// TODO: directories and hamt shards are not synonymous; HAMTs may need special handling
 	case unixpb.Data_Directory, unixpb.Data_HAMTShard:
@@ -44,8 +44,6 @@ func UnixfsTypeToCoreType(ut unixpb.Data_DataType) coreiface.FileType {
 	}
 }
 
-// NOTE: copied [57d3a09e-bf0a-41d3-8d9d-ff70690e8624]
-// this is probably fine but we may want to export all of these kinds of methods in the transform layer
 func coreTypeTo9PType(ct coreiface.FileType) p9.FileMode {
 	switch ct {
 	case coreiface.TDirectory:
@@ -56,6 +54,19 @@ func coreTypeTo9PType(ct coreiface.FileType) p9.FileMode {
 		return p9.ModeRegular
 	default:
 		return p9.FileMode(0)
+	}
+}
+
+func coreTypeToGoType(ct coreiface.FileType) os.FileMode {
+	switch ct {
+	case coreiface.TDirectory:
+		return os.ModeDir
+	case coreiface.TSymlink:
+		return os.ModeSymlink
+	case coreiface.TFile:
+		return os.FileMode(0)
+	default:
+		return os.ModeIrregular
 	}
 }
 
@@ -71,7 +82,7 @@ func CoreDirEntryTo9Dirent(coreEnt coreiface.DirEntry) p9.Dirent {
 	}
 }
 
-func UnixfsTypeTo9Type(ut unixpb.Data_DataType) (p9.FileMode, error) {
+func unixfsTypeTo9Type(ut unixpb.Data_DataType) (p9.FileMode, error) {
 	switch ut {
 	//TODO: directories and hamt shards are not synonymous; HAMTs may need special handling
 	case unixpb.Data_Directory, unixpb.Data_HAMTShard:
@@ -87,6 +98,7 @@ func UnixfsTypeTo9Type(ut unixpb.Data_DataType) (p9.FileMode, error) {
 	}
 }
 
+// TODO: try to unexport this
 func CidToQID(cid cid.Cid, ct coreiface.FileType) p9.QID {
 	return p9.QID{
 		Type: coreTypeTo9PType(ct).QIDType(),

@@ -39,7 +39,7 @@ const (
 
 var (
 	// replace any number of these in init() for platform specific suggestions
-	suggestedProvider   = func() ProviderType { return ProviderPlan9Protocol }
+	suggestedProvider   = func() ProviderType { return ProviderFuse }
 	suggestedNamespaces = func() []Namespace {
 		return []Namespace{
 			NamespacePinFS,

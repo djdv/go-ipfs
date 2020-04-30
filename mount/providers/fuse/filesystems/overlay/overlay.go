@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
-	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/keyfs"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	logging "github.com/ipfs/go-log"
@@ -20,15 +20,17 @@ import (
 
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
 
+const rootHandle = 42 // we handle directory listings on the fly, no need for dynamic directory objects/handles
+
 type FileSystem struct {
 	provcom.IPFSCore
 	//provcom.MFS
 
 	// init relevant - do not use outside of init(); they will be nil
-	initChan    fusecom.InitSignal
-	resLock     mountcom.ResourceLock // call methods on fs.(Request|Release) instead
-	filesRoot   *gomfs.Root           // use fs.filesAPI after it's initalized
-	directories []string
+	initChan     fusecom.InitSignal
+	resLock      mountcom.ResourceLock // call methods on fs.(Request|Release) instead
+	filesAPIRoot *gomfs.Root           // use fs.filesAPI after it's initalized
+	directories  []string
 
 	// FIXME: zap logger implies newly created logs will respect the zapconfig's set Level
 	// however this doesn't seem to be the case in go-log
@@ -43,10 +45,11 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 	settings := parseOptions(opts...)
 
 	return &FileSystem{
-		IPFSCore: provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
-		initChan: settings.InitSignal,
-		log:      settings.Log,
-		resLock:  settings.ResourceLock,
+		IPFSCore:     provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
+		initChan:     settings.InitSignal,
+		log:          settings.Log,
+		resLock:      settings.ResourceLock,
+		filesAPIRoot: settings.filesAPIRoot,
 	}
 }
 
@@ -62,17 +65,18 @@ func (fs *FileSystem) selectFS(path string) (fuselib.FileSystemInterface, string
 			return nil, "", errors.New("invalid path")
 		}
 
-		i := 1 // skip leading slash
-		i += strings.IndexRune(path[1:], '/')
+		slashIndex := 1 // skip leading slash
+		slashIndex += strings.IndexRune(path[1:], '/')
 
 		var namespace, pathRemainder string
-		if i == 0 { // input looks like: `/namespace`
+		if slashIndex == 0 { // input looks like: `/namespace`
 			namespace = path[1:]
 			pathRemainder = "/"
 		} else { // input looks like: `/namespace/sub...`
-			namespace = path[1:i]
-			pathRemainder = path[i:]
+			namespace = path[1:slashIndex]
+			pathRemainder = path[slashIndex:]
 		}
+
 		switch namespace {
 		case "":
 			return fs, pathRemainder, nil
@@ -128,7 +132,7 @@ func (fs *FileSystem) Init() {
 		"ipns",
 	}
 
-	if fs.filesRoot != nil {
+	if fs.filesAPIRoot != nil {
 		filesSub, err := fs.attachFilesAPI()
 		if err != nil {
 			retErr = err
@@ -166,23 +170,16 @@ func (fs *FileSystem) attachPinFS() (fuselib.FileSystemInterface, error) {
 func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
 	initChan := make(fusecom.InitSignal) // closed by subsystem
 
-	// TODO: lint
-
-	commonOpts := []fusecom.Option{
-		fusecom.WithInitSignal(initChan),
-		fusecom.WithResourceLock(fs.resLock),
-	}
-
-	var keyfsSubsys fuselib.FileSystemInterface
-
-	// handle `/ipns/*` requests via core
-	ipnsSubsys := ipfscore.NewFileSystem(fs.Ctx(), fs.Core(),
-		ipfscore.WithNamespace(mountinter.NamespaceIPNS),
-		ipfscore.WithCommon(append(commonOpts,
-			fusecom.WithParent(keyfsSubsys))...),
+	// handle `/ipns` requests via keyfs
+	keyfsSubsys := keyfs.NewFileSystem(fs.Ctx(), fs.Core(),
+		keyfs.WithCommon(
+			fusecom.WithInitSignal(initChan),
+			fusecom.WithResourceLock(fs.IPFSCore),
+			fusecom.WithParent(fs),
+		),
 	)
+	go keyfsSubsys.Init()
 
-	go ipnsSubsys.Init()
 	var retErr error
 	for err := range initChan {
 		// TODO: [general] zap-ify all the logs
@@ -193,42 +190,37 @@ func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
 		return nil, retErr
 	}
 
-	// handle `/ipns` requests via keyfs
-	/* TODO
-	keyfsSubsys = keyfs.NewFileSystem(fs.Ctx(), fs.Core(), ipfscore.WithCommon(
-		append(commonOpts,
-			fusecom.WithParent(fs),
-		ipfscore.WithNamespace(mountinter.NamespaceIPNS),
-	)
-
-	go keyfsSubsys.Init()
-	if err := <-initChan; err != nil {
-		return nil, err
-	}
-	*/
-
-	return ipnsSubsys, retErr
+	return keyfsSubsys, retErr
 }
 
 func (fs *FileSystem) attachFilesAPI() (fuselib.FileSystemInterface, error) {
-	/* TODO
 	initChan := make(fusecom.InitSignal)
-	commonOpts := []fusecom.Option{
-		fusecom.WithInitSignal(initChan),
-		fusecom.WithResourceLock(fs.resLock),
-	}
 
-	if fs.filesRoot == nil {
+	if fs.filesAPIRoot == nil {
 		return nil, errors.New("files root is nil")
 	}
 
-	{ // handle `/file` requests via MFS
-		mfsSub := new(mfs.FileSystem)
-		fs.filesAPI = mfsSub
-	}
-	*/
+	// handle `/file` requests via MFS
+	fileSubsys := mfs.NewFileSystem(fs.Ctx(), *fs.filesAPIRoot, fs.Core(),
+		mfs.WithCommon(
+			fusecom.WithInitSignal(initChan),
+			fusecom.WithResourceLock(fs.IPFSCore),
+			fusecom.WithParent(fs),
+		),
+	)
+	go fileSubsys.Init()
 
-	return nil, errors.New("not implemented yet")
+	var retErr error
+	for err := range initChan {
+		// TODO: [general] zap-ify all the logs
+		fs.log.Errorf("subsystem init failed:%s", err)
+		retErr = err // last err returned
+	}
+	if retErr != nil {
+		return nil, retErr
+	}
+
+	return fileSubsys, nil
 }
 
 func (fs *FileSystem) Destroy() {
@@ -267,7 +259,7 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	}
 
 	if targetFs == fs {
-		return fusecom.OperationSuccess, 0 // TODO: implement for real
+		return fusecom.OperationSuccess, rootHandle
 	}
 
 	return targetFs.Opendir(remainder)
@@ -282,7 +274,11 @@ func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 	}
 
 	if targetFs == fs {
-		return fusecom.OperationSuccess // TODO: implement for real
+		if fh != rootHandle {
+			return -fuselib.EBADF
+
+		}
+		return fusecom.OperationSuccess
 	}
 
 	return targetFs.Releasedir(remainder, fh)
@@ -335,8 +331,8 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	}
 
 	if targetFs == fs {
-		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
-		return -fuselib.ENOENT, fusecom.ErrorHandle
+		fs.log.Errorf("tried to open the root as a file")
+		return -fuselib.EISDIR, fusecom.ErrorHandle
 	}
 
 	return targetFs.Open(remainder, flags)
@@ -351,7 +347,8 @@ func (fs *FileSystem) Release(path string, fh uint64) int {
 	}
 
 	if targetFs == fs {
-		return fusecom.OperationSuccess // TODO: implement for real
+		fs.log.Errorf("tried to release the root as a file")
+		return -fuselib.EBADF
 	}
 
 	return targetFs.Release(remainder, fh)

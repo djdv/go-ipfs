@@ -3,13 +3,11 @@ package pinfs
 import (
 	"context"
 
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
-	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	pinfs "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/pinfs"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -25,9 +23,8 @@ type FileSystem struct {
 
 	directories fusecom.DirectoryTable
 
-	log     logging.EventLogger
-	ipfs    fuselib.FileSystemInterface
-	resLock mountcom.ResourceLock
+	log  logging.EventLogger
+	ipfs fuselib.FileSystemInterface
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
@@ -65,7 +62,7 @@ func (fs *FileSystem) Init() {
 		ipfscore.WithCommon(
 			fusecom.WithInitSignal(initChan),
 			fusecom.WithParent(fs),
-			fusecom.WithResourceLock(fs.resLock),
+			fusecom.WithResourceLock(fs.IPFSCore),
 		),
 	)
 
@@ -107,12 +104,9 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 
 	default:
 		return fs.ipfs.Getattr(path, stat, fh)
-		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
-		return -fuselib.ENOENT
 	}
 }
 
-// TODO: not finished; doesn't care about path yet
 func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	fs.log.Debugf("Opendir - %q", path)
 
@@ -123,14 +117,14 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 
 	case "/":
 		pinDir, err := pinfs.OpenDir(fs.Ctx(), fs.Core())
-		if err != nil { // TODO: inspect/transform error
+		if err != nil {
 			fs.log.Error(err)
 			return -fuselib.ENOENT, fusecom.ErrorHandle
 		}
 		handle, err := fs.directories.Add(pinDir)
 		if err != nil { // TODO: inspect/transform error
 			fs.log.Error(err)
-			return -fuselib.ENFILE, fusecom.ErrorHandle
+			return -fuselib.EMFILE, fusecom.ErrorHandle
 		}
 		return fusecom.OperationSuccess, handle
 
@@ -143,11 +137,12 @@ func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 	fs.log.Debugf("Releasedir - {%X}%q", fh, path)
 
 	if path == "/" {
-		if err := fs.directories.Remove(fh); err != nil {
-			fs.log.Error(err)
-			return -fuselib.EBADF
+		goErr, errNo := fusecom.ReleaseDir(fs.directories, fh)
+		if goErr != nil {
+			fs.log.Error(goErr)
 		}
-		return fusecom.OperationSuccess
+
+		return errNo
 	}
 
 	return fs.ipfs.Releasedir(path, fh)
@@ -180,18 +175,13 @@ func (fs *FileSystem) Readdir(path string,
 func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	fs.log.Debugf("Open - {%X}%q", flags, path)
 
-	switch path {
-	case "":
-		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
-		return -fuselib.ENOENT, fusecom.ErrorHandle
-
-	case "/":
-		fs.log.Error(fuselib.Error(-fuselib.EISDIR))
-		return -fuselib.EISDIR, fusecom.ErrorHandle
-
-	default:
-		return fs.ipfs.Open(path, flags)
+	goErr, errNo := fusecom.CheckOpenPathBasic(path)
+	if goErr != nil {
+		fs.log.Error(goErr)
+		return errNo, fusecom.ErrorHandle
 	}
+
+	return fs.ipfs.Open(path, flags)
 }
 
 func (fs *FileSystem) Release(path string, fh uint64) int {
@@ -213,7 +203,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 
 	case "/":
 		fs.log.Warnf("Readlink - root path is an invalid request")
-		return -fuse.EINVAL, ""
+		return -fuselib.EINVAL, ""
 
 	case "":
 		fs.log.Error("Readlink - empty request")

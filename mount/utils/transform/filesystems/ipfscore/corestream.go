@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
@@ -180,7 +181,6 @@ func (cs *coreDirectoryStream) To9P() (p9.Dirents, error) {
 
 		iStat, _, err := transform.GetAttr(callCtx, path, cs.core, transform.IPFSStatRequestAll)
 		cancel()
-
 		if err != nil {
 			cs.err = err
 			return nil, err
@@ -228,4 +228,51 @@ func (cs *coreDirectoryStream) ToFuse() (<-chan transform.FuseStatGroup, error) 
 		close(fuseOut)
 	}()
 	return fuseOut, nil
+}
+
+func (cs *coreDirectoryStream) ToGo() ([]os.FileInfo, error) {
+	gc, err := cs.ToGoC(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	goEnts := make([]os.FileInfo, 0)
+	for ent := range gc {
+		goEnts = append(goEnts, ent)
+	}
+
+	return goEnts, cs.err
+}
+
+func (cs *coreDirectoryStream) ToGoC(goChan chan os.FileInfo) (<-chan os.FileInfo, error) {
+	if cs.err != nil {
+		return nil, cs.err
+	}
+
+	if goChan == nil {
+		goChan = make(chan os.FileInfo)
+	}
+	defer close(goChan)
+
+	for ent := range cs.out {
+		callCtx, cancel := context.WithTimeout(cs.ctx, 10*time.Second)
+		path, err := cs.core.ResolvePath(callCtx, ent.Path())
+		if err != nil {
+			cs.err = err
+			cancel()
+			return nil, err
+		}
+
+		iStat, _, err := transform.GetAttr(callCtx, path, cs.core, transform.IPFSStatRequestAll)
+		cancel()
+		if err != nil {
+			cs.err = err
+			return nil, err
+		}
+
+		goChan <- iStat.ToGo(ent.Name())
+		cancel()
+	}
+
+	return goChan, cs.err
 }

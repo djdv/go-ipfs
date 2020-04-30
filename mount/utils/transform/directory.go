@@ -2,6 +2,7 @@ package transform
 
 import (
 	"io"
+	"os"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/hugelgupf/p9/p9"
@@ -36,7 +37,12 @@ type FuseStatGroup struct {
 
 // TODO: better name
 type DirectoryState interface {
-	// TODO: ToGo() ([]os.Fileinfo, error)
-	To9P() (p9.Dirents, error)             // TODO: we might want to let the caller pass in a preallocated Dirents
-	ToFuse() (<-chan FuseStatGroup, error) // same but with a channel, in case they want it buffered
+	// TODO: for Go and 9P, allow the user to pass in a pre-allocated slice (or nil)
+	// same for Fuse but with a channel, in case they want it buffered
+	// NOTE: pre-allocated/defined inputs are optional and should be allocated internally if nil
+	// channels must be closed by the method
+	To9P() (p9.Dirents, error)
+	ToGo() ([]os.FileInfo, error)
+	ToGoC(predefined chan os.FileInfo) (<-chan os.FileInfo, error)
+	ToFuse() (<-chan FuseStatGroup, error)
 }

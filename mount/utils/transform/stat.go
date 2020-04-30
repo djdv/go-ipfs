@@ -1,7 +1,9 @@
 package transform
 
 import (
+	"os"
 	"runtime"
+	"time"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/hugelgupf/p9/p9"
@@ -64,3 +66,27 @@ func (cs *IPFSStat) To9P() *p9.Attr {
 		Blocks:    cs.Blocks,
 	}
 }
+
+func (cs *IPFSStat) ToGo(name string) os.FileInfo {
+	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
+	return &goWrapper{
+		sys:  cs,
+		name: name,
+		mode: coreTypeToGoType(cs.FileType),
+		size: int64(cs.Size),
+	}
+}
+
+type goWrapper struct {
+	sys  *IPFSStat
+	name string
+	size int64
+	mode os.FileMode
+}
+
+func (gw *goWrapper) Name() string       { return gw.name }
+func (gw *goWrapper) Size() int64        { return gw.size }
+func (gw *goWrapper) Mode() os.FileMode  { return gw.mode }
+func (gw *goWrapper) ModTime() time.Time { return time.Time{} }
+func (gw *goWrapper) IsDir() bool        { return gw.mode.IsDir() }
+func (gw *goWrapper) Sys() interface{}   { return gw.sys }
