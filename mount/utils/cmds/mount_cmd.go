@@ -2,13 +2,17 @@ package mountcmds
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	"github.com/ipfs/go-ipfs/core/coreapi"
 	mountcon "github.com/ipfs/go-ipfs/mount/conductors/ipfs-core"
+	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 )
+
+const cmdListInstances = "list"
 
 var MountCmd = &cmds.Command{
 	Helptext: cmds.HelpText{
@@ -69,7 +73,8 @@ baz
 baz
 `,
 	},
-	Options: cmdSharedOpts,
+	Options: append(cmdSharedOpts,
+		cmds.BoolOption(cmdListInstances, "l", "List mounted instances.")),
 
 	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) (err error) {
 		defer res.Close()
@@ -99,6 +104,11 @@ baz
 			daemon.Mount = mountcon.NewConductor(daemon.Context(), coreAPI, cOps...)
 		}
 
+		if listArg, ok := req.Options[cmdListInstances].(bool); ok && listArg {
+			cmds.EmitOnce(res, prettifyWhere(daemon.Mount.Where()))
+			return nil
+		}
+
 		nodeConf, err := cmdenv.GetConfig(env)
 		if err != nil {
 			cmds.EmitOnce(res, err)
@@ -121,4 +131,23 @@ baz
 		}
 		return nil
 	},
+}
+
+func prettifyWhere(m map[mountinter.ProviderType][]string) string {
+	var s strings.Builder
+	for prov, targets := range m {
+		s.WriteString(prov.String() + ": [")
+		tEnd := len(targets) - 1
+		for i, targ := range targets {
+			s.WriteString(targ)
+			if i != tEnd {
+				s.WriteString(", ")
+			}
+		}
+		s.WriteString("]")
+	}
+	if s.Len() == 0 {
+		return "No mounts are active"
+	}
+	return s.String()
 }

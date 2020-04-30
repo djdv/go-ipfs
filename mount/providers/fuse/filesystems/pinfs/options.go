@@ -1,8 +1,6 @@
 package pinfs
 
 import (
-	"fmt"
-
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	logging "github.com/ipfs/go-log"
 )
@@ -50,7 +48,6 @@ func maybeAppendLog(comOpts commonOpts) commonOpts {
 
 	if !logWasProvided {
 		comOpts = append(comOpts, fusecom.WithLog(logging.Logger("fuse/pinfs")))
-		fmt.Println(comOpts)
 	}
 	return comOpts
 }

@@ -18,13 +18,12 @@ type mountInstance struct {
 }
 
 func (mi *mountInstance) Detach() error {
-	var err error
 	if !mi.host.Unmount() {
 		//TODO: see if we can get better info from the host or something
-		err = errors.New("failed to unmount")
+		return errors.New("failed to unmount")
 	}
 
-	return err
+	return mi.providerDetachCallback(mi.target)
 }
 
 func (mi *mountInstance) Where() (string, error) {

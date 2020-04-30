@@ -11,6 +11,7 @@ import (
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
@@ -132,6 +133,7 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 	switch namespace {
 	default:
 		return nil, nil, fmt.Errorf("unknown namespace: %v", namespace)
+
 	case mountinter.NamespaceAllInOne:
 		oOps := []overlay.Option{overlay.WithCommon(commonOpts...)}
 		if mroot != nil {
@@ -142,13 +144,17 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 
 	case mountinter.NamespacePinFS:
 		fs = pinfs.NewFileSystem(ctx, core, pinfs.WithCommon(commonOpts...))
+
 	case mountinter.NamespaceIPFS, mountinter.NamespaceIPNS:
 		fs = ipfscore.NewFileSystem(ctx, core,
 			ipfscore.WithNamespace(namespace),
 			ipfscore.WithCommon(commonOpts...),
 		)
 	case mountinter.NamespaceFiles:
-		return nil, nil, fmt.Errorf("not implemented yet: %v", namespace)
+		if mroot == nil {
+			return nil, nil, fmt.Errorf("MFS root was not provided")
+		}
+		fs = mfs.NewFileSystem(ctx, *mroot, core, mfs.WithCommon(commonOpts...))
 	}
 
 	fsh = fuselib.NewFileSystemHost(fs)

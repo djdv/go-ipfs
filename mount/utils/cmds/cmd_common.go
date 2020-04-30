@@ -161,7 +161,11 @@ func parseNamespaceArgs(req *cmds.Request, t transformFunc) ([]mountinter.Namesp
 
 		var namespaces []mountinter.Namespace
 		for _, ns := range namespaceStrings {
-			namespaces = append(namespaces, mountinter.ParseNamespace(ns))
+			typedNs := mountinter.ParseNamespace(ns)
+			if typedNs == mountinter.NamespaceNone {
+				return nil, fmt.Errorf("%q does not match a supported namespace", ns)
+			}
+			namespaces = append(namespaces, typedNs)
 		}
 
 		return namespaces, nil

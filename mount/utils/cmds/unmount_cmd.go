@@ -22,7 +22,8 @@ var UnmountCmd = &cmds.Command{
 `,
 	},
 
-	Options: append(cmdSharedOpts, cmds.BoolOption(cmdUnmountAll, "a", "Unmount all instances.")),
+	Options: append(cmdSharedOpts,
+		cmds.BoolOption(cmdUnmountAll, "a", "Unmount all instances.")),
 
 	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) (err error) {
 		defer res.Close()
@@ -45,27 +46,8 @@ var UnmountCmd = &cmds.Command{
 			return err
 		}
 
-		if detachAll, ok := req.Options[cmdUnmountAll].(bool); ok && detachAll {
-			daemon, err := cmdenv.GetNode(env)
-			if err != nil {
-				cmds.EmitOnce(res, err)
-				return err
-			}
-			if daemon.Mount == nil {
-				return errors.New("no instances")
-			}
-			whence := daemon.Mount.Where()
-			var lastErr error
-			for _, targets := range whence {
-				for _, target := range targets {
-					if lastErr = daemon.Mount.Detach(target); lastErr != nil {
-						res.Emit(fmt.Sprintf("could not detach %q: %s", target, lastErr))
-					}
-				}
-			}
-			// TODO: prettify targets
-			cmds.EmitOnce(res, fmt.Sprintf("unmounted: %v", whence))
-			return lastErr
+		if detachArg, ok := req.Options[cmdUnmountAll].(bool); ok && detachArg {
+			return detachAll(res, env)
 		}
 
 		_, targets, err := parseRequest(mountCmd, req, nodeConf)
@@ -97,4 +79,30 @@ var UnmountCmd = &cmds.Command{
 		// TODO: print response if nothing is mounted, but don't error
 		return nil
 	},
+}
+
+func detachAll(res cmds.ResponseEmitter, env cmds.Environment) error {
+	daemon, err := cmdenv.GetNode(env)
+	if err != nil {
+		cmds.EmitOnce(res, err)
+		return err
+	}
+	if daemon.Mount == nil {
+		return errors.New("no instances")
+	}
+
+	whence := daemon.Mount.Where()
+	var lastErr error
+	for _, targets := range whence {
+		for _, target := range targets {
+			if lastErr = daemon.Mount.Detach(target); lastErr != nil {
+				res.Emit(fmt.Sprintf("could not detach \"%s\": %s", target, lastErr))
+			}
+			res.Emit(fmt.Sprintf("detached \"%s\"", target))
+		}
+	}
+
+	// TODO: prettify targets
+	cmds.EmitOnce(res, fmt.Sprintf("unmounted: %v", prettifyWhere(whence)))
+	return lastErr
 }
