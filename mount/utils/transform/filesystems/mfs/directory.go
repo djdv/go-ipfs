@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
 	gomfs "github.com/ipfs/go-mfs"
+	uio "github.com/ipfs/go-unixfs/io"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
@@ -20,6 +20,7 @@ func OpenDir(ctx context.Context, mroot *gomfs.Root, path string, core coreiface
 		ctx:   ctx,
 		path:  path,
 		mroot: mroot,
+		core:  core,
 	}
 
 	// TODO: consider writing another stream type that handles MFS so we can drop the reliance on the core here
@@ -30,6 +31,7 @@ type streamTranslator struct {
 	ctx    context.Context
 	mroot  *gomfs.Root
 	path   string
+	core   coreiface.CoreAPI
 	cancel context.CancelFunc
 }
 
@@ -44,15 +46,35 @@ func (cs *streamTranslator) Open() (<-chan transform.DirectoryStreamEntry, error
 		return nil, err
 	}
 
-	mfsDir, ok := mfsNode.(*gomfs.Directory)
-	if !ok {
+	if mfsNode.Type() != gomfs.TDir {
 		return nil, fmt.Errorf("%q is not a directory (type: %v)", cs.path, mfsNode.Type())
 	}
 
-	directoryContext, cancel := context.WithCancel(cs.ctx)
+	// NOTE:
+	// We do not use the MFS directory construct here
+	// as the MFS directory carries locking semantics with it internally, which cause a deadlock for us.
+	// The fresh-data guarantees it provides are not necessary for SUS compliance
+	// (see `readdir`'s unspecified behavior about modified contents post `opendir`)
+	// and more importantly, there is no way to prepare the entry stream without maintaining a lock within the MFS directory.
+	// This causes a deadlock during operation as we expect to call `Getattr` on child entries of open directories, prior to calling `closedir`
+	//
+	// Instead we get a snapshot of the directory as it is at the moment of `opendir`
+	// and simply use that independently
+	// the user may refresh the contents in a portable manner by using the standard convention (`rewinddir`)
+	ipldNode, err := mfsNode.GetNode()
+	if err != nil {
+		return nil, err
+	}
 
+	unixDir, err := uio.NewDirectoryFromNode(cs.core.Dag(), ipldNode)
+	if err != nil {
+		return nil, err
+	}
+
+	directoryContext, cancel := context.WithCancel(cs.ctx)
 	cs.cancel = cancel
-	return translateEntries(directoryContext, mfsDir), nil
+
+	return translateEntries(directoryContext, unixDir), nil
 }
 
 func (cs *streamTranslator) Close() error {
@@ -74,31 +96,24 @@ func (me *mfsListingTranslator) Name() string        { return me.name }
 func (me *mfsListingTranslator) Path() corepath.Path { return me.path }
 func (me *mfsListingTranslator) Error() error        { return me.err }
 
-func translateEntries(ctx context.Context, mfsDir *gomfs.Directory) <-chan transform.DirectoryStreamEntry {
+func translateEntries(ctx context.Context, unixDir uio.Directory) <-chan transform.DirectoryStreamEntry {
 	out := make(chan transform.DirectoryStreamEntry)
-
 	go func() {
-		mfsDir.ForEachEntry(ctx, func(listing gomfs.NodeListing) error {
-			msg := &mfsListingTranslator{name: listing.Name}
-
-			cid, err := cid.Decode(listing.Hash)
-			if err != nil {
-				msg.err = err
-			} else {
-				msg.path = corepath.IpldPath(cid)
+		for linkRes := range unixDir.EnumLinksAsync(ctx) {
+			msg := &mfsListingTranslator{
+				err:  linkRes.Err,
+				name: linkRes.Link.Name,
+				path: corepath.IpldPath(linkRes.Link.Cid),
 			}
-
 			select {
 			case <-ctx.Done():
-				return ctx.Err() // bail
-			case out <- msg: // relay
-				if msg.err != nil { // we were not canceled but did error, so bail after relaying the error
-					return msg.err
+				return
+			case out <- msg:
+				if msg.err != nil {
+					return // bail after relaying error
 				}
 			}
-
-			return nil
-		})
+		}
 		close(out)
 	}()
 

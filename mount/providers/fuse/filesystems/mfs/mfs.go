@@ -68,6 +68,7 @@ func (fs *FileSystem) Init() {
 
 	// fs.mountTime = fuselib.Now()
 	fs.directories = fusecom.NewDirectoryTable()
+	fs.files = fusecom.NewFileTable()
 }
 
 func (fs *FileSystem) Destroy() {
