@@ -417,7 +417,12 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		if err != nil {
 			return err
 		}
-		node.Mount = mountcon.NewConductor(node.Context(), coreAPI)
+
+		if mroot := node.FilesRoot; mroot != nil {
+			node.Mount = mountcon.NewConductor(node.Context(), coreAPI, mountcon.WithFilesAPIRoot(*mroot))
+		} else {
+			node.Mount = mountcon.NewConductor(node.Context(), coreAPI)
+		}
 
 		if err := mountcmds.MountNode(re, node, provider, targets); err != nil {
 			return err

@@ -17,8 +17,9 @@ import (
 func OpenDir(ctx context.Context, mroot *gomfs.Root, path string, core coreiface.CoreAPI) (transform.Directory, error) {
 
 	coreStream := &streamTranslator{
-		ctx:  ctx,
-		path: path,
+		ctx:   ctx,
+		path:  path,
+		mroot: mroot,
 	}
 
 	// TODO: consider writing another stream type that handles MFS so we can drop the reliance on the core here
@@ -78,23 +79,24 @@ func translateEntries(ctx context.Context, mfsDir *gomfs.Directory) <-chan trans
 
 	go func() {
 		mfsDir.ForEachEntry(ctx, func(listing gomfs.NodeListing) error {
-			if err := ctx.Err(); err != nil {
-				out <- &mfsListingTranslator{err: err}
-				return err
-			}
-
 			msg := &mfsListingTranslator{name: listing.Name}
 
 			cid, err := cid.Decode(listing.Hash)
 			if err != nil {
 				msg.err = err
-				out <- msg
-				return err
+			} else {
+				msg.path = corepath.IpldPath(cid)
 			}
 
-			msg.path = corepath.IpldPath(cid)
+			select {
+			case <-ctx.Done():
+				return ctx.Err() // bail
+			case out <- msg: // relay
+				if msg.err != nil { // we were not canceled but did error, so bail after relaying the error
+					return msg.err
+				}
+			}
 
-			out <- msg
 			return nil
 		})
 		close(out)

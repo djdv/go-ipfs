@@ -92,16 +92,16 @@ baz
 				return err
 			}
 
-			var cOps []mountcon.Option
+			var conOps []mountcon.Option
 			if mroot := daemon.FilesRoot; mroot != nil {
-				cOps = append(cOps, mountcon.WithFilesAPIRoot(*mroot))
+				conOps = append(conOps, mountcon.WithFilesAPIRoot(*mroot))
 			}
 
 			if !daemon.IsDaemon {
-				cOps = append(cOps, mountcon.InForeground(true))
+				conOps = append(conOps, mountcon.InForeground(true))
 			}
 
-			daemon.Mount = mountcon.NewConductor(daemon.Context(), coreAPI, cOps...)
+			daemon.Mount = mountcon.NewConductor(daemon.Context(), coreAPI, conOps...)
 		}
 
 		if listArg, ok := req.Options[cmdListInstances].(bool); ok && listArg {

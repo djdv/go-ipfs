@@ -134,7 +134,9 @@ func (fs *FileSystem) Init() {
 		"ipns",
 	}
 
-	if fs.filesAPIRoot != nil {
+	// not stable yet
+	//if fs.filesAPIRoot != nil {
+	if false {
 		filesSub, err := fs.attachFilesAPI()
 		if err != nil {
 			retErr = err
