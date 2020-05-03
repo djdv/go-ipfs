@@ -112,7 +112,6 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 		// If we do end up here, we'll close the stream and return nothing (in the translation method) to the caller
 		// this is our own specified behavior, for direct calls with invalid arguments
 		// (as such system level code can not depend on this behavior either)
-		cs.streamSource.Close()
 		cs.err = fmt.Errorf("offset %d is not/no-longer valid", offset)
 		return cs
 	}
@@ -137,7 +136,6 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 			case entry, open := <-cs.in:
 				if !open {
 					// end of input stream
-					cs.streamSource.Close()
 					return
 				}
 				if err := entry.Error(); err != nil {
