@@ -82,23 +82,23 @@ func (id *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 		return p9.QID{}, p9.AttrMask{}, p9.Attr{}, err
 	}
 
-	var attr p9.Attr
-	filled, err := common.CoreToAttr(callCtx, &attr, id.CorePath(), id.Core, req)
+	iStat, iFilled, err := transform.GetAttr(callCtx, id.CorePath(), id.Core, transform.RequestFrom9P(req))
 	if err != nil {
 		id.Logger.Error(err)
-		return qid, filled, attr, err
+		return qid, iFilled.To9P(), iStat.To9P(), err
 	}
+	nineAttr, nineFilled := iStat.To9P(), iFilled.To9P()
 
 	// add metadata not contained in IPFS-UFS v1 objects
 	if req.RDev { // device
-		attr.RDev, filled.RDev = common.DevIPFS, true
+		nineAttr.RDev, nineFilled.RDev = common.DevIPFS, true
 	}
 
 	if req.Mode { // UFS provides type bits, we provide permission bits
-		attr.Mode |= common.IRXA
+		nineAttr.Mode |= common.IRXA
 	}
 
-	return qid, filled, attr, err
+	return qid, nineFilled, nineAttr, err
 }
 
 func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {

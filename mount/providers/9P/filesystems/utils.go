@@ -59,7 +59,7 @@ func CoreToQID(ctx context.Context, path corepath.Path, core coreiface.CoreAPI) 
 
 	// inspected to derive 9P QID
 	attr := new(p9.Attr)
-	_, err = CoreToAttr(ctx, attr, resolvedPath, core, p9.AttrMask{Mode: true})
+	_, err = coreToAttr(ctx, attr, resolvedPath, core, p9.AttrMask{Mode: true})
 	if err != nil {
 		return qid, err
 	}
@@ -69,7 +69,7 @@ func CoreToQID(ctx context.Context, path corepath.Path, core coreiface.CoreAPI) 
 	return qid, nil
 }
 
-func CoreToAttr(ctx context.Context, attr *p9.Attr, path corepath.Path, core coreiface.CoreAPI, req p9.AttrMask) (p9.AttrMask, error) {
+func coreToAttr(ctx context.Context, attr *p9.Attr, path corepath.Path, core coreiface.CoreAPI, req p9.AttrMask) (p9.AttrMask, error) {
 	// translate from abstract path to CoreAPI resolved path
 	resolvedPath, err := core.ResolvePath(ctx, path)
 	if err != nil {

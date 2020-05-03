@@ -36,6 +36,33 @@ type IPFSStatRequest struct {
 	*/
 }
 
+func RequestFrom9P(req p9.AttrMask) IPFSStatRequest {
+	var iReq IPFSStatRequest
+	if req.Mode {
+		iReq.Type = true
+	}
+	if req.Size {
+		iReq.Size = true
+	}
+	if iReq.Blocks {
+		iReq.Blocks = true
+	}
+	return iReq
+}
+
+func (sr *IPFSStatRequest) To9P() (filled p9.AttrMask) {
+	if sr.Type {
+		filled.Mode = true
+	}
+	if sr.Size {
+		filled.Size = true
+	}
+	if sr.Blocks {
+		filled.Blocks = true
+	}
+	return
+}
+
 func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
 
@@ -57,9 +84,9 @@ func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
 	}
 }
 
-func (cs *IPFSStat) To9P() *p9.Attr {
+func (cs *IPFSStat) To9P() p9.Attr {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
-	return &p9.Attr{
+	return p9.Attr{
 		Mode:      coreTypeTo9PType(cs.FileType),
 		Size:      cs.Size,
 		BlockSize: cs.BlockSize,

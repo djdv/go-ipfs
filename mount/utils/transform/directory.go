@@ -13,7 +13,7 @@ import (
 const errSeekFmt = "offset %d extends beyond directory bound %d"
 
 type Directory interface {
-	// Read returns /at most/ count entries; or attempts to return all entires when count is 0
+	// Readdir returns /at most/ count entries; or attempts to return all entires when count is 0
 	Readdir(offset, count uint64) DirectoryState
 	io.Closer
 }
