@@ -60,7 +60,8 @@ func OpenStream(ctx context.Context, streamSource transform.StreamSource, core c
 		core:         core,
 		streamSource: streamSource,
 		// TODO: entryCache: make([]transform.DirectoryStreamEntry),
-		in: newStream,
+		in:         newStream,
+		entryCache: make([]transform.DirectoryStreamEntry, 0),
 	}, nil
 }
 
@@ -82,6 +83,8 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 
 	// reinit / `rewinddir`
 	if offset == 0 && cs.cursor != 0 { // only reset if we've actually moved
+		// invalidate cache
+		cs.entryCache = make([]transform.DirectoryStreamEntry, 0)
 		// close old stream
 		if cs.err = cs.streamSource.Close(); cs.err != nil {
 			return cs
@@ -98,11 +101,10 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 		cs.cursor = 1
 	}
 
-	// make sure the requested offset is actually within our bounds
-	// TODO: lower bound - lowest offset still retained in the entry cache
+	// make sure the requested (non-0) offset is actually within our bounds
+	// lower bound - lowest offset still retained in the entry cache
 	// upper bound - cursor's current position
-	// and that the provided offset token is valid (was previously provided by us and is still valid)
-	if offset < cs.validOffsetBound || offset > cs.cursor {
+	if (offset != 0 && offset < uint64(len(cs.entryCache))-cs.validOffsetBound) || offset > cs.cursor {
 		// NOTE: FUSE implementations condense SUS `readdir`, `seekdir`, and `telldir` operations
 		// into a single `readdir` operation (with parameters to allow the same behaviors).
 		// SUS does not specify expected behavior for this code path. (see: SUS v7's `seekdir` document)
@@ -127,6 +129,25 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 
 	go func() {
 		defer close(cs.out)
+
+		// if cursor is within cache, pull entires from it
+		if cs.cursor < uint64(len(cs.entryCache)) {
+			for _, ent := range cs.entryCache[cs.cursor:] {
+				select {
+				case <-cs.ctx.Done():
+					cs.err = cs.ctx.Err()
+					return
+				case cs.out <- &offsetEntry{
+					DirectoryStreamEntry: ent,
+					offset:               cs.cursor + 1,
+				}:
+					cs.cursor++
+				}
+			}
+		}
+
+		// fallback to stream for anything outside of the cache
+
 		// [micro-opt] eliminate the decrement if we can when count == 0
 		for ; untilEndOfStream || count <= 0; count-- {
 			select {
@@ -143,13 +164,14 @@ func (cs *coreDirectoryStream) Readdir(offset, count uint64) transform.Directory
 					return
 				}
 
-				// TODO cache entry in some store here
+				// cache entry for `seekdir` calls
+				cs.entryCache = append(cs.entryCache, entry)
 
 				// entry has been consumed, advance the relative cursor and absolute upper bound
 				cs.cursor++
 				cs.validOffsetBound++
 
-				// checks have passed, assign the highest-valid-offset value to the entry
+				// checks have passed, assign the highest-valid-offset value (which points to the next possible entry)
 				// and send it to whichever translation method wants to receive it
 				cs.out <- &offsetEntry{
 					DirectoryStreamEntry: entry,

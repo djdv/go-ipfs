@@ -356,53 +356,6 @@ func testCompareTreeAttrs(t *testing.T, f1, f2 p9.File) {
 	}
 }
 
-const incantation = "May the bits passing through this device somehow help bring peace to this world"
-
-func initEnv(ctx context.Context, core coreiface.CoreAPI) (string, corepath.Resolved, error) {
-	testDir, err := ioutil.TempDir("", "ipfs-")
-	if err != nil {
-		return "", nil, err
-	}
-	if err := os.Chmod(testDir, 0775); err != nil {
-		return "", nil, err
-	}
-
-	if err = ioutil.WriteFile(filepath.Join(testDir, "empty"),
-		[]byte(nil),
-		0644); err != nil {
-		return "", nil, err
-	}
-
-	if err = ioutil.WriteFile(filepath.Join(testDir, "small"),
-		[]byte(incantation),
-		0644); err != nil {
-		return "", nil, err
-	}
-
-	if err := generateGarbage(testDir); err != nil {
-		return "", nil, err
-	}
-
-	testSubDir, err := ioutil.TempDir(testDir, "ipfs-")
-	if err != nil {
-		return "", nil, err
-	}
-	if err := os.Chmod(testSubDir, 0775); err != nil {
-		return "", nil, err
-	}
-
-	if err := generateGarbage(testSubDir); err != nil {
-		return "", nil, err
-	}
-
-	iPath, err := pinAddDir(ctx, core, testDir)
-	if err != nil {
-		return "", nil, err
-	}
-
-	return testDir, iPath, err
-}
-
 func p9Readdir(dir p9.File) (p9.Dirents, error) {
 	_, dirClone, err := dir.Walk(nil)
 	if err != nil {
@@ -432,44 +385,6 @@ func p9Readdir(dir p9.File) (p9.Dirents, error) {
 	}
 
 	return ents, err
-}
-
-func pinAddDir(ctx context.Context, core coreiface.CoreAPI, path string) (corepath.Resolved, error) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-
-	node, err := files.NewSerialFile(path, false, fi)
-	if err != nil {
-		return nil, err
-	}
-
-	iPath, err := core.Unixfs().Add(ctx, node.(files.Directory), coreoptions.Unixfs.Pin(true))
-	if err != nil {
-		return nil, err
-	}
-	return iPath, nil
-}
-
-func generateGarbage(tempDir string) error {
-	randDev := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	for _, size := range []int{4, 8, 16, 32} {
-		buf := make([]byte, size<<(10*2))
-		if _, err := randDev.Read(buf); err != nil {
-			return err
-		}
-
-		name := fmt.Sprintf("%dMiB", size)
-		if err := ioutil.WriteFile(filepath.Join(tempDir, name),
-			buf,
-			0644); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func pinNames(ctx context.Context, core coreiface.CoreAPI) ([]string, error) {
