@@ -1,17 +1,26 @@
 # Editors note
 The purpose of this document is to get feedback from a handful of people.  
-The sources in this branch are a work in progress and shouldn't be read except for curiosity's sake.  
-Nothing has been discussed or approved, nothing is finalized or tested either.  
-The FUSE code has yet to be ported from the other branch.  
-The 9P code has yet to be ported to the intermediate layer and isn't stable.  
-Nothing is async safe yet.  
-The commit log has yet to be partitioned.  
-And the documentation has yet to be written.  
-In short, it's all gross and unusable.
+The sources in this branch are a work in progress and shouldn't be read at all yet.  
+(Nothing is final, nothing is documented, and nothing is tested)  
+The commit log is just terrible, it might be split up later when things are closer to final, broken up into sections like "Add conductor", "Add provider FUSE", etc.  
+
+In short, it's all gross and not fully usable yet. But a lot of it works when built.  
+
+* [Overview](#overview)
+* [Important interfaces](#important-interfaces)
+	* [Command line](#command-line)
+	* [Conductors](#conductors)
+	* [Providers](#providers)
+	* [Instances](#provider-instances)
+* [Implementation details](#implementation-details-incomplete)
+	* [Cross boundary locking](#cross-boundary-locking)
+	* [File system implementations](#file-system-implementations-themselves)
+
+
 
 # Overview
 The mount directory contains various packages to facilitate mounting various file systems to various hosts using various APIs.  
-(Note: "/mount" may change to "/filesystem" as we provide multiple filesystem interfaces. In addition to mounting them, they're useful on their own within Go)
+(Note: "/mount" may change to "/filesystem" as we provide multiple filesystem interfaces. In addition to mounting them, they're useful on their own within Go, and in the case of 9P will be allowed to spawn a socket without calling the system's `mount`)
 ```
 ./mount
 ├── conductors (implementation(s) of the `mount.Conductor` interface)
@@ -20,44 +29,68 @@ The mount directory contains various packages to facilitate mounting various fil
 ├── providers (implementations of the `mount.Provider` interface)
 │   ├── 9P (implements file systems via the Plan 9 protocol)
 │   │   └── filesystems (common base for filesystems to be built on)
-│   │       ├── ipfs (IPFS API mappings to 9P, etc...)
-│   │       ├── ipns
+│   │       ├── ipfs (9P operation semantics and mappings from intermediate formats to 9P)
+│   │       ├── ipns (etc...)
 │   │       ├── keyfs
 │   │       ├── mfs
 │   │       ├── overlay
 │   │       └── pinfs
-│   └── fuse
-│       └── filesystems (common base for filesystems to be built on)
-│           ├── ipfs (IPFS API mappings to FUSE, etc...)
-│           ├── ipns
-│           └── mfs
+│   └───fuse
+│       └───filesystems (common base for filesystems to be built on)
+│           ├───core (FUSE operation semantics and mappings from intermediate formats to FUSE)
+│           ├───internal
+│           │   └───testutils
+│           ├───keyfs (etc...)
+│           ├───mfs
+│           ├───overlay
+│           └───pinfs
 └── utils (some of the things in here will likely move)
     ├── cmds (hosts the parameters and sub-commands for `daemon`, `mount`, `unmount`)
     ├── common
     ├── sys (interactions with the host OS such as mounting, target defaults, etc.)
-    └── transform (wrap coreapi constructs, mapping results to FUSE|9P)
+    └───transform (wrap IPFS API constructs into intermediate formats)
+        └───filesystems
+            ├───empty
+            ├───ipfscore (translates core paths into `transform.File` and `transform.Directory`)
+            ├───keyfs (etc...)
+            ├───mfs
+            └───pinfs
 ```
-Primarily, the packages are used to construct a "conductor" and bind it to the IPFS daemon/node instance.  
-The conductor will then facilitate management of file system "providers".  
+Primarily, the packages are used to construct a "conductor" (it's like a volume manager) and bind it to the IPFS daemon/node instance.  
+
+The conductor will facilitate management of file system "providers" (they're like volume constructors).  
+
 "Providers" provide implementations of file systems, and facilities to graft them to some target.  
 Typically this will be mounting file systems to a path in the host system.  
 (e.g. mounting the abstract namespace "IPFS" to the local path `/ipfs`  via the FUSE API)
 
 ## Important interfaces
-(TODO: either link directly to pkg.go.dev or write a go generate tool to modify this markdown from the source comments; for now we're dumping it here)
 ### Command line
-The command line sub-commands `ipfs daemon` and `ipfs mount` and parsers for their parameters live in `mount/utils/cmd`. They pull arguments (in priority order) from the parameters of the sub-command, the config file, or fall back to a platform default. Feeding them into the underlying go interfaces.  
+The command line sub-commands `ipfs daemon` and `ipfs mount` and parsers for their parameters live in `mount/utils/cmd`.  
+Values are populated (in priority order) from the parameters of the sub-command, the node's config file, or fall back to a platform suggested dynamic default. Feeding them into the underlying go interfaces.  
 
-Issuing `ipfs mount` will mount each namespace by default, but may be customized using combinations of parameters. A complex example would be `ipfs mount --provider=Plan9Protocol --namespace="IPFS,IPNS,FilesAPI" --target="/ipfs,/ipns,/file"` which mimic's the current defaults on Linux, more explicitly.
-It is possible to specify any combination of namespaces and targets so long as the argument count matches For example, this is a valid way to map IPFS to 2 different mountpoints `ipfs mount --namespace="IPFS,IPFS" -target="/ipfs,/mnt/ipfs"`  
+Issuing `ipfs mount` will mount a set of targets based on the above, but may be customized using combinations of parameters. A complex example would be `ipfs mount --provider=Plan9Protocol --namespace="IPFS,IPNS,FilesAPI" --target="/ipfs,/ipns,/file"` which mimic's the current defaults on Linux (when 9P is loaded in the kernel), more explicitly.
+
+
+Anything that can be determined by the implementation may be omitted.  Such as the provider, or the targets if they're within your config file.  
+e.g. `ipfs mount --namespace="IPFS"` is valid and would expand to `ipfs mount --provider=Plan9Protocol --namespace="IPFS" --target="$(ipfs config Mounts.IPFS)"`  
+Assume you unload 9P support from the kernel and make the same call, `ipfs mount --namespace="IPFS"` would now expand to `ipfs mount --provider=FUSE --namespace="IPFS" --target="$(ipfs config Mounts.IPFS)"` 
+automatically.
+
+It is also possible to specify any combination of namespaces and targets so long as the argument count matches.  
+For example, this is a valid way to map IPFS to 2 different mountpoints `ipfs mount --namespace="IPFS,IPFS" -target="/ipfs,/mnt/ipfs"`  
+
+At any time, you may list the currently active mounts via `ipfs mount --list` or shorthand `ipfs mount -l`
+(NOTE: this works but it's not pretty printed yet)
 
 `ipfs unmount` shares the same parameters as `ipfs mount` with the addition of a `-a` to unmount all previously mounted targets
 
 `ipfs daemon` shares the same parameters as `ipfs mount` simply prefixed with `--mount-`.  
-e.g. `ipfs daemon --mount --mount-provider="FUSE" --mount-namespace="IPFS,IPNS" --mount-target="/ipfs,/ipns"`
+e.g. `ipfs daemon --mount --mount-provider="FUSE" --mount-namespace="IPFS,IPNS" --mount-target="/ipfs,/ipns"`  
+It carries the same auto expansion rules, picking up missing parameters through the same deduction methods. (checks arguments, then config, then environment)
 
 ### Conductors
-(Note: I don't like this name but couldn't think of anything better)  
+(Note: I don't like this name but couldn't think of anything better; something like volume manager wouldn't be bad)  
 The Conductor is responsible for managing multiple "system `Provider`s". Delegating requests to them, while also managing the instances they provide.
 ```go
 type Conductor interface {
@@ -101,7 +134,7 @@ mountfuse.NewProvider(ctx, namespace, fuseArgs, coreAPI, ops...)
 
 
 ### Provider instances
-Simply, provider instances are instances generated by the provider that should be tracked by the caller that generated them. In our case this is the conductor which maps a series of targets to instances, allowing callers to detach these instances by name/path.
+Simply, provider instances are instances generated by the provider that should be tracked by the caller that generated them. In our case this is the conductor which maps a series of targets to instances, allowing callers to detach these instances by name/path. Following the traditional model of volumes, you can think of these almost as active partitions of a volume.
 ```go
 // Instance is an active provider target that may be detached from the file system
 type Instance interface {
@@ -114,8 +147,8 @@ instance, err := someProvider.Graft(target)
 ```
 
 ## Implementation details (incomplete)
-### cross boundary locking
-In order to allow the daemon to perform normal operations without locking the user out of certain features, such as publishing to IPNS keys or using the FilesAPI via the `ipfs` command, or other API instances. We'll want to incoperate a shared resource lock on the daemon for these namespaces to use.
+### Cross boundary locking
+In order to allow the daemon to perform normal operations without locking the user out of certain features, such as publishing to IPNS keys or using the FilesAPI via the `ipfs` command, or other API instances. We'll want to incorporate a shared resource lock on the daemon for these namespaces to use.
 For example, within the `ipfs name publish` command we would like to acquire a lock for the key we are about to publish to, which may or may not also be in use by an `ipfs mount` instance, or other instance of the CoreAPI.
 Likewise with `ipfs files` in general.
 As a result we'll need some kind of interface such as this
@@ -135,20 +168,59 @@ Any may hold the lock at various points, preventing one another from colliding a
 NOTE: a quick hack was written to implement this but I don't trust myself to implement it correctly/efficiently.  
 This will require research to see how other systems perform ancestry style path locking and which libraries already exist that could help with it.  
 
-### file system implementations themselves
-Currently there are 2 separate file system APIs that themselves implement mappings for various IPFS api's.
+### File system implementations themselves
+~~Currently there are 2 separate file system APIs that themselves implement mappings for various IPFS api's.
 1 for FUSE and 1 for 9P. They're fairly distinct but I'm going to put effort into trying to generalize and overlap as much as possible via a transform package.  
 An example of this is not implementing 2 different forms of `Getattr` 1 for each API, instead we map from IPFS semantics to some intermediate representation.  
 `(mount/utils/transform).CoreGetAttr(ctx, corepath, core, request)`, returns some intermediate object that itself implements transforms `object.ToFuse() *fuselib.Stat_t`, `object.To9P() *p9plib.Attr`.  
 There will likely be other ways we can find overlap to provide generalized code over specific code. Allowing for uniformity, as well as more code coverage with less tests.  
-Intermediate wrappers for file I/O that wrap the Core+MFS apis to make the layers for fuse.Read and p9.Read smaller. e.g. via something like `intermediate.CoreOpenFile(...) io.ReadWriter` is being tested.  
+Intermediate wrappers for file I/O that wrap the Core+MFS apis to make the layers for fuse.Read and p9.Read smaller. e.g. via something like `intermediate.CoreOpenFile(...) io.ReadWriter` is being tested.~~  
+^ This happened but is a work in progress  
+(there's a lot of lint that needs to be removed, and everything needs testing, but in general it's nicer)  
+
+Mappings from the core api's get wrapped in an intermediate layer that then gets further transformed in external API specific ways. For example this is the `Gettattr` for IPFS under fuse
+```go
+		...
+
+		fullPath := corepath.New(gopath.Join("/", strings.ToLower(fs.namespace.String()), path))
+
+		iStat, _, err := transform.GetAttr(fs.Ctx(), fullPath, fs.Core(), transform.IPFSStatRequestAll)
+		if err != nil {
+			fs.log.Error(err)
+			return -fuselib.ENOENT
+		}
+
+		*stat = *iStat.ToFuse()
+		fusecom.ApplyPermissions(readOnly, &stat.Mode)
+		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
+		return fusecom.OperationSuccess
+```
+and under 9P
+```go
+	...
+
+	iStat, iFilled, err := transform.GetAttr(callCtx, id.CorePath(), id.Core, transform.RequestFrom9P(req))
+	if err != nil {
+		id.Logger.Error(err)
+		return qid, iFilled.To9P(), iStat.To9P(), err
+	}
+	nineAttr, nineFilled := iStat.To9P(), iFilled.To9P()
+
+	if req.Mode { // UFS provides type bits, we provide permission bits
+		nineAttr.Mode |= common.IRXA
+	}
+
+	return qid, nineFilled, nineAttr, err
+
+```
+
 
 A version of the `pinfs` (a directory which lists the node's pins as files and directories) has been implemented using this method. Its use within FUSE looks like this:
 ```go 
 // OpenDir(){
 dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
 // Readdir{
-entChan, err := fs.pinDir.Read(offset, requestedEntryCount).ToFuse()
+entChan, err := fs.pinDir.Readdir(offset, requestedEntryCount).ToFuse()
 for ent := range entChan {
 	fill(ent.Name, ent.Stat, ent.Offset)
 }
@@ -160,22 +232,26 @@ Used within 9P, it's very similar
 // Open(){
 dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
 // Readdir(offset, count) (p9.Dirents, error) {
-return fs.pinDir.Read(offset, count).To9P()
+return fs.pinDir.Readdir(offset, count).To9P()
 ```
 The interface is still in progress, but currently looks like this
 ```go
 type Directory interface {
-	// Read returns /at most/ count entries; or attempts to return all entires when count is 0
-	Read(offset, count uint64) directoryState
-	Seek(offset uint64) error
-	Close() error
+	// Readdir returns /at most/ count entries; or attempts to return all entires when count is 0
+	Readdir(offset, count uint64) DirectoryState
+	io.Closer
 }
 
-type directoryState interface {
-	// TODO: ToGo() ([]os.Fileinfo, error)
+// TODO: better name
+type DirectoryState interface {
+	// TODO: for Go and 9P, allow the user to pass in a pre-allocated slice (or nil)
+	// same for Fuse but with a channel, in case they want it buffered
+	// NOTE: pre-allocated/defined inputs are optional and should be allocated internally if nil
+	// channels must be closed by the method
 	To9P() (p9.Dirents, error)
+	ToGo() ([]os.FileInfo, error)
+	ToGoC(predefined chan os.FileInfo) (<-chan os.FileInfo, error)
 	ToFuse() (<-chan FuseStatGroup, error)
-	// Eventually: ToAndroidProv(), etc.
 }
 ```
 
