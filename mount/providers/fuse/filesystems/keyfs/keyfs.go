@@ -3,7 +3,7 @@ package keyfs
 import (
 	"context"
 	"errors"
-	"os"
+	"fmt"
 	"strings"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
@@ -11,9 +11,13 @@ import (
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
+	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/keyfs"
+	tmfs "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/mfs"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
+	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 )
 
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
@@ -28,16 +32,20 @@ type FileSystem struct {
 
 	log  logging.EventLogger
 	ipns fuselib.FileSystemInterface
-	// TODO: dispatch: keyInstances []mfs.FS
+
+	//TODO: these are going to need open reference counts so they can be deleted on close
+	mfsInstances map[string]*mfs.FileSystem
+	//TODO: uioInstances map[string]uio.Modifier
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
 	settings := parseOptions(opts...)
 
 	return &FileSystem{
-		IPFSCore: provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
-		initChan: settings.InitSignal,
-		log:      settings.Log,
+		IPFSCore:     provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
+		initChan:     settings.InitSignal,
+		log:          settings.Log,
+		mfsInstances: make(map[string]*mfs.FileSystem),
 	}
 }
 
@@ -69,30 +77,75 @@ func (fs *FileSystem) selectFS(path string) (fuselib.FileSystemInterface, string
 			return fs, pathRemainder, nil
 		}
 
-		callContext, cancel := context.WithCancel(fs.Ctx())
-		defer cancel()
-
-		keyDir, err := keyfs.OpenDir(callContext, fs.Core())
-		if err != nil {
-			return nil, pathRemainder, err
-		}
-
-		keyWriterChan := make(chan os.FileInfo, 1)
-		keyChan, err := keyDir.Readdir(0, 0).ToGoC(keyWriterChan)
-		if err != nil {
-			return nil, pathRemainder, err
-		}
-
-		for ent := range keyChan {
-			if ent.Name() == pathRemainder {
-				//hit
-				// lookup existing or return a new one
+		keyFS, keyFound, err := fs.checkKey(namespace)
+		if keyFound {
+			if err != nil {
+				return nil, pathRemainder, err
 			}
+			return keyFS, pathRemainder, nil
 		}
 
-		// not a key, relay to IPNS
+		// not an owned key, relay to IPNS resolver
 		return fs.ipns, pathRemainder, nil
 	}
+}
+
+func offlineAPI(core coreiface.CoreAPI) coreiface.CoreAPI {
+	oAPI, err := core.WithOptions(coreoptions.Api.Offline(true))
+	if err != nil {
+		panic(err)
+	}
+	return oAPI
+}
+
+// bool:keyFound?
+func (fs *FileSystem) checkKey(keyName string) (fuselib.FileSystemInterface, bool, error) {
+	callContext, cancel := context.WithCancel(fs.Ctx())
+	defer cancel()
+
+	keys, err := fs.Core().Key().List(callContext)
+	if err != nil {
+		return nil, false, err
+	}
+
+	for _, key := range keys {
+		if key.Name() == keyName {
+			// NOTE: keys that have not been published to will not resolve
+			// their CID points to something, but I'm not sure what even
+			// TODO: ask someone about this or check init code
+			// hash on this node is set to "QmTTfK7tAW76GE1uFqU6vfLhHor5LhvjjoKQwrcB23Dryv"
+
+			// path points to a key we own, check its type
+			iState, _, err := transform.GetAttr(fs.Ctx(), key.Path(), offlineAPI(fs.Core()), transform.IPFSStatRequest{Type: true})
+			if err != nil {
+				return nil, true, err
+			}
+			switch ft := iState.FileType; ft {
+			case coreiface.TFile:
+				//TODO: return self with remainder; handle construction in Open
+				return nil, true, errors.New("key's as files not supported yet")
+
+			case coreiface.TDirectory:
+				// if we already have an instance of this, use it
+				if fs, ok := fs.mfsInstances[keyName]; ok {
+					return fs, true, nil
+				}
+				// otherwise instantiate it
+				mroot, err := tmfs.PathToMFSRoot(fs.Ctx(), key.Path(), fs.Core(),
+					tmfs.IPNSPublisher(key.Name(), fs.Core().Name()))
+				if err != nil {
+					return nil, true, err
+				}
+				mfsKey := mfs.NewFileSystem(fs.Ctx(), *mroot, fs.Core())
+				fs.mfsInstances[keyName] = mfsKey
+				return mfsKey, true, nil
+
+			default:
+				return nil, true, fmt.Errorf("unsupported key type: %v", ft)
+			}
+		}
+	}
+	return nil, false, nil
 }
 
 func (fs *FileSystem) Init() {
@@ -147,23 +200,21 @@ func (fs *FileSystem) Destroy() {
 func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (errc int) {
 	fs.log.Debugf("Getattr - {%X}%q", fh, path)
 
-	switch path {
-	case "":
-		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+	targetFs, remainder, err := fs.selectFS(path)
+	if err != nil {
+		fs.log.Error(err)
 		return -fuselib.ENOENT
+	}
 
-	case "/":
+	if targetFs == fs {
 		// TODO: writable
 		stat.Mode = fuselib.S_IFDIR
 		fusecom.ApplyPermissions(false, &stat.Mode)
 		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
-
-	default:
-		// TODO: if path starts with keyname; open MFS
-		// else proxy to core IPNS handler
-		return fs.ipns.Getattr(path, stat, fh)
 	}
+
+	return targetFs.Getattr(remainder, stat, fh)
 }
 
 func (fs *FileSystem) Opendir(path string) (int, uint64) {

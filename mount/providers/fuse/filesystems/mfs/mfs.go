@@ -39,10 +39,12 @@ func NewFileSystem(ctx context.Context, mroot gomfs.Root, core coreiface.CoreAPI
 	settings := parseOptions(opts...)
 
 	return &FileSystem{
-		IPFSCore: provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
-		initChan: settings.InitSignal,
-		log:      settings.Log,
-		mroot:    &mroot,
+		IPFSCore:    provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
+		initChan:    settings.InitSignal,
+		log:         settings.Log,
+		mroot:       &mroot,
+		directories: fusecom.NewDirectoryTable(),
+		files:       fusecom.NewFileTable(),
 	}
 }
 
