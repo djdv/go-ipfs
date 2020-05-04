@@ -60,6 +60,55 @@ var (
 	}
 )
 
+func TestAll(t *testing.T) {
+	origPath := os.Getenv("IPFS_PATH")
+
+	repoDir, err := ioutil.TempDir("", "ipfs-fs")
+	if err != nil {
+		t.Logf("Failed to create repo directory: %s\n", err)
+		t.FailNow()
+	}
+
+	if err = os.Setenv("IPFS_PATH", repoDir); err != nil {
+		t.Logf("Failed to set IPFS_PATH: %s\n", err)
+		t.FailNow()
+	}
+
+	defer func() {
+		if err = os.RemoveAll(repoDir); err != nil {
+			t.Logf("Failed to remove test IPFS_PATH: %s\n", err)
+			t.Fail()
+		}
+		if err = os.Setenv("IPFS_PATH", origPath); err != nil {
+			t.Logf("Failed to reset IPFS_PATH: %s\n", err)
+			t.Fail()
+		}
+	}()
+
+	ctx := context.TODO()
+	node, err := testInitNode(ctx, t)
+	if err != nil {
+		t.Logf("Failed to construct IPFS node: %s\n", err)
+		t.FailNow()
+	}
+
+	core, err := coreapi.NewCoreAPI(node)
+	if err != nil {
+		t.Logf("Failed to construct CoreAPI: %s\n", err)
+		t.FailNow()
+	}
+	t.Run("RootFS", func(t *testing.T) { testRootFS(ctx, t, core) })
+	t.Run("PinFS", func(t *testing.T) { testPinFS(ctx, t, core) })
+	t.Run("IPFS", func(t *testing.T) { testIPFS(ctx, t, core) })
+	t.Run("MFS", func(t *testing.T) { testMFS(ctx, t, core) })
+	t.Run("IPNS", func(t *testing.T) { testIPNS(ctx, t, core) })
+	t.Run("Plugin", func(t *testing.T) { testPlugin(t, node) })
+
+	if err = node.Close(); err != nil {
+		t.Error(err)
+		t.FailNow()
+	}
+}
 
 func testPlugin(t *testing.T, node *core.IpfsNode) {
 	repoPath, err := config.PathRoot()
@@ -595,6 +644,49 @@ func loadConfigFile() (*fsPluginConfig, error) {
 		return nil, fmt.Errorf("config was parsed but type does not match expected:")
 	}
 	return &typedConfig, nil
+}
+
+// TODO: [anyone] remove overlap when node constructor refactor is done
+func testInitNode(ctx context.Context, t *testing.T) (*core.IpfsNode, error) {
+	repoPath, err := config.PathRoot()
+	if err != nil {
+		t.Logf("Failed to find suitable IPFS repo path: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	if err := setupPlugins(repoPath); err != nil {
+		t.Logf("Failed to initalize IPFS node plugins: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	conf, err := config.Init(ioutil.Discard, 2048)
+	if err != nil {
+		t.Logf("Failed to construct IPFS node config: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	if err := fsrepo.Init(repoPath, conf); err != nil {
+		t.Logf("Failed to construct IPFS node repo: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	repo, err := fsrepo.Open(repoPath)
+	if err := fsrepo.Init(repoPath, conf); err != nil {
+		t.Logf("Failed to open newly initalized IPFS repo: %s\n", err)
+		t.FailNow()
+		return nil, err
+	}
+
+	return core.NewNode(ctx, &core.BuildCfg{
+		Online:                      false,
+		Permanent:                   false,
+		DisableEncryptedConnections: true,
+		Repo:                        repo,
+	})
 }
 
 func setupPlugins(path string) error {
