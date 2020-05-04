@@ -229,7 +229,9 @@ func parseTargetConfig(nodeConf *config.Config, namespaces []mountinter.Namespac
 				continue
 			}
 			targets = append(targets, nodeConf.Mounts.IPFS)
-		case mountinter.NamespaceIPNS:
+
+		// TODO: separate IPNS/KeyFS in this context; same for now
+		case mountinter.NamespaceIPNS, mountinter.NamespaceKeyFS:
 			if runtime.GOOS == "windows" && defaultConfig.Mounts.IPNS == nodeConf.Mounts.IPNS {
 				targets = append(targets, mountinter.MountRoot()+"ipns")
 				continue

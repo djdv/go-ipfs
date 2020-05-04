@@ -43,8 +43,8 @@ var (
 	suggestedNamespaces = func() []Namespace {
 		return []Namespace{
 			NamespacePinFS,
-			NamespaceIPNS, // ipns -> keyfs
-			// NamespaceFiles, // not implemented yet
+			NamespaceKeyFS,
+			NamespaceFiles,
 		}
 	}
 	platformMountRoot = func() string { return "/" }
@@ -52,7 +52,7 @@ var (
 		return []string{
 			platformMountRoot() + "ipfs",
 			platformMountRoot() + "ipns",
-			// platformTargetRoot() + "file", // not implemented yet
+			platformMountRoot() + "file",
 		}
 	}
 	allInOnePath = func() string { return "/mnt/ipfs" }

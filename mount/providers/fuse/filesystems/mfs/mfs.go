@@ -65,7 +65,7 @@ func (fs *FileSystem) Init() {
 			close(c)
 		}
 
-		fs.log.Errorf("init finished")
+		fs.log.Debugf("init finished")
 	}()
 
 	// fs.mountTime = fuselib.Now()

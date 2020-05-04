@@ -8,7 +8,7 @@ func init() {
 		return []string{
 			platformMountRoot() + "ipfs",
 			platformMountRoot() + "ipns",
-			// platformTargetRoot() + "file", not implemented yet
+			platformMountRoot() + "file",
 		}
 	}
 
