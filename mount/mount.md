@@ -215,7 +215,10 @@ and under 9P
 ```
 
 
-A version of the `pinfs` (a directory which lists the node's pins as files and directories) has been implemented using this method. Its use within FUSE looks like this:
+A version of the `pinfs` (a directory which lists the node's pins as files and directories) has been implemented using this method. ~~Its use within FUSE looks like this:~~  
+This is how it was, but it's in the process of being changed for standards compliance.
+## Old
+___
 ```go 
 // OpenDir(){
 dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
@@ -255,5 +258,34 @@ type DirectoryState interface {
 }
 ```
 
-It may be such that this transformation layer grows into a common file system interface in itself, which could be returned by one of the above interfaces.  
-e.g. `Provider.Instance() (FileSystem, error)` which wraps an implementation of some file system API (like FUSE), with transforms that allow for `FileSystem.Open(...)`.
+## WIP (may change)
+___
+
+```go 
+// OpenDir(){
+dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+// Readdir{
+entChan, err := fs.pinDir.Readdir(readDirCtx, offset).ToFuse()
+for ent := range entChan {
+	fill(ent.Name, ent.Stat, ent.Offset)
+}
+return OperationSuccess
+```
+
+```go
+type Directory interface {
+	// Readdir returns attempts to return all entires starting from offset until it reaches the end
+	// or the context is canceled
+	Readdir(ctx context.Context, offset uint64) DirectoryState
+	io.Closer
+}
+
+type DirectoryState interface {
+	// one of these most likely
+	To9P(count) (p9.Dirents, error)
+	To9P() (<-p9.Dirent, error)
+	...
+	// not likely
+	ToFuse(fillerFunc) error
+}
+```
