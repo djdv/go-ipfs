@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"io"
 	"os"
 
@@ -13,9 +14,23 @@ import (
 const errSeekFmt = "offset %d extends beyond directory bound %d"
 
 type Directory interface {
-	// Readdir returns /at most/ count entries; or attempts to return all entires when count is 0
-	Readdir(offset, count uint64) DirectoryState
+	// Readdir returns attempts to return all entires starting from offset until it reaches the end
+	// or the context is canceled
+	Readdir(ctx context.Context, offset uint64) DirectoryState
 	io.Closer
+}
+
+// TODO: review; [kludge] if there's a better way to handle this, do it
+// This interface provides a way for stream wrappers to prevent a stream from resetting itself
+// upon the next call to `Readdir`.
+// Allowing a stream handler to replay a stream from the 0th element by calling
+// `stream.DontReset()`; `stream.Readdir(0,0)`
+// This is mainly necessary due to an ambiguity in FUSE
+// which effectively obfuscates/conflates `seekdir(0)` and `rewinddir` at our implementation layer.
+// in the event a stream is not yet initialized, it proceeds as if `DontReset` was not called
+type DirectoryStream interface {
+	Directory
+	DontReset()
 }
 
 type StreamSource interface {
@@ -41,7 +56,8 @@ type DirectoryState interface {
 	// same for Fuse but with a channel, in case they want it buffered
 	// NOTE: pre-allocated/defined inputs are optional and should be allocated internally if nil
 	// channels must be closed by the method
-	To9P() (p9.Dirents, error)
+	//To9P() (p9.Dirents, error)
+	To9P(count uint32) (p9.Dirents, error)
 	ToGo() ([]os.FileInfo, error)
 	ToGoC(predefined chan os.FileInfo) (<-chan os.FileInfo, error)
 	ToFuse() (<-chan FuseStatGroup, error)

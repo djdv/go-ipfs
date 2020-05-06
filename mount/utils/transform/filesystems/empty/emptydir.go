@@ -1,6 +1,7 @@
 package empty
 
 import (
+	"context"
 	"os"
 
 	"github.com/hugelgupf/p9/p9"
@@ -14,11 +15,11 @@ var (
 
 type emptyDir struct{}
 
-func OpenDir() *emptyDir                                          { return new(emptyDir) }
-func (ed *emptyDir) Readdir(_, _ uint64) transform.DirectoryState { return ed }
-func (*emptyDir) Close() error                                    { return nil }
-func (*emptyDir) To9P() (p9.Dirents, error)                       { return nil, nil }
-func (*emptyDir) ToGo() ([]os.FileInfo, error)                    { return nil, nil }
+func OpenDir() *emptyDir                                                          { return new(emptyDir) }
+func (ed *emptyDir) Readdir(_ context.Context, _ uint64) transform.DirectoryState { return ed }
+func (*emptyDir) Close() error                                                    { return nil }
+func (*emptyDir) To9P(_ uint32) (p9.Dirents, error)                               { return nil, nil }
+func (*emptyDir) ToGo() ([]os.FileInfo, error)                                    { return nil, nil }
 func (*emptyDir) ToGoC(dirChan chan os.FileInfo) (<-chan os.FileInfo, error) {
 	if dirChan == nil {
 		dirChan = make(chan os.FileInfo)

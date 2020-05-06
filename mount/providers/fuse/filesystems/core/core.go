@@ -124,6 +124,7 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 			fs.log.Error(err)
 			return -fuselib.ENOENT, fusecom.ErrorHandle
 		}
+
 		coreDir, err := ipfscore.OpenDir(fs.Ctx(), fullPath, fs.Core())
 		if err != nil {
 			fs.log.Error(err)
@@ -169,7 +170,7 @@ func (fs *FileSystem) Readdir(path string,
 		return -fuselib.EBADF
 	}
 
-	goErr, errNo := fusecom.FillDir(directory, false, fill, ofst)
+	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, false, fill, ofst)
 	if goErr != nil {
 		fs.log.Error(goErr)
 	}

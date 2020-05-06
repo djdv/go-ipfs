@@ -166,7 +166,7 @@ func (fs *FileSystem) Readdir(path string,
 		return -fuselib.EBADF
 	}
 
-	goErr, errNo := fusecom.FillDir(directory, false, fill, ofst)
+	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, false, fill, ofst)
 	if goErr != nil {
 		fs.log.Error(goErr)
 	}

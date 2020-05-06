@@ -1,6 +1,7 @@
 package fusecommon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +16,7 @@ import (
 type fillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 type errno = int
 
-func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset int64) (error, int) {
+func FillDir(ctx context.Context, directory transform.Directory, writable bool, fill fillFunc, offset int64) (error, int) {
 	// dots are optional in POSIX but lots of things break without them, so we fill them in
 	// NOTE: we let the OS populate the stats because it's not worth the complexity yet
 	// later this may change to add 2 closed procedures for self/parent; `{self|parent}Resolve()(*stat, error)`
@@ -28,7 +29,7 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 	// and do the inverse to get the directory's input offset value (from a value we previously returned)
 	// rel: SUSv7 `readdir`, `seekdir`, `telldir`
 
-	const dotOffsetBase = 2 // 0th index for Readdir return values
+	const dotOffsetBase = 2 // dot offset ends; stream index 0 begins
 
 	var relativeOffset uint64 // offset used for input, adjusting for dots if any
 
@@ -37,17 +38,31 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 		if !fill(".", nil, 1) {
 			return nil, OperationSuccess
 		}
-		fallthrough
+		if !fill("..", nil, 2) {
+			return nil, OperationSuccess
+		}
 	case 1:
 		if !fill("..", nil, 2) {
 			return nil, OperationSuccess
 		}
+	case dotOffsetBase: // do nothing; relativeOffset stays at 0
 	default:
+		// adjust offset value from dots offset range -> stream offset range
 		// TODO: [audit] int -> uint needs range check
 		relativeOffset = uint64(offset) - dotOffsetBase
 	}
 
-	entChan, err := directory.Readdir(relativeOffset, 0).ToFuse()
+	// only reset stream when the offset is absolute 0
+	// relative 0 should not reset underlying stream, but instead return the 0th element + [...]
+	if offset != 0 && relativeOffset == 0 {
+		if stream, ok := directory.(transform.DirectoryStream); ok {
+			stream.DontReset()
+		}
+	}
+
+	readCtx, cancel := context.WithCancel(ctx)
+	defer func() { cancel() }()
+	entChan, err := directory.Readdir(readCtx, relativeOffset).ToFuse()
 	if err != nil {
 		return err, -fuselib.ENOENT
 	}
@@ -59,10 +74,11 @@ func FillDir(directory transform.Directory, writable bool, fill fillFunc, offset
 			ApplyPermissions(writable, &ent.Stat.Mode)
 		}
 
-		if !fill(ent.Name, ent.Stat, dotOffsetBase+ent.Offset) {
+		if !fill(ent.Name, ent.Stat, ent.Offset+dotOffsetBase) {
 			break
 		}
 	}
+
 	return nil, OperationSuccess
 }
 
