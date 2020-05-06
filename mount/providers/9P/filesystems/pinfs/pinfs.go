@@ -4,7 +4,6 @@ package pinfs
 import (
 	"context"
 	"runtime"
-	"sync/atomic"
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
@@ -93,7 +92,7 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 	}
 	pd.dir = pinDir
 
-	atomic.StoreUintptr(pd.Opened, 1)
+	// atomic.StoreUintptr(pd.Opened, 1)
 	pd.open = true
 
 	return qid, common.UFS1BlockSize, nil
@@ -111,7 +110,7 @@ func (pd *File) Close() error {
 	// if !open; return error; else swap value
 	// we can't do a cas style upset since it will set an erroneous value
 	if pd.open {
-		atomic.StoreUintptr(pd.Opened, 0)
+		//atomic.StoreUintptr(pd.Opened, 0)
 	}
 
 	pd.Closed = true
@@ -136,7 +135,11 @@ func (pd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	}
 
 	//return common.FlatReaddir(pd.dir, offset, count)
-	return pd.dir.Readdir(offset, uint64(count)).To9P()
+	// TODO: review; quick hack to get building
+	readCtx, cancel := context.WithCancel(pd.OperationsCtx)
+	defer cancel()
+
+	return pd.dir.Readdir(readCtx, offset).To9P(count)
 }
 
 /* WalkRef relevant */

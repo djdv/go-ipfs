@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"sync/atomic"
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
@@ -175,7 +174,7 @@ func (ri *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return p9.QID{}, 0, err
 	}
 
-	atomic.StoreUintptr(ri.Opened, 1)
+	//atomic.StoreUintptr(ri.Opened, 1)
 	ri.open = true
 
 	return qid, 0, nil
@@ -184,7 +183,7 @@ func (ri *File) Close() error {
 	ri.Logger.Debug("Close")
 
 	if ri.open {
-		atomic.StoreUintptr(ri.Opened, 0)
+		//atomic.StoreUintptr(ri.Opened, 0)
 	}
 
 	ri.Closed = true

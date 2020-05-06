@@ -3,7 +3,6 @@ package ipfs
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
@@ -111,7 +110,7 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 
 	if qid.Type == p9.TypeDir { // handle directories
 		if len(id.Trail) == 0 { // handle the root itself (empty)
-			*id.Opened = 1 // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
+			//*id.Opened = 1 // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
 			return qid, 0, nil
 		}
 
@@ -122,7 +121,7 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		}
 
 		id.directory = dir
-		*id.Opened = 1 // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
+		//*id.Opened = 1 // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
 		return qid, 0, nil
 	}
 
@@ -163,7 +162,7 @@ func (id *File) Close() error {
 
 	// [69419872-3e02-4b04-9d23-dce6318b7fb2] open/close async refactor
 	id.Closed = true
-	*id.Opened = 0
+	//*id.Opened = 0
 
 	return err
 }
@@ -171,9 +170,11 @@ func (id *File) Close() error {
 func (id *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	id.Logger.Debugf("Readdir %q %d %d", id.String(), offset, count)
 
-	if *id.Opened == 0 { // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
-		return nil, fmt.Errorf("directory %q is not open for reading", id.String())
-	}
+	/*
+		if *id.Opened == 0 { // FIXME: [69419872-3e02-4b04-9d23-dce6318b7fb2]
+			return nil, fmt.Errorf("directory %q is not open for reading", id.String())
+		}
+	*/
 
 	// special case for root
 	if len(id.Trail) == 0 {
@@ -185,7 +186,11 @@ func (id *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	}
 
 	//return common.FlatReaddir(pd.dir, offset, count)
-	return id.directory.Readdir(offset, uint64(count)).To9P()
+	// TODO: review; quick hack to get building
+	readCtx, cancel := context.WithCancel(id.OperationsCtx)
+	defer cancel()
+
+	return id.directory.Readdir(readCtx, offset).To9P(count)
 }
 
 func (id *File) ReadAt(p []byte, offset int64) (int, error) {
