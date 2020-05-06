@@ -150,7 +150,7 @@ func (con *conductor) Where() map[mountinter.ProviderType][]string {
 		s := m[mountinter.ProviderPlan9Protocol]
 		s = append(s, instance.Where()...)
 		if len(s) != 0 {
-			m[mountinter.ProviderFuse] = s
+			m[mountinter.ProviderPlan9Protocol] = s
 		}
 	}
 	for _, instance := range con.providers.fuse {

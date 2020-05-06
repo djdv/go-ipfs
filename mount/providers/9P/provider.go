@@ -144,6 +144,11 @@ func (pr *p9pProvider) Graft(target string) (mountinter.Instance, error) {
 		providerDetachCallback: pr.detach,
 		target:                 target,
 	}
+
+	if err := pr.instances.Add(target); err != nil {
+		return nil, err
+	}
+
 	return mi, nil
 }
 
