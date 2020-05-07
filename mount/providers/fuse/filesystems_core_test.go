@@ -1,4 +1,4 @@
-package ipfscore
+package mountfuse
 
 import (
 	"context"
@@ -7,31 +7,17 @@ import (
 
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
-	testutil "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/internal/testutils"
+	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-type fileHandle = uint64
-
-func TestAll(t *testing.T) {
-	env, iEnv, node, core, unwind := testutil.GenerateTestEnv(t)
-	defer node.Close()
-	t.Cleanup(unwind)
-
-	ctx := context.TODO()
-
-	t.Run("IPFS", func(t *testing.T) { testIPFS(ctx, t, env, iEnv, core) })
-	// TODO
-	//t.Run("IPNS", func(t *testing.T) { testIPNS(ctx, t, env, iEnv, core) })
-}
-
 func testIPFS(ctx context.Context, t *testing.T, env string, coreEnv corepath.Resolved, core coreiface.CoreAPI) {
 
 	initChan := make(fusecom.InitSignal)
-	fs := NewFileSystem(ctx, core,
-		WithNamespace(mountinter.NamespaceIPFS),
-		WithCommon(
+	fs := ipfscore.NewFileSystem(ctx, core,
+		ipfscore.WithNamespace(mountinter.NamespaceIPFS),
+		ipfscore.WithCommon(
 			fusecom.WithInitSignal(initChan),
 			// fusecom.WithResourceLock(fs.IPFSCore), //TODO
 		),

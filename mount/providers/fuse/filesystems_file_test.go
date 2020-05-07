@@ -1,4 +1,4 @@
-package ipfscore
+package mountfuse
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func hashLocal(t *testing.T, localFilePath string, core coreiface.CoreAPI) strin
 	return ipfsFilePath.Cid().String()
 }
 
-func testFiles(t *testing.T, localPath string, core coreiface.CoreAPI, fs *FileSystem) {
+func testFiles(t *testing.T, localPath string, core coreiface.CoreAPI, fs fuselib.FileSystemInterface) {
 	localFilePath := filepath.Join(localPath, "small")
 	fileHash := hashLocal(t, localFilePath, core)
 
@@ -63,7 +63,7 @@ func testFiles(t *testing.T, localPath string, core coreiface.CoreAPI, fs *FileS
 	}
 }
 
-func testOpen(t *testing.T, path string, flags int, fs *FileSystem) fileHandle {
+func testOpen(t *testing.T, path string, flags int, fs fuselib.FileSystemInterface) fileHandle {
 	errno, fh := fs.Open(path, flags)
 	if errno != fusecom.OperationSuccess {
 		t.Errorf("failed to open %q: %s\n", path, fuselib.Error(errno))
@@ -71,7 +71,7 @@ func testOpen(t *testing.T, path string, flags int, fs *FileSystem) fileHandle {
 	return fh
 }
 
-func testRelease(t *testing.T, path string, fh fileHandle, fs *FileSystem) int {
+func testRelease(t *testing.T, path string, fh fileHandle, fs fuselib.FileSystemInterface) int {
 	errno := fs.Release(path, fh)
 	if errno != fusecom.OperationSuccess {
 		t.Errorf("failed to close %q: %s\n", path, fuselib.Error(errno))
@@ -79,7 +79,7 @@ func testRelease(t *testing.T, path string, fh fileHandle, fs *FileSystem) int {
 	return errno
 }
 
-func testRead(t *testing.T, path string, mirror *os.File, fh fileHandle, fs *FileSystem) {
+func testRead(t *testing.T, path string, mirror *os.File, fh fileHandle, fs fuselib.FileSystemInterface) {
 	t.Run("all", func(t *testing.T) {
 		testReadAll(t, path, mirror, fh, fs)
 	})
@@ -87,7 +87,7 @@ func testRead(t *testing.T, path string, mirror *os.File, fh fileHandle, fs *Fil
 	mirror.Seek(0, 0)
 }
 
-func testReadAll(t *testing.T, path string, mirror *os.File, fh fileHandle, fs *FileSystem) {
+func testReadAll(t *testing.T, path string, mirror *os.File, fh fileHandle, fs fuselib.FileSystemInterface) {
 	expected, err := ioutil.ReadAll(mirror)
 	if err != nil {
 		t.Errorf("failed to read mirror contents: %s\n", err)

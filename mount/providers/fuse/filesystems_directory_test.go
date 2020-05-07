@@ -1,4 +1,4 @@
-package ipfscore
+package mountfuse
 
 import (
 	"os"
@@ -33,7 +33,7 @@ func genFill(slice *[]readdirTestDirEnt) func(name string, stat *fuselib.Stat_t,
 	}
 }
 
-func testDirectories(t *testing.T, localPath, corePath string, fs *FileSystem) {
+func testDirectories(t *testing.T, localPath, corePath string, fs fuselib.FileSystemInterface) {
 	// TODO: test Open/Close (prior/independent of readdir)
 	// TODO: readdir needs bad behaviour tests (double state transformation, stale offsets, invalid offsets, etc.)
 	t.Run("Readdir", func(t *testing.T) {
@@ -41,7 +41,7 @@ func testDirectories(t *testing.T, localPath, corePath string, fs *FileSystem) {
 	})
 }
 
-func testReaddir(t *testing.T, localPath, corePath string, fs *FileSystem) {
+func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystemInterface) {
 	// setup
 	localDir, err := os.Open(localPath)
 	if err != nil {
@@ -103,7 +103,7 @@ func testReaddir(t *testing.T, localPath, corePath string, fs *FileSystem) {
 	}
 }
 
-func testReaddirAll(t *testing.T, expected []string, fs *FileSystem, corePath string, fh fileHandle) []readdirTestDirEnt {
+func testReaddirAll(t *testing.T, expected []string, fs fuselib.FileSystemInterface, corePath string, fh fileHandle) []readdirTestDirEnt {
 	coreEntries := make([]readdirTestDirEnt, 0, len(expected)+2) // + '.', ".."
 	filler := genFill(&coreEntries)
 
@@ -139,7 +139,7 @@ func testReaddirAll(t *testing.T, expected []string, fs *FileSystem, corePath st
 	return coreEntries
 }
 
-func testReaddirOffset(t *testing.T, existing []readdirTestDirEnt, fs *FileSystem, corePath string, fh fileHandle) {
+func testReaddirOffset(t *testing.T, existing []readdirTestDirEnt, fs fuselib.FileSystemInterface, corePath string, fh fileHandle) {
 	partialList := make([]readdirTestDirEnt, 0, len(existing)-1)
 	filler := genFill(&partialList)
 
@@ -164,7 +164,7 @@ func genShortFill(slice *[]readdirTestDirEnt) func(name string, stat *fuselib.St
 	}
 }
 
-func testReaddirAllIncremental(t *testing.T, expected []string, fs *FileSystem, corePath string, fh fileHandle) {
+func testReaddirAllIncremental(t *testing.T, expected []string, fs fuselib.FileSystemInterface, corePath string, fh fileHandle) {
 	var (
 		offsetVal  int64
 		entNames   = make([]string, 0, len(expected))
@@ -212,7 +212,7 @@ func testReaddirAllIncremental(t *testing.T, expected []string, fs *FileSystem, 
 	t.Logf("%v\n", loggedEnts)
 }
 
-func testReaddirIncrementalOffset(t *testing.T, existing []readdirTestDirEnt, fs *FileSystem, corePath string, fh fileHandle) {
+func testReaddirIncrementalOffset(t *testing.T, existing []readdirTestDirEnt, fs fuselib.FileSystemInterface, corePath string, fh fileHandle) {
 	compareBuffer := make([]readdirTestDirEnt, 0, int64(len(existing)-1))
 
 	for _, ent := range existing {

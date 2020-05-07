@@ -1,4 +1,4 @@
-package testutil
+package mountfuse
 
 import (
 	"context"
@@ -167,7 +167,7 @@ func generateGarbage(tempDir string) error {
 }
 
 // TODO: see if we can circumvent import cycle hell and not have to reconstruct the node for each filesystem test
-func GenerateTestEnv(t *testing.T) (string, corepath.Resolved, *core.IpfsNode, coreiface.CoreAPI, func()) {
+func generateTestEnv(t *testing.T) (string, corepath.Resolved, *core.IpfsNode, coreiface.CoreAPI, func()) {
 	// environment setup
 	origPath := os.Getenv("IPFS_PATH")
 
