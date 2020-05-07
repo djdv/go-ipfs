@@ -3,6 +3,7 @@ package mountfuse
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/user"
 	"runtime"
 	"strings"
@@ -33,6 +34,9 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 	)
 
 	switch runtime.GOOS {
+	default:
+		retTarget = target
+
 	case "windows": // expected target is WinFSP; use its options
 		// cgofuse expects an argument format broken up by components
 		// e.g. `mount.exe -o "uid=-1,volname=a valid name,gid=-1" --VolumePrefix=\localhost\UNC`
@@ -59,9 +63,32 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 
 		// target is local reference; use it
 		retTarget = target
-	case "linux":
-		// [2020.04.18] cgofuse currently backed by hanwen/go-fuse on linux; their optset doesn't support our desire
-		// libfuse: opts = fmt.Sprintf(`-o fsname=ipfs,subtype=fuse.%s`, namespace.String())
+	case "freebsd":
+		if namespace == mountinter.NamespaceAllInOne {
+			opts = "fsname=IPFS,subtype=IPFS"
+		} else {
+			opts = fmt.Sprintf("fsname=%s,subtype=%s", namespace.String(), namespace.String())
+		}
+
+		// TODO: [general] we should allow the user to pass in raw options
+		// that we will then relay to the underlying fuse implementation, unaltered
+		// options like `allow_other` depend on opinions of the sysop, not us
+		// so we shouldn't just assume this is what they want
+		if os.Geteuid() == 0 { // if root, allow other users to access the mount
+			opts += ",allow_other" // allow users besides root to see and access the mount
+
+			//opts += ",default_permissions"
+			// TODO: [cli, constructors]
+			// for now, `default_permissions` won't prevent anything
+			// since we tell whoever is calling that they own the file, regardless of who it is
+			// we need a way for the user to set `uid` and `gid` values
+			// both for our internal context (getattr)
+			// as well as allowing them to pass the uid= and gid= FUSE options (not specifically, pass anything)
+			// (^system ignores our values and substitutes its own)
+
+		}
+
+		args = append(args, "-o", opts)
 		retTarget = target
 
 	case "darwin":
@@ -87,7 +114,9 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 
 		retTarget = target
 
-	default:
+	case "linux":
+		// [2020.04.18] cgofuse currently backed by hanwen/go-fuse on linux; their optset doesn't support our desire
+		// libfuse: opts = fmt.Sprintf(`-o fsname=ipfs,subtype=fuse.%s`, namespace.String())
 		retTarget = target
 	}
 
