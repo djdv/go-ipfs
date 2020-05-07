@@ -91,6 +91,10 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 		args = append(args, "-o", opts)
 		retTarget = target
 
+	case "openbsd":
+		args = append(args, "-o", "allow_other")
+		retTarget = target
+
 	case "darwin":
 		if namespace == mountinter.NamespaceAllInOne {
 			// TODO: see if we can provide `volicon` via an IPFS path; or make the overlay provide one via `/.VolumeIcon.icns` on darwin
