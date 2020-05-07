@@ -48,6 +48,9 @@ type coreDirectoryStream struct {
 
 	cursor, upperBound uint64
 	dontreset          bool // dumb FUSE hacks
+	dontTranslate      bool // dumb self hack
+	// ^ this is to prevent the sequence `state := readdir(); state.translate(); state.translate()` which would mess up the wait group
+	// this needs to be refactored out properly instead of hacked away
 }
 
 func OpenStream(ctx context.Context, streamSource transform.StreamSource, core coreiface.CoreAPI) (*coreDirectoryStream, error) {
@@ -83,6 +86,7 @@ func (cs *coreDirectoryStream) Readdir(ctx context.Context, offset uint64) trans
 	// until a the out channel is closed (below) and a translation method has been called (which itself calls .Done())
 	cs.wg.Wait()
 	cs.wg.Add(2)
+	cs.dontTranslate = false
 
 	cs.readCtx = ctx
 
@@ -226,9 +230,10 @@ func (cs *coreDirectoryStream) streamFromInput() {
 }
 
 func (cs *coreDirectoryStream) To9P(count uint32) (p9.Dirents, error) {
-	if cs.err != nil {
+	if cs.err != nil || cs.dontTranslate {
 		return nil, cs.err
 	}
+	cs.dontTranslate = true
 
 	// from 9p; I mangled it though; change this to a stream output?
 	defer cs.wg.Done() // block readdir calls until we exit
@@ -274,9 +279,10 @@ func (cs *coreDirectoryStream) To9P(count uint32) (p9.Dirents, error) {
 }
 
 func (cs *coreDirectoryStream) ToFuse() (<-chan transform.FuseStatGroup, error) {
-	if cs.err != nil {
+	if cs.err != nil || cs.dontTranslate {
 		return nil, cs.err
 	}
+	cs.dontTranslate = true
 
 	fuseOut := make(chan transform.FuseStatGroup)
 	go func() {
