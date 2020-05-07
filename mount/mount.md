@@ -289,3 +289,54 @@ type DirectoryState interface {
 	ToFuse(fillerFunc) error
 }
 ```
+
+Misc Notes
+___
+### NetBSD
+is only allowing 1 mountpoint to be active at a time, if a second mountpoint is requested, it will be mapped, but the previous mountpoint will be overtaken by the new one.  
+e.g. consider the sequence:  
+`ipfs mount --namespace=pinfs --target=/ipfs` will mount the pinfs to `/ipfs`  
+`ipfs mount --namespace=keyfs --target=/ipns` will mount the keyfs to `/ipns`  
+at this moment, listing either `/ipfs` or `/ipns` will return results from the keyfs.  
+This is likely a cgofuse bug, needs looking into.  
+Otherwise, things seem to work as expected.  
+(Env: NetBSD 9.0, Go 1.13.9)
+
+
+### OpenBSD
+is allowing traversal and `cat`ing of files, but `getdents` is failing in `ls`.
+```
+ 57206 ls       CALL  fstat(4,0x7f7ffffd9fe8)
+ 57206 ls       STRU  struct stat { dev=9733, ino=1, mode=dr-xr-xr-- , nlink=0, uid=0<"root">, gid=0<"wheel">, rdev=0, atime=0, mtime=0, ctime=0, size=0, blocks=4, blksize=512, flags=0x0, gen=0x0 }
+ 57206 ls       RET   fstat 0
+ 57206 ls       CALL  fchdir(4)
+ 57206 ls       RET   fchdir 0
+ 57206 ls       CALL  getdents(4,0x95a668ff000,0x1000)
+ 57206 ls       RET   getdents -1 errno 2 No such file or directory
+ 57206 ls       CALL  close(4)
+ 57206 ls       RET   close 0
+```
+The daemon is receiving a very large offset/`seekdir` value for some reason.
+```
+2020-05-07T05:32:11.856-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:90       Getattr - {FFFFFFFFFFFFFFFF}"/"
+2020-05-07T05:32:11.856-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:90       Getattr - {FFFFFFFFFFFFFFFF}"/"
+2020-05-07T05:32:11.856-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:113      Opendir - "/"
+2020-05-07T05:32:11.856-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:90       Getattr - {FFFFFFFFFFFFFFFF}"/"
+2020-05-07T05:32:11.856-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:157      Readdir - {1|0}"/"
+2020-05-07T05:32:11.856-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:157      Readdir - {1|208}"/"
+2020-05-07T05:32:11.856-0400    ERROR   fuse/pinfs      pinfs/pinfs.go:171      offset 206 is not/no-longer valid
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:139      Releasedir - {1}"/"
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:90       Getattr - {FFFFFFFFFFFFFFFF}"/"
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:113      Opendir - "/"
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:90       Getattr - {FFFFFFFFFFFFFFFF}"/"
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:90       Getattr - {FFFFFFFFFFFFFFFF}"/"
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:90       Getattr - {FFFFFFFFFFFFFFFF}"/"
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:157      Readdir - {2|0}"/"
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:157      Readdir - {2|208}"/"
+2020-05-07T05:32:11.857-0400    ERROR   fuse/pinfs      pinfs/pinfs.go:171      offset 206 is not/no-longer valid
+2020-05-07T05:32:11.857-0400    DEBUG   fuse/pinfs      pinfs/pinfs.go:139      Releasedir - {2}"/"
+```
+Readdir tests are passing within Go on the platform, so this is likely a cgofuse issue.  
+This is also the only platform currently where `ls` doesn't work.  
+Needs investigating.  
+(Env: OpenBSD 6.6, Go 1.13.1)
