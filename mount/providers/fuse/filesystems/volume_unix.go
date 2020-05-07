@@ -1,4 +1,4 @@
-// +build !windows,!darwin,!freebsd,!openbsd
+// +build !windows,!darwin,!freebsd,!openbsd,!netbsd
 
 package fusecommon
 
