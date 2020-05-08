@@ -33,12 +33,31 @@ func genFill(slice *[]readdirTestDirEnt) func(name string, stat *fuselib.Stat_t,
 	}
 }
 
-func testDirectories(t *testing.T, localPath, corePath string, fs fuselib.FileSystemInterface) {
+func testDirectories(t *testing.T, testEnv envData, fs fuselib.FileSystemInterface) {
+
+	localPath := testEnv[directoryRoot][rootDirectoryTestSetBasic].localPath
+	corePath := testEnv[directoryRoot][rootDirectoryTestSetBasic].corePath.Cid().String()
+
 	// TODO: test Open/Close (prior/independent of readdir)
 	// TODO: readdir needs bad behaviour tests (double state transformation, stale offsets, invalid offsets, etc.)
 	t.Run("Readdir", func(t *testing.T) {
 		testReaddir(t, localPath, corePath, fs)
 	})
+}
+
+func testOpendir(t *testing.T, path string, fs fuselib.FileSystemInterface) fileHandle {
+	errno, fh := fs.Opendir(path)
+	if errno != fusecom.OperationSuccess {
+		t.Fatalf("failed to open directory %q: %s\n", path, fuselib.Error(errno))
+	}
+	return fh
+}
+
+func testReleasedir(t *testing.T, path string, fh fileHandle, fs fuselib.FileSystemInterface) {
+	errno := fs.Releasedir(path, fh)
+	if errno != fusecom.OperationSuccess {
+		t.Fatalf("failed to release directory %q: %s\n", path, fuselib.Error(errno))
+	}
 }
 
 func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystemInterface) {
@@ -55,10 +74,7 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 	sort.Strings(localEntries)
 
 	{ // instance 1
-		errNo, dirHandle := fs.Opendir(corePath)
-		if errNo != fusecom.OperationSuccess {
-			t.Fatalf("Opendir failed (status: %s) opening %q\n", fuselib.Error(errNo), corePath)
-		}
+		dirHandle := testOpendir(t, corePath, fs)
 
 		// make sure we can read the directory completley, in one call
 		var coreEntries []readdirTestDirEnt
@@ -72,16 +88,11 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 		})
 
 		// we're done with this instance
-		if errNo := fs.Releasedir(corePath, dirHandle); errNo != fusecom.OperationSuccess {
-			t.Fatalf("Releasedir failed (status: %s) closing %q\n", fuselib.Error(errNo), corePath)
-		}
+		testReleasedir(t, corePath, dirHandle, fs)
 	}
 
 	{ // instance 2
-		errNo, dirHandle := fs.Opendir(corePath)
-		if errNo != fusecom.OperationSuccess {
-			t.Fatalf("Opendir failed (status: %s) opening %q\n", fuselib.Error(errNo), corePath)
-		}
+		dirHandle := testOpendir(t, corePath, fs)
 
 		// test reading 1 by 1
 		t.Run("incremental", func(t *testing.T) {
@@ -97,9 +108,7 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 		})
 
 		// we're done with this instance
-		if errNo := fs.Releasedir(corePath, dirHandle); errNo != fusecom.OperationSuccess {
-			t.Fatalf("Releasedir failed (status: %s) closing %q\n", fuselib.Error(errNo), corePath)
-		}
+		testReleasedir(t, corePath, dirHandle, fs)
 	}
 }
 

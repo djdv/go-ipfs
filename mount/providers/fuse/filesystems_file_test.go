@@ -1,80 +1,69 @@
 package mountfuse
 
 import (
-	"context"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	files "github.com/ipfs/go-ipfs-files"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
-	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 )
 
-func hashLocal(t *testing.T, localFilePath string, core coreiface.CoreAPI) string {
-	// XXX: magic path string and reconstruction of existing data
-	// these files should be part of some associative array of structs returned by the test lib
-	// testFileArray[const testlib.small].(files.File)CoreFile;  [].(string)LocalPath; [].(corepath.Path)CorePath
+func testFiles(t *testing.T, testEnv envData, core coreiface.CoreAPI, fs fuselib.FileSystemInterface) {
 
-	fi, err := os.Stat(localFilePath)
-	if err != nil {
-		t.Errorf("failed to stat local file %q: %s\n", localFilePath, err)
-	}
+	// we're specifically interested in semi-static data such as the UID, time, blocksize, permissions, etc.
+	statTemplate := testGetattr(t, "/", nil, anonymousRequestHandle, fs)
+	statTemplate.Mode &^= fuselib.S_IFMT
+	statTemplate.Blksize = 256 << 1 // MAGIC: UnixFS v1 block size; needs a const somewhere in IPFS libs, we already have one in transform
 
-	fileNode, err := files.NewSerialFile(localFilePath, false, fi)
-	if err != nil {
-		t.Errorf("failed to wrap local file %q: %s\n", localFilePath, err)
-	}
+	for _, f := range testEnv[directoryTestSetBasic] {
+		coreFilePath := f.corePath.Cid().String()
+		t.Logf("file: %q:%q\n", f.localPath, f.corePath)
 
-	ipfsFilePath, err := core.Unixfs().Add(context.TODO(), fileNode.(files.File), coreoptions.Unixfs.HashOnly(true))
-	if err != nil {
-		t.Errorf("failed to hash local file %q: %s\n", localFilePath, err)
-	}
+		t.Run("Open+Release", func(t *testing.T) {
+			// TODO: test a bunch of scenarios/flags as separate runs here
+			// t.Run("with O_CREAT"), "Write flags", etc...
 
-	return ipfsFilePath.Cid().String()
-}
+			expected := new(fuselib.Stat_t)
+			*expected = *statTemplate
+			expected.Mode |= fuselib.S_IFREG
+			expected.Size = f.info.Size()
+			testGetattr(t, coreFilePath, expected, anonymousRequestHandle, fs)
 
-func testFiles(t *testing.T, localPath string, core coreiface.CoreAPI, fs fuselib.FileSystemInterface) {
-	localFilePath := filepath.Join(localPath, "small")
-	fileHash := hashLocal(t, localFilePath, core)
+			fh := testOpen(t, coreFilePath, fuselib.O_RDONLY, fs)
+			testRelease(t, coreFilePath, fh, fs)
+		})
 
-	t.Run("Open+Release", func(t *testing.T) {
-		// TODO: test a bunch of scenarios/flags as separate runs here
-		// t.Run("with O_CREAT"), "Write flags", etc...
-		fh := testOpen(t, fileHash, fuselib.O_RDONLY, fs)
-		testRelease(t, fileHash, fh, fs)
-	})
+		localFilePath := f.localPath
+		mirror, err := os.Open(localFilePath)
+		if err != nil {
+			t.Fatalf("failed to open local file %q: %s\n", localFilePath, err)
+		}
 
-	mirror, err := os.Open(localFilePath)
-	if err != nil {
-		t.Errorf("failed to open local file %q: %s\n", localFilePath, err)
-	}
-
-	t.Run("Read", func(t *testing.T) {
-		fh := testOpen(t, fileHash, fuselib.O_RDONLY, fs)
-		testRead(t, fileHash, mirror, fh, fs)
-	})
-	if err := mirror.Close(); err != nil {
-		t.Errorf("failed to close local file %q: %s\n", localFilePath, err)
+		t.Run("Read", func(t *testing.T) {
+			fh := testOpen(t, coreFilePath, fuselib.O_RDONLY, fs)
+			testRead(t, coreFilePath, mirror, fh, fs)
+		})
+		if err := mirror.Close(); err != nil {
+			t.Fatalf("failed to close local file %q: %s\n", localFilePath, err)
+		}
 	}
 }
 
 func testOpen(t *testing.T, path string, flags int, fs fuselib.FileSystemInterface) fileHandle {
 	errno, fh := fs.Open(path, flags)
 	if errno != fusecom.OperationSuccess {
-		t.Errorf("failed to open %q: %s\n", path, fuselib.Error(errno))
+		t.Fatalf("failed to open file %q: %s\n", path, fuselib.Error(errno))
 	}
 	return fh
 }
 
-func testRelease(t *testing.T, path string, fh fileHandle, fs fuselib.FileSystemInterface) int {
+func testRelease(t *testing.T, path string, fh fileHandle, fs fuselib.FileSystemInterface) errNo {
 	errno := fs.Release(path, fh)
 	if errno != fusecom.OperationSuccess {
-		t.Errorf("failed to close %q: %s\n", path, fuselib.Error(errno))
+		t.Fatalf("failed to release file %q: %s\n", path, fuselib.Error(errno))
 	}
 	return errno
 }
@@ -90,26 +79,34 @@ func testRead(t *testing.T, path string, mirror *os.File, fh fileHandle, fs fuse
 func testReadAll(t *testing.T, path string, mirror *os.File, fh fileHandle, fs fuselib.FileSystemInterface) {
 	expected, err := ioutil.ReadAll(mirror)
 	if err != nil {
-		t.Errorf("failed to read mirror contents: %s\n", err)
+		t.Fatalf("failed to read mirror contents: %s\n", err)
 	}
 
 	fullBuff := make([]byte, len(expected))
 
 	readRet := fs.Read(path, fullBuff, 0, fh)
 	if readRet < 0 {
-		t.Errorf("failed to read %q: %s\n", path, fuselib.Error(readRet))
+		t.Fatalf("failed to read %q: %s\n", path, fuselib.Error(readRet))
 	}
 
 	// FIXME: [temporary] don't assume full reads in one shot; this isn't spec compliant
 	// we need to loop until EOF
 	if readRet != len(expected) || readRet != len(fullBuff) {
-		t.Errorf("read bytes does not match actual length of bytes buffer for %q:\nexpected:%d\nhave:%d\n", path, len(expected), readRet)
+		t.Fatalf("read bytes does not match actual length of bytes buffer for %q:\nexpected:%d\nhave:%d\n", path, len(expected), readRet)
 	}
 
-	// TODO: make sure to change this error message when we start testing large files
+	big := len(expected) > 1024
+
 	if !reflect.DeepEqual(expected, fullBuff) {
-		t.Errorf("contents for %q do not match:\nexpected:%v\nhave:%v\n", path, expected, fullBuff)
+		if big {
+			t.Fatalf("contents for %q do not match:\nexpected to read %d bytes but read %d bytes\n", path, len(expected), readRet)
+		}
+		t.Fatalf("contents for %q do not match:\nexpected:%v\nhave:%v\n", path, expected, fullBuff)
 	}
 
-	t.Logf("%s\n", fullBuff)
+	if big {
+		t.Logf("read %d bytes\n", readRet)
+	} else {
+		t.Logf("%s\n", fullBuff)
+	}
 }
