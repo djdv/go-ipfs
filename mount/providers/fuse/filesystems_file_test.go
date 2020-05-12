@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
+	chunk "github.com/ipfs/go-ipfs-chunker"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -16,7 +17,7 @@ func testFiles(t *testing.T, testEnv envData, core coreiface.CoreAPI, fs fuselib
 	// we're specifically interested in semi-static data such as the UID, time, blocksize, permissions, etc.
 	statTemplate := testGetattr(t, "/", nil, anonymousRequestHandle, fs)
 	statTemplate.Mode &^= fuselib.S_IFMT
-	statTemplate.Blksize = 256 << 1 // MAGIC: UnixFS v1 block size; needs a const somewhere in IPFS libs, we already have one in transform
+	statTemplate.Blksize = chunk.DefaultBlockSize
 
 	for _, f := range testEnv[directoryTestSetBasic] {
 		coreFilePath := f.corePath.Cid().String()

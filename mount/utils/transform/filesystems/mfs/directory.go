@@ -50,6 +50,8 @@ func (cs *streamTranslator) Open() (<-chan transform.DirectoryStreamEntry, error
 		return nil, fmt.Errorf("%q is not a directory (type: %v)", cs.path, mfsNode.Type())
 	}
 
+	// TODO: store the snapshot here manually; also needed for dropping core
+
 	// NOTE:
 	// We do not use the MFS directory construct here
 	// as the MFS directory carries locking semantics with it internally, which cause a deadlock for us.

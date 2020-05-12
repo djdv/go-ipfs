@@ -129,6 +129,7 @@ func CheckOpenPathBasic(path string) (error, int) {
 	}
 }
 
+// TODO: these are backwards, convention is that error is last
 func ReleaseFile(table FileTable, handle uint64) (error, errno) {
 	file, err := table.Get(handle)
 	if err != nil {

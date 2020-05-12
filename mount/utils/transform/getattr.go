@@ -3,17 +3,12 @@ package transform
 import (
 	"context"
 
+	chunk "github.com/ipfs/go-ipfs-chunker"
 	ipld "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-unixfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
-
-// TODO [2019.09.12; anyone]
-// Start a discussion around block sizes
-// should we use the de-facto standard of 4KiB or use our own of 256KiB?
-// context: https://github.com/ipfs/go-ipfs/pull/6612/files#r322989041
-const ufs1BlockSize = 256 << 1
 
 // TODO: [investigate] [b6150f2f-8689-4e60-a605-fd40c826c32d]
 // GetAttr resolves an IPFS API path and returns the attr, filled attr members, and error associated with the path
@@ -43,7 +38,7 @@ func ipldAttr(ctx context.Context, node ipld.Node, req IPFSStatRequest) (*IPFSSt
 
 	if req.Blocks {
 		// TODO: when/if UFS supports this metadata field, use it instead
-		attr.BlockSize, filledAttrs.Blocks = ufs1BlockSize, true
+		attr.BlockSize, filledAttrs.Blocks = uint64(chunk.DefaultBlockSize), true
 	}
 
 	if req.Size {
