@@ -34,7 +34,7 @@ func (ps *streamTranslator) Open() (<-chan transform.DirectoryStreamEntry, error
 	}
 
 	lsContext, cancel := context.WithCancel(ps.ctx)
-	pins, err := ps.pinAPI.Ls(lsContext, coreoptions.Pin.Type.Recursive())
+	pins, err := ps.pinAPI.Ls(lsContext, coreoptions.Pin.Ls.Recursive())
 	if err != nil {
 		cancel()
 		return nil, err
@@ -61,10 +61,10 @@ func (pe *pinEntryTranslator) Path() corepath.Path { return pe.Pin.Path() }
 func (pe *pinEntryTranslator) Name() string        { return gopath.Base(pe.Path().String()) }
 func (_ *pinEntryTranslator) Error() error         { return nil }
 
-func translateEntries(ctx context.Context, pins []coreiface.Pin) <-chan transform.DirectoryStreamEntry {
+func translateEntries(ctx context.Context, pins <-chan coreiface.Pin) <-chan transform.DirectoryStreamEntry {
 	out := make(chan transform.DirectoryStreamEntry)
 	go func() {
-		for _, pin := range pins {
+		for pin := range pins {
 			select {
 			case <-ctx.Done():
 				break
