@@ -6,11 +6,11 @@ import (
 	"io"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/mount/utils/transform"
-	coreiface "github.com/ipfs/interface-go-ipfs-core"
-
 	chunk "github.com/ipfs/go-ipfs-chunker"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-unixfs/mod"
+	coreiface "github.com/ipfs/interface-go-ipfs-core"
+	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 var _ transform.File = (*keyFile)(nil)
@@ -47,7 +47,8 @@ type (
 	dagRef struct {
 		sync.Mutex // gaurd access to the modifier's methods
 		*mod.DagModifier
-		refCount uint
+		refCount  uint
+		publisher func() error
 	}
 
 	// the underlyng dag modifier is a single descriptor with its own cursor
@@ -69,12 +70,34 @@ func (kio *keyFile) Size() (int64, error) {
 func (kio *keyFile) Read(buff []byte) (int, error) {
 	kio.dag.Lock()
 	defer kio.dag.Unlock()
-	return kio.dag.Read(buff)
+	if _, err := kio.dag.Seek(kio.cursor, io.SeekStart); err != nil {
+		return 0, err
+	}
+
+	readBytes, err := kio.dag.Read(buff)
+
+	kio.cursor += int64(readBytes)
+	return readBytes, err
 }
 func (kio *keyFile) Write(buff []byte) (int, error) {
 	kio.dag.Lock()
 	defer kio.dag.Unlock()
-	return kio.dag.Write(buff)
+
+	if _, err := kio.dag.Seek(kio.cursor, io.SeekStart); err != nil {
+		return 0, err
+	}
+
+	wroteBytes, err := kio.dag.Write(buff)
+
+	if wroteBytes != 0 {
+		kio.cursor += int64(wroteBytes)
+		publishErr := kio.dag.publisher()
+		if err == nil && publishErr != nil { // don't overwrite the write error if there is one
+			err = publishErr
+		}
+	}
+
+	return wroteBytes, err
 }
 func (kio *keyFile) Close() error { return kio.closer() }
 func (kio *keyFile) Seek(offset int64, whence int) (int64, error) {
@@ -101,9 +124,18 @@ func (kio *keyFile) Seek(offset int64, whence int) (int64, error) {
 	return kio.cursor, nil
 }
 
+func (kio *keyFile) Truncate(size uint64) error {
+	kio.dag.Lock()
+	defer kio.dag.Unlock()
+	if err := kio.dag.Truncate(int64(size)); err != nil {
+		return err
+	}
+	return kio.dag.publisher()
+}
+
 // TODO: parse flags and limit functionality contextually (RO, WO, etc.)
 // for now we always give full access
-func (ft FileWrapper) Open(key coreiface.Key, _ transform.IOFlags) (transform.File, error) {
+func (ft *FileWrapper) Open(key coreiface.Key, _ transform.IOFlags) (transform.File, error) {
 	ft.Lock()
 	defer ft.Unlock()
 
@@ -136,7 +168,13 @@ func (ft FileWrapper) Open(key coreiface.Key, _ transform.IOFlags) (transform.Fi
 		return nil, err
 	}
 
-	dagRef := &dagRef{DagModifier: dmod, refCount: 1}
+	dagRef := &dagRef{DagModifier: dmod, refCount: 1, publisher: func() error {
+		node, err := dmod.GetNode()
+		if err != nil {
+			return err
+		}
+		return localPublish(ft.ctx, ft.core, keyName, corepath.IpldPath(node.Cid()))
+	}}
 	ft.dagTable[keyName] = dagRef
 
 	closer := func() error {
@@ -150,4 +188,52 @@ func (ft FileWrapper) Open(key coreiface.Key, _ transform.IOFlags) (transform.Fi
 	}
 
 	return &keyFile{dag: dagRef, closer: closer}, nil
+}
+
+func (ft *FileWrapper) Truncate(key coreiface.Key, size uint64) error {
+	ft.Lock()
+	defer ft.Unlock()
+
+	keyName := key.Name()
+
+	// reuse active instance if any
+	// don't increase refcount since we're locked and releasing this immediately
+	if dagRef, ok := ft.dagTable[keyName]; ok {
+		if err := dagRef.Truncate(int64(size)); err != nil {
+			return err
+		}
+
+		// implies dagRef.Sync()
+		node, err := dagRef.GetNode()
+		if err != nil {
+			return err
+		}
+
+		return localPublish(ft.ctx, ft.core, keyName, corepath.IpldPath(node.Cid()))
+	}
+
+	// generate one off instance
+	ipldNode, err := ft.core.ResolveNode(ft.ctx, key.Path())
+	if err != nil {
+		return err
+	}
+
+	dmod, err := mod.NewDagModifier(ft.ctx, ipldNode, ft.core.Dag(), func(r io.Reader) chunk.Splitter {
+		return chunk.NewBuzhash(r)
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := dmod.Truncate(int64(size)); err != nil {
+		return err
+	}
+
+	// implies dmod.Sync()
+	node, err := dmod.GetNode()
+	if err != nil {
+		return err
+	}
+
+	return localPublish(ft.ctx, ft.core, keyName, corepath.IpldPath(node.Cid()))
 }

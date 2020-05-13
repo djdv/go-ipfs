@@ -96,7 +96,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 
 		iStat, _, err := transform.GetAttr(fs.Ctx(), fullPath, fs.Core(), transform.IPFSStatRequestAll)
 		if err != nil {
-			fs.log.Error(err)
+			//fs.log.Error(err)
 			return -fuselib.ENOENT
 		}
 

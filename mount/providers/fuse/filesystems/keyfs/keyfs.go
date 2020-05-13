@@ -3,7 +3,6 @@ package keyfs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -23,8 +22,6 @@ import (
 )
 
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
-
-var errKeyIsNotDir = errors.New("key root is not a directory")
 
 type FileSystem struct {
 	fusecom.SharedMethods
@@ -94,7 +91,7 @@ func (fs *FileSystem) getMFSRoot(coreKey coreiface.Key) (fuselib.FileSystemInter
 		return nil, err
 	}
 	if iStat.FileType != coreiface.TDirectory {
-		return nil, errKeyIsNotDir
+		return nil, keyfs.ErrKeyIsNotDir
 	}
 
 	mfs, err := fs.mfsTable.OpenRoot(coreKey)
@@ -220,8 +217,11 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 		}
 
 		if iStat.FileType != coreiface.TDirectory {
-			err := fmt.Errorf("%q requested but %q is not a directory", path, keyName)
-			fs.log.Error(err)
+			if iStat.FileType == coreiface.TSymlink { // log flood prevention
+				fs.log.Warnf("%q requested but %q is not a directory (type: %s)", path, keyName, iStat.FileType.String())
+			} else {
+				fs.log.Errorf("%q requested but %q is not a directory (type: %s)", path, keyName, iStat.FileType.String())
+			}
 			// TODO [general] we also need to return this when someone requests "/file/" instead of "/file"
 			return -fuselib.ENOTDIR
 		}
@@ -235,7 +235,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 	}
 
 	// proxy the request to ipns if we don't own the key
-	return fs.ipns.Getattr(remainder, stat, fh)
+	return fs.ipns.Getattr(path, stat, fh)
 }
 
 func (fs *FileSystem) Opendir(path string) (int, uint64) {
@@ -264,10 +264,11 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 		fs.log.Error(err)
 		return -fuselib.ENOENT, fusecom.ErrorHandle
 	}
-	if coreKey != nil { // we own this key
+
+	if coreKey != nil { // we own this key; intercept request
 		mfs, err := fs.getMFSRoot(coreKey)
 		if err != nil {
-			if err == errKeyIsNotDir {
+			if err == keyfs.ErrKeyIsNotDir {
 				fs.log.Errorf("%q requested but %q is not a directory", path, keyName)
 				return -fuselib.ENOTDIR, fusecom.ErrorHandle
 			}
@@ -277,7 +278,7 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 		return mfs.Opendir(remainder)
 	}
 
-	return fs.ipns.Opendir(remainder)
+	return fs.ipns.Opendir(path) // pass through full path
 }
 
 func (fs *FileSystem) Releasedir(path string, fh uint64) int {
@@ -298,13 +299,22 @@ func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 		return errNo
 	}
 
+	// request for a path within the key (as a directory)
 	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
 	if err != nil {
 		fs.log.Error(err)
 		return -fuselib.EBADF
 	}
 
-	if coreKey != nil { // we own this key
+	// FIXME: if a key is removed via rmdir, the coreKey will be nil when we reach here
+	// this is because the sequence is opendir; rmdir; closedir (on this machine)
+	// so we'll never try to remove it from the mfs table
+	// because the key is already removed from the keystore
+	// this then passes the release request to ipns which is BAD
+	// we'll need to consider some way to handle this
+	// same in the Release() path
+	// maybe store a list of active keys on the fs and check that before checking the keystore
+	if coreKey != nil {
 		mfs, err := fs.getMFSRoot(coreKey)
 		if err != nil {
 			fs.log.Error(err)
@@ -313,7 +323,7 @@ func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 		return mfs.Releasedir(remainder, fh)
 	}
 
-	return fs.ipns.Releasedir(remainder, fh)
+	return fs.ipns.Releasedir(path, fh)
 }
 
 func (fs *FileSystem) Readdir(path string,
@@ -349,7 +359,7 @@ func (fs *FileSystem) Readdir(path string,
 		return -fuselib.EBADF
 	}
 
-	if coreKey != nil { // we own this key
+	if coreKey != nil {
 		mfs, err := fs.getMFSRoot(coreKey)
 		if err != nil {
 			fs.log.Error(err)
@@ -358,12 +368,15 @@ func (fs *FileSystem) Readdir(path string,
 		return mfs.Readdir(remainder, fill, ofst, fh)
 	}
 
-	return fs.ipns.Readdir(remainder, fill, ofst, fh)
+	return fs.ipns.Readdir(path, fill, ofst, fh)
 }
 
 func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	fs.log.Debugf("Open - {%X}%q", flags, path)
+	return fs.open(path, flags)
+}
 
+func (fs *FileSystem) open(path string, flags int) (int, uint64) {
 	goErr, errNo := fusecom.CheckOpenFlagsBasic(true, flags)
 	if goErr != nil {
 		fs.log.Error(goErr)
@@ -418,7 +431,7 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 		// request for a path within the key (as a directory)
 		mfs, err := fs.mfsTable.OpenRoot(coreKey)
 		if err != nil {
-			if err == errKeyIsNotDir {
+			if err == keyfs.ErrKeyIsNotDir {
 				fs.log.Errorf("%q requested but %q is not a directory", path, keyName)
 				return -fuselib.ENOTDIR, fusecom.ErrorHandle
 			}
@@ -429,7 +442,7 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	}
 
 	// request for something we don't own, relay it to ipns
-	return fs.ipns.Open(remainder, flags)
+	return fs.ipns.Open(path, flags)
 }
 
 func (fs *FileSystem) Release(path string, fh uint64) int {
@@ -446,6 +459,15 @@ func (fs *FileSystem) Release(path string, fh uint64) int {
 		return -fuselib.EBADF
 	}
 
+	if remainder == "/" { // key request
+		goErr, errNo := fusecom.ReleaseFile(fs.files, fh)
+		if goErr != nil {
+			fs.log.Error(goErr)
+		}
+		return errNo
+	}
+
+	// request for a path within the key (as a directory)
 	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
 	if err != nil {
 		fs.log.Error(err)
@@ -453,15 +475,6 @@ func (fs *FileSystem) Release(path string, fh uint64) int {
 	}
 
 	if coreKey != nil { // we own this key
-		if remainder == "/" { // request for the key itself
-			goErr, errNo := fusecom.ReleaseFile(fs.files, fh)
-			if goErr != nil {
-				fs.log.Error(goErr)
-			}
-			return errNo
-		}
-
-		// request for a path within the key (as a directory)
 		mfs, err := fs.getMFSRoot(coreKey)
 		if err != nil {
 			fs.log.Error(err)
@@ -470,7 +483,7 @@ func (fs *FileSystem) Release(path string, fh uint64) int {
 		return mfs.Release(remainder, fh)
 	}
 
-	return fs.ipns.Release(remainder, fh)
+	return fs.ipns.Release(path, fh)
 }
 
 func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int {
@@ -516,7 +529,7 @@ func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int 
 		return mfs.Read(remainder, buff, ofst, fh)
 	}
 
-	return fs.ipns.Read(remainder, buff, ofst, fh)
+	return fs.ipns.Read(path, buff, ofst, fh)
 }
 
 func (fs *FileSystem) Readlink(path string) (int, string) {
@@ -572,7 +585,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 		// request for a path within the key (as a directory)
 		mfs, err := fs.mfsTable.OpenRoot(coreKey)
 		if err != nil {
-			if err == errKeyIsNotDir {
+			if err == keyfs.ErrKeyIsNotDir {
 				fs.log.Errorf("%q requested but %q is not a directory", path, keyName)
 				return -fuselib.ENOTDIR, ""
 			}
@@ -583,5 +596,373 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	}
 
 	// request for something we don't own, relay it to ipns
-	return fs.ipns.Readlink(remainder)
+	return fs.ipns.Readlink(path)
+}
+
+func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) {
+	fs.log.Warnf("Create - {%X|%X}%q", flags, mode, path)
+
+	// TODO: why is fuselib passing us flags and what are they?
+	// both FUSE and SUS predefine what they should be (to Open)
+
+	//return fs.open(path, fuselib.O_WRONLY|fuselib.O_CREAT|fuselib.O_TRUNC)
+
+	// disabled until we parse relevant flags in open
+	// fuse will do shenanigans to make this work
+	return -fuselib.ENOSYS, fusecom.ErrorHandle
+}
+
+func (fs *FileSystem) makeEmpty(path string, mode uint32, filetype coreiface.FileType) int {
+	keyName, remainder, err := checkAndSplitPath(path)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.ENOENT
+	}
+
+	if keyName == "" { // root request
+		fs.log.Error(fuselib.Error(-fuselib.EEXIST))
+		return -fuselib.EEXIST
+	}
+
+	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EIO
+	}
+
+	if coreKey != nil {
+		if remainder == "/" { // request to make the key itself; deny this since it exists
+			fs.log.Error(fuselib.Error(-fuselib.EEXIST))
+			return -fuselib.EEXIST
+		}
+
+		// request for a path within the key (as a directory)
+		mfs, err := fs.mfsTable.OpenRoot(coreKey)
+		if err != nil {
+			if err == keyfs.ErrKeyIsNotDir {
+				fs.log.Errorf("%q requested but %q is not a directory", path, keyName)
+				return -fuselib.ENOTDIR
+			}
+			fs.log.Error(err)
+			return -fuselib.ENOENT
+		}
+		if filetype == coreiface.TFile {
+			// MAGIC: 0; device id has no meaning to MFS
+			return mfs.Mknod(remainder, mode, 0)
+		}
+		return mfs.Mkdir(path, mode)
+	}
+
+	if remainder == "/" { // request for the key itself, which doesn't already exist; make it
+		var err error
+		if filetype == coreiface.TFile {
+			err = keyfs.Mknod(fs.Ctx(), fs.Core(), keyName)
+		} else {
+			err = keyfs.Mkdir(fs.Ctx(), fs.Core(), keyName)
+		}
+
+		if err != nil {
+			fs.log.Error(err)
+			return -fuselib.EIO
+		}
+		return fusecom.OperationSuccess
+	}
+
+	// subrequest for a key that doesn't exist
+	return -fuselib.ENOENT
+}
+
+func (fs *FileSystem) Mknod(path string, mode uint32, dev uint64) int {
+	fs.log.Debugf("Mknod - Request {%X|%d}%q", mode, dev, path)
+	return fs.makeEmpty(path, mode, coreiface.TFile)
+}
+
+func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
+	fs.log.Debugf("Truncate - Request {%X|%d}%q", fh, size, path)
+
+	if size < 0 {
+		return -fuselib.EINVAL
+	}
+
+	keyName, remainder, err := checkAndSplitPath(path)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EBADF
+	}
+
+	if keyName == "" { // root request; we're never a file
+		fs.log.Error(fuselib.Error(-fuselib.EISDIR))
+		return -fuselib.EISDIR
+	}
+
+	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EBADF
+	}
+
+	if coreKey != nil { // we own this key
+		if remainder == "/" { // request for the key itself
+
+			file, err := fs.files.Get(fh)
+			if err == nil { // if the file handle is valid, truncate the file directly
+				if err := file.Truncate(uint64(size)); err != nil {
+					fs.log.Error(err)
+					return -fuselib.EIO
+				}
+			}
+
+			// otherwise fallback to slow path truncate
+			if err := fs.uioTable.Truncate(coreKey, uint64(size)); err != nil {
+				// TODO: [SUS compliance] disambiguate errors
+				return -fuselib.EIO
+			}
+			return fusecom.OperationSuccess
+		}
+
+		// subrequest, hand off to mfs
+		mfs, err := fs.getMFSRoot(coreKey)
+		if err != nil {
+			if err == keyfs.ErrKeyIsNotDir {
+				fs.log.Errorf("%q requested but %q is not a directory", path, keyName)
+				return -fuselib.ENOTDIR
+			}
+			fs.log.Error(err)
+			return -fuselib.ENOENT
+		}
+		return mfs.Truncate(remainder, size, fh)
+	}
+
+	// request for a key that doesn't exist
+	return -fuselib.ENOENT
+}
+
+func (fs *FileSystem) Write(path string, buff []byte, ofst int64, fh uint64) int {
+	fs.log.Debugf("Write - Request {%X|%d|%d}%q", fh, len(buff), ofst, path)
+
+	keyName, remainder, err := checkAndSplitPath(path)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EBADF
+	}
+
+	if keyName == "" { // root request; we're never a file
+		fs.log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+	}
+
+	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EBADF
+	}
+
+	if coreKey != nil { // we own this key
+		if remainder == "/" { // request for the key itself
+			file, err := fs.files.Get(fh)
+			if err != nil {
+				fs.log.Error(fuselib.Error(-fuselib.EBADF))
+				return -fuselib.EBADF
+			}
+
+			err, retVal := fusecom.WriteFile(file, buff, ofst)
+			if err != nil && err != io.EOF {
+				fs.log.Error(err)
+			}
+			return retVal
+		}
+
+		mfs, err := fs.getMFSRoot(coreKey)
+		if err != nil {
+			fs.log.Error(err)
+			return -fuselib.EBADF
+		}
+		return mfs.Write(remainder, buff, ofst, fh)
+	}
+
+	// request for a key that doesn't exist
+	return -fuselib.ENOENT
+}
+
+func (fs *FileSystem) Link(oldpath string, newpath string) int {
+	fs.log.Warnf("Link - Request %q<->%q", oldpath, newpath)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Unlink(path string) int {
+	fs.log.Debugf("Unlink - Request %q", path)
+
+	keyName, remainder, err := checkAndSplitPath(path)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.ENOENT
+	}
+
+	if keyName == "" { // root request
+		fs.log.Error(fuselib.Error(-fuselib.EPERM))
+		return -fuselib.EPERM
+	}
+
+	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EIO
+	}
+
+	if coreKey == nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuse.ENOENT
+	}
+
+	if remainder == "/" { // request to remove the key itself
+		err := keyfs.Unlink(fs.Ctx(), fs.Core(), coreKey)
+		var errNo int
+		switch err {
+		case nil:
+			errNo = fusecom.OperationSuccess
+
+		case keyfs.ErrKeyIsNotFile:
+			errNo = -fuselib.EPERM
+
+		default:
+			errNo = -fuselib.ENOENT
+		}
+
+		if errNo != fusecom.OperationSuccess {
+			fs.log.Error(err)
+		}
+		return errNo
+	}
+
+	// request for a path within the key (as a directory)
+	mfs, err := fs.mfsTable.OpenRoot(coreKey)
+	if err != nil {
+		if err == keyfs.ErrKeyIsNotDir {
+			fs.log.Errorf("%q requested but %q is not a directory", path, keyName)
+			return -fuselib.ENOTDIR
+		}
+		fs.log.Error(err)
+		return -fuselib.ENOENT
+	}
+
+	return mfs.Unlink(remainder)
+}
+
+func (fs *FileSystem) Mkdir(path string, mode uint32) int {
+	fs.log.Debugf("Mkdir - Request {%X}%q", mode, path)
+	return fs.makeEmpty(path, mode, coreiface.TDirectory)
+}
+
+func (fs *FileSystem) Rmdir(path string) int {
+	fs.log.Debugf("Rmdir - Request %q", path)
+
+	keyName, remainder, err := checkAndSplitPath(path)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.ENOENT
+	}
+
+	if keyName == "" { // root request
+		// TODO: [review] is this the most appropriate error?
+		fs.log.Error(fuselib.Error(-fuselib.EBUSY))
+		return -fuselib.EBUSY
+	}
+
+	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EIO
+	}
+
+	if coreKey == nil {
+		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
+		return -fuse.ENOENT
+	}
+
+	if remainder == "/" { // request to remove the key itself
+		err := keyfs.Rmdir(fs.Ctx(), fs.Core(), coreKey)
+		var errNo int
+		switch err {
+		case keyfs.ErrDirNotEmpty:
+			errNo = -fuselib.ENOTEMPTY
+		case nil:
+			errNo = fusecom.OperationSuccess
+		default:
+			errNo = -fuselib.EIO
+		}
+
+		if errNo != fusecom.OperationSuccess {
+			fs.log.Error(err)
+		}
+		return errNo
+	}
+
+	// request for a path within the key (as a directory)
+	mfs, err := fs.mfsTable.OpenRoot(coreKey)
+	if err != nil {
+		if err == keyfs.ErrKeyIsNotDir {
+			fs.log.Errorf("%q requested but %q is not a directory", path, keyName)
+			return -fuselib.ENOTDIR
+		}
+		fs.log.Error(err)
+		return -fuselib.ENOENT
+	}
+
+	return mfs.Rmdir(remainder)
+}
+
+func (fs *FileSystem) Symlink(target string, newpath string) int {
+	fs.log.Debugf("Symlink - Request %q->%q", newpath, target)
+
+	keyName, remainder, err := checkAndSplitPath(newpath)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.ENOENT
+	}
+
+	if keyName == "" { // root request
+		fs.log.Error(fuselib.Error(-fuselib.EEXIST))
+		return -fuselib.EEXIST
+	}
+
+	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.EIO
+	}
+
+	if coreKey != nil {
+		if remainder == "/" { // request to make the key itself; deny this since it exists
+			fs.log.Error(fuselib.Error(-fuselib.EEXIST))
+			return -fuselib.EEXIST
+		}
+
+		// request for a path within the key (as a directory)
+		mfs, err := fs.mfsTable.OpenRoot(coreKey)
+		if err != nil {
+			if err == keyfs.ErrKeyIsNotDir {
+				fs.log.Errorf("%q requested but %q is not a directory", newpath, keyName)
+				return -fuselib.ENOTDIR
+			}
+			fs.log.Error(err)
+			return -fuselib.ENOENT
+		}
+		return mfs.Symlink(target, remainder)
+	}
+
+	if remainder == "/" { // request for the key itself, which doesn't already exist; make it
+		if err := keyfs.Symlink(fs.Ctx(), fs.Core(), keyName, target); err != nil {
+			fs.log.Error(err)
+			return -fuselib.EIO
+		}
+		return fusecom.OperationSuccess
+	}
+
+	// subrequest for a key that doesn't exist
+	return -fuselib.ENOENT
+}
+
+func (fs *FileSystem) Rename(oldpath string, newpath string) int {
+	fs.log.Warnf("Rename - Request %q->%q", oldpath, newpath)
+	return -fuselib.ENOSYS
 }

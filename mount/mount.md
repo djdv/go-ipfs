@@ -301,6 +301,8 @@ at this moment, listing either `/ipfs` or `/ipns` will return results from the k
 This is likely a cgofuse bug, needs looking into.  
 Otherwise, things seem to work as expected.  
 (Env: NetBSD 9.0, Go 1.13.9)
+TODO: NetBSD has support for mounting via 9P2000 and 9p2000.u (but not .L)  
+look into adding support for either in the p9 library we use (would add support for a bunch more platforms and tools than NetBSD as well)
 
 
 ### OpenBSD

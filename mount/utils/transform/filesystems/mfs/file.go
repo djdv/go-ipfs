@@ -14,6 +14,7 @@ type mfsIOWrapper struct{ f mfs.FileDescriptor }
 func (mio *mfsIOWrapper) Size() (int64, error)           { return mio.f.Size() }
 func (mio *mfsIOWrapper) Read(buff []byte) (int, error)  { return mio.f.Read(buff) }
 func (mio *mfsIOWrapper) Write(buff []byte) (int, error) { return mio.f.Write(buff) }
+func (mio *mfsIOWrapper) Truncate(size uint64) error     { return mio.f.Truncate(int64(size)) }
 func (mio *mfsIOWrapper) Close() error                   { return mio.f.Close() }
 func (mio *mfsIOWrapper) Seek(offset int64, whence int) (int64, error) {
 	return mio.f.Seek(offset, whence)

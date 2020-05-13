@@ -169,6 +169,7 @@ func ReleaseDir(table DirectoryTable, handle uint64) (error, errno) {
 	return dir.Close(), OperationSuccess
 }
 
+// TODO: read+write; we're not accounting for scenarios where the offset is beyond the end of the file
 func ReadFile(file transform.File, buff []byte, ofst int64) (error, errno) {
 	if len(buff) == 0 {
 		return nil, 0
@@ -187,25 +188,59 @@ func ReadFile(file transform.File, buff []byte, ofst int64) (error, errno) {
 	if ofst != 0 {
 		_, err := file.Seek(ofst, io.SeekStart)
 		if err != nil {
-			return fmt.Errorf("offset seek error: %s", err), -fuselib.EIO
+			return err, -fuselib.EIO
 		}
 	}
 
 	buffLen := len(buff)
 	readBytes, err := file.Read(buff)
 	if err != nil && err != io.EOF {
-		return fmt.Errorf("Read - error: %s", err), -fuselib.EIO
+		return err, -fuselib.EIO
 	}
 
 	// io.Reader:
 	// Even if Read returns n < len(p), it may use all of p as scratch space during the call.
 	// we want to assure these are 0'd
 	if readBytes < buffLen {
-		for i := readBytes; i != buffLen; i++ {
-			buff[i] = 0
-		}
+		nilZone := buff[readBytes:]
+		copy(nilZone, make([]byte, len(nilZone)))
 	}
 
 	// EOF will be returned if it was provided
 	return err, readBytes
+}
+
+func WriteFile(file transform.File, buff []byte, ofst int64) (error, errno) {
+	if len(buff) == 0 {
+		return nil, 0
+	}
+
+	if ofst < 0 {
+		return fmt.Errorf("invalid offset %d", ofst), -fuselib.EINVAL
+	}
+
+	/* TODO: test this; it should be handled internally by seek()+write()
+	if fileBound, err := file.Size(); err == nil {
+		if ofst >= fileBound {
+			newEnd := fileBound - (ofst - int64(len(buff)))
+			if err := file.Truncate(uint64(newEnd)); err != nil { // pad 0's before our write
+				return err, -fuselib.EIO
+			}
+		}
+	}
+	*/
+
+	if ofst != 0 {
+		_, err := file.Seek(ofst, io.SeekStart)
+		if err != nil {
+			return fmt.Errorf("offset seek error: %s", err), -fuselib.EIO
+		}
+	}
+
+	wroteBytes, err := file.Write(buff)
+	if err != nil {
+		return err, -fuselib.EIO
+	}
+
+	return nil, wroteBytes
 }
