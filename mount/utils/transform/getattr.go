@@ -2,9 +2,9 @@ package transform
 
 import (
 	"context"
-	"fmt"
 
 	chunk "github.com/ipfs/go-ipfs-chunker"
+	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -26,14 +26,16 @@ func GetAttr(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, re
 			return nil, IPFSStatRequest{}, err
 		}
 		return unixFSAttr(ctx, ufsNode, req)
-	case *dag.RawNode:
-		return rawAttr(ctx, typedNode, req)
+
+	// pretend Go allows this:
+	// case *dag.RawNode, *cbor.Node:
+	// fallthrough
 	default:
-		return nil, IPFSStatRequest{}, fmt.Errorf("unexpected node type: %T", typedNode)
+		return genericAttr(ctx, typedNode, req)
 	}
 }
 
-func rawAttr(ctx context.Context, rawNode *dag.RawNode, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
+func genericAttr(ctx context.Context, genericNode ipld.Node, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
 	var (
 		attr        IPFSStat
 		filledAttrs IPFSStatRequest
@@ -41,11 +43,14 @@ func rawAttr(ctx context.Context, rawNode *dag.RawNode, req IPFSStatRequest) (*I
 
 	if req.Type {
 		// raw nodes only contain data so we'll treat them as a flat file
+		// cbor nodes are not currently supported via UnixFS so we assume them to contain only data
+		// TODO: review ^ is there some way we can implement this that won't blow up in the future?
+		// (if unixfs supports cbor and directories are implemented to use them )
 		attr.FileType, filledAttrs.Type = coreiface.TFile, true
 	}
 
 	if req.Blocks {
-		nodeStat, err := rawNode.Stat()
+		nodeStat, err := genericNode.Stat()
 		if err != nil {
 			return &attr, filledAttrs, err
 		}
@@ -53,7 +58,7 @@ func rawAttr(ctx context.Context, rawNode *dag.RawNode, req IPFSStatRequest) (*I
 	}
 
 	if req.Size {
-		size, err := rawNode.Size()
+		size, err := genericNode.Size()
 		if err != nil {
 			return &attr, filledAttrs, err
 		}
