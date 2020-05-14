@@ -21,6 +21,11 @@ func (mio *mfsIOWrapper) Seek(offset int64, whence int) (int64, error) {
 	return mio.f.Seek(offset, whence)
 }
 
+// TODO: we're going to have to have a simillar pattern to the key:dagmod table
+// MFS has simillar sync concerns that are abstracted via a view of the file
+// store all `mfs.File`'s in a table ("view table" because they're not actuall files)
+// pair the view with the flags; open the view during operations, do the op, close the view
+// shouldn't need to lock anything, the view does this all internally
 func OpenFile(mroot *mfs.Root, path string, flags transform.IOFlags) (*mfsIOWrapper, transform.Error) {
 	mfsNode, err := mfs.Lookup(mroot, path)
 	if err != nil {

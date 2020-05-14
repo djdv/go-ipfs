@@ -216,6 +216,7 @@ func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int 
 func (fs *FileSystem) Readlink(path string) (int, string) {
 	fs.log.Debugf("Readlink - %q", path)
 
+	// TODO: have something for this in fusecommon
 	switch path {
 	case "/":
 		fs.log.Warnf("Readlink - root path is an invalid request")
@@ -247,4 +248,97 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	// NOTE: paths returned here get sent back to the FUSE library
 	// they should not be native paths, regardless of their source format
 	return fusecom.OperationSuccess, filepath.ToSlash(linkString)
+}
+
+func (fs *FileSystem) Create(path string, flags int, mode uint32) (int, uint64) {
+	fs.log.Warnf("Create - {%X|%X}%q", flags, mode, path)
+
+	// TODO: why is fuselib passing us flags and what are they?
+	// both FUSE and SUS predefine what they should be (to Open)
+
+	//return fs.open(path, fuselib.O_WRONLY|fuselib.O_CREAT|fuselib.O_TRUNC)
+
+	// disabled until we parse relevant flags in open
+	// fuse will do shenanigans to make this work
+	return -fuselib.ENOSYS, fusecom.ErrorHandle
+}
+
+func (fs *FileSystem) Mknod(path string, mode uint32, dev uint64) int {
+	fs.log.Debugf("Mknod - Request {%X|%d}%q", mode, dev, path)
+	if err := mfs.Mknod(fs.mroot, path); err != nil {
+		fs.log.Error(err)
+		return err.ToFuse()
+	}
+	return fusecom.OperationSuccess
+}
+
+func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
+	fs.log.Warnf("Truncate - Request {%X|%d}%q", fh, size, path)
+	return -fuselib.ENOSYS
+
+	/* TODO
+	if size < 0 {
+		return -fuselib.EINVAL
+	}
+
+	if tf, err := fs.files.Get(fh); err == nil { // short path
+		if err := tf.Truncate(uint64(size)); err != nil {
+			return -fuselib.EIO
+		}
+		return fusecom.OperationSuccess
+	}
+
+	if node, err := gomfs.Lookup(fs.mroot, path); err err == nil { // medium path
+	}
+
+	 // long path
+	 // mknod; goto medium path
+	*/
+}
+
+func (fs *FileSystem) Write(path string, buff []byte, ofst int64, fh uint64) int {
+	fs.log.Warnf("Write - Request {%X|%d|%d}%q", fh, len(buff), ofst, path)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Link(oldpath string, newpath string) int {
+	fs.log.Warnf("Link - Request %q<->%q", oldpath, newpath)
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Unlink(path string) int {
+	fs.log.Warnf("Unlink - Request %q", path)
+
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Mkdir(path string, mode uint32) int {
+	fs.log.Debugf("Mkdir - Request {%X}%q", mode, path)
+	if err := mfs.Mkdir(fs.mroot, path); err != nil {
+		fs.log.Error(err)
+		return err.ToFuse()
+	}
+	return fusecom.OperationSuccess
+}
+
+func (fs *FileSystem) Rmdir(path string) int {
+	fs.log.Warnf("Rmdir - Request %q", path)
+
+	return -fuselib.ENOSYS
+}
+
+func (fs *FileSystem) Symlink(target string, newpath string) int {
+	fs.log.Debugf("Symlink - Request %q->%q", newpath, target)
+
+	if err := mfs.Symlink(fs.mroot, newpath, target); err != nil {
+		fs.log.Error(err)
+		return err.ToFuse()
+	}
+
+	return fusecom.OperationSuccess
+}
+
+func (fs *FileSystem) Rename(oldpath string, newpath string) int {
+	fs.log.Warnf("Rename - Request %q->%q", oldpath, newpath)
+	return -fuselib.ENOSYS
 }
