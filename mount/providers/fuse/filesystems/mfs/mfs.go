@@ -2,16 +2,15 @@ package mfs
 
 import (
 	"context"
-	"errors"
 	"io"
 	"path/filepath"
 
 	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	files "github.com/ipfs/go-ipfs-files"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	coretransform "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/mfs"
 	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
@@ -171,16 +170,11 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 		return errNo, fusecom.ErrorHandle
 	}
 
-	file, err := mfs.OpenFile(fs.mroot, path, transform.IOFlagsFromFuse(flags))
-	if err != nil {
-		fs.log.Error(err)
-
-		errNo := -fuselib.EIO
-		var ioErr *transform.IOError
-		if errors.As(err, &ioErr) {
-			errNo = ioErr.ToFuse()
-		}
-		return errNo, fusecom.ErrorHandle
+	// TODO: rename back to err when other errors are abstracted
+	file, tErr := mfs.OpenFile(fs.mroot, path, transform.IOFlagsFromFuse(flags))
+	if tErr != nil {
+		fs.log.Error(tErr)
+		return tErr.ToFuse(), fusecom.ErrorHandle
 	}
 
 	handle, err := fs.files.Add(file)
@@ -206,40 +200,15 @@ func (fs *FileSystem) Release(path string, fh uint64) int {
 func (fs *FileSystem) Read(path string, buff []byte, ofst int64, fh uint64) int {
 	fs.log.Debugf("Read - Request {%X|%d}%q", fh, ofst, path)
 
-	// TODO: [review] we need to do things on failure
-	// the OS typically triggers a close, but we shouldn't expect it to invalidate this record for us
-	// we also might want to store a file cursor to reduce calls to seek
-	// the same thing already happens internally so it's at worst the overhead of a call right now
-
 	file, err := fs.files.Get(fh)
 	if err != nil {
 		fs.log.Error(fuselib.Error(-fuselib.EBADF))
 		return -fuselib.EBADF
 	}
 
-	if ofst < 0 {
-		fs.log.Errorf("Read - Invalid offset {%d}[%X]%q", ofst, fh, path)
-		return -fuselib.EINVAL
-	}
-
-	if fileBound, err := file.Size(); err == nil {
-		if ofst >= fileBound {
-			return 0 // POSIX expects this
-		}
-	}
-
-	if ofst != 0 {
-		_, err := file.Seek(ofst, io.SeekStart)
-		if err != nil {
-			fs.log.Errorf("Read - seek error: %s", err)
-			return -fuselib.EIO
-		}
-	}
-
-	retVal, err := file.Read(buff)
+	err, retVal := fusecom.ReadFile(file, buff, ofst)
 	if err != nil && err != io.EOF {
-		fs.log.Errorf("Read - error: %s", err)
-		return -fuselib.EIO
+		fs.log.Error(err)
 	}
 	return retVal
 }
@@ -269,30 +238,13 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 		return -fuselib.EIO, ""
 	}
 
-	// TODO: timeout contexts
-	corePath := corepath.IpldPath(ipldNode.Cid())
-	iStat, _, err := transform.GetAttr(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequest{Type: true})
+	linkString, tErr := coretransform.Readlink(fs.Ctx(), corepath.IpldPath(ipldNode.Cid()), fs.Core())
 	if err != nil {
-		fs.log.Error(err)
-		return -fuselib.ENOENT, ""
+		fs.log.Error(tErr)
+		return tErr.ToFuse(), ""
 	}
-
-	if iStat.FileType != coreiface.TSymlink {
-		fs.log.Errorf("Readlink - {%s}%q is not a symlink", iStat.FileType, path)
-		return -fuse.EINVAL, ""
-	}
-
-	linkNode, err := fs.Core().Unixfs().Get(fs.Ctx(), corePath)
-	if err != nil {
-		fs.log.Error(err)
-		return -fuse.EIO, ""
-	}
-
-	// NOTE: the implementation of this does no type checks
-	// which is why we check the node's type above
-	linkActual := files.ToSymlink(linkNode)
 
 	// NOTE: paths returned here get sent back to the FUSE library
-	// they should not be native paths
-	return fusecom.OperationSuccess, filepath.ToSlash(linkActual.Target)
+	// they should not be native paths, regardless of their source format
+	return fusecom.OperationSuccess, filepath.ToSlash(linkString)
 }

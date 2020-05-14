@@ -2,13 +2,11 @@ package ipfscore
 
 import (
 	"context"
-	"errors"
 	"io"
 	gopath "path"
 	"path/filepath"
 	"strings"
 
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	files "github.com/ipfs/go-ipfs-files"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
@@ -198,19 +196,14 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	fullPath, err := fusecom.JoinRoot(fs.namespace, path)
 	if err != nil {
 		fs.log.Error(err)
-		return -fuse.ENOENT, fusecom.ErrorHandle
+		return -fuselib.ENOENT, fusecom.ErrorHandle
 	}
 
-	file, err := ipfscore.OpenFile(fs.Ctx(), fullPath, fs.Core(), transform.IOFlagsFromFuse(flags))
-	if err != nil {
-		fs.log.Error(err)
-
-		errNo := -fuselib.EIO
-		var ioErr *transform.IOError
-		if errors.As(err, &ioErr) {
-			errNo = ioErr.ToFuse()
-		}
-		return errNo, fusecom.ErrorHandle
+	// TODO: rename back to err when everything else is abstracted
+	file, tErr := ipfscore.OpenFile(fs.Ctx(), fullPath, fs.Core(), transform.IOFlagsFromFuse(flags))
+	if tErr != nil {
+		fs.log.Error(tErr)
+		return tErr.ToFuse(), fusecom.ErrorHandle
 	}
 
 	handle, err := fs.files.Add(file)
@@ -260,7 +253,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	switch path {
 	case "/":
 		fs.log.Warnf("Readlink - root path is an invalid request")
-		return -fuse.EINVAL, ""
+		return -fuselib.EINVAL, ""
 
 	case "":
 		fs.log.Error("Readlink - empty request")
@@ -277,13 +270,13 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 
 	if iStat.FileType != coreiface.TSymlink {
 		fs.log.Errorf("Readlink - {%s}%q is not a symlink", iStat.FileType, path)
-		return -fuse.EINVAL, ""
+		return -fuselib.EINVAL, ""
 	}
 
 	linkNode, err := fs.Core().Unixfs().Get(fs.Ctx(), corePath)
 	if err != nil {
 		fs.log.Error(err)
-		return -fuse.EIO, ""
+		return -fuselib.EIO, ""
 	}
 
 	// NOTE: the implementation of this does no type checks

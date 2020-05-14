@@ -9,12 +9,12 @@ import (
 
 	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	files "github.com/ipfs/go-ipfs-files"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	coretransform "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/keyfs"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -554,32 +554,15 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 
 	if coreKey != nil { // we own this key
 		if remainder == "/" { // request for the key itself, as a link
-			// make sure the key is actually a link
-			iStat, _, err := transform.GetAttr(fs.Ctx(), coreKey.Path(), fs.Core(), transform.IPFSStatRequest{Type: true})
+			linkString, err := coretransform.Readlink(fs.Ctx(), coreKey.Path(), fs.Core())
 			if err != nil {
 				fs.log.Error(err)
-				return -fuselib.ENOENT, ""
+				return err.ToFuse(), ""
 			}
-
-			if iStat.FileType != coreiface.TSymlink {
-				fs.log.Errorf("%q requested but %q is not a link", path, keyName)
-				return -fuselib.EINVAL, ""
-			}
-
-			// if it is, read it
-			linkNode, err := fs.Core().Unixfs().Get(fs.Ctx(), coreKey.Path())
-			if err != nil {
-				fs.log.Error(err)
-				return -fuse.EIO, ""
-			}
-
-			// NOTE: the implementation of this does no type checks
-			// which is why we check the node's type above
-			linkActual := files.ToSymlink(linkNode)
 
 			// NOTE: paths returned here get sent back to the FUSE library
-			// they should not be native paths
-			return fusecom.OperationSuccess, filepath.ToSlash(linkActual.Target)
+			// they should not be native paths, regardless of their source format
+			return fusecom.OperationSuccess, filepath.ToSlash(linkString)
 		}
 
 		// request for a path within the key (as a directory)
@@ -880,21 +863,11 @@ func (fs *FileSystem) Rmdir(path string) int {
 	}
 
 	if remainder == "/" { // request to remove the key itself
-		err := keyfs.Rmdir(fs.Ctx(), fs.Core(), coreKey)
-		var errNo int
-		switch err {
-		case keyfs.ErrDirNotEmpty:
-			errNo = -fuselib.ENOTEMPTY
-		case nil:
-			errNo = fusecom.OperationSuccess
-		default:
-			errNo = -fuselib.EIO
-		}
-
-		if errNo != fusecom.OperationSuccess {
+		if err := keyfs.Rmdir(fs.Ctx(), fs.Core(), coreKey); err != nil {
 			fs.log.Error(err)
+			return err.ToFuse()
 		}
-		return errNo
+		return fusecom.OperationSuccess
 	}
 
 	// request for a path within the key (as a directory)

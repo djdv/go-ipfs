@@ -1,8 +1,9 @@
 package mfs
 
 import (
-	"fmt"
+	"errors"
 
+	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-mfs"
 )
@@ -20,20 +21,32 @@ func (mio *mfsIOWrapper) Seek(offset int64, whence int) (int64, error) {
 	return mio.f.Seek(offset, whence)
 }
 
-func OpenFile(mroot *mfs.Root, path string, flags transform.IOFlags) (*mfsIOWrapper, error) {
+func OpenFile(mroot *mfs.Root, path string, flags transform.IOFlags) (*mfsIOWrapper, transform.Error) {
 	mfsNode, err := mfs.Lookup(mroot, path)
 	if err != nil {
-		return nil, err
+		return nil, &transform.ErrorActual{
+			GoErr:  err,
+			ErrNo:  -fuselib.EACCES, // TODO: [review] is this the best value for this?
+			P9pErr: errors.New("TODO real error for open-lookup [9768fef2-4795-4aba-9009-497c55f3cb72]"),
+		}
 	}
 
 	mfsFileIf, ok := mfsNode.(*mfs.File)
 	if !ok {
-		return nil, fmt.Errorf("File IO requested for non-file, type: %v %q", mfsNode.Type(), path)
+		return nil, &transform.ErrorActual{
+			GoErr:  err,
+			ErrNo:  -fuselib.EISDIR,
+			P9pErr: errors.New("TODO real error for open-file-but-not-a-file [cef4642f-2863-4e4a-8e52-9d5a5a687b10]"),
+		}
 	}
 
 	mfsFile, err := mfsFileIf.Open(flags.ToMFS())
 	if err != nil {
-		return nil, err
+		return nil, &transform.ErrorActual{
+			GoErr:  err,
+			ErrNo:  -fuselib.EACCES, // TODO: [review] is this the best value for this?
+			P9pErr: errors.New("TODO real error for open-failure [16a35016-405a-414b-82d2-579eb8712398]"),
+		}
 	}
 
 	return &mfsIOWrapper{f: mfsFile}, nil
