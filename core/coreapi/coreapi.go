@@ -191,11 +191,13 @@ func (api *CoreAPI) WithOptions(opts ...options.ApiOption) (coreiface.CoreAPI, e
 	}
 
 	subApi.checkPublishAllowed = func() error {
+		/* FIXME: make sure this actually happens; right now we're unsafe
 		if n.Mount != nil && len(n.Mount.Where()) != 0 {
 			// TODO: allows this via the mount file table lock mechanism
 			// n.Mount.WLock("ipns", "/key", timeout); defer unlock()
 			return errors.New("cannot manually publish while IPNS is mounted")
 		}
+		*/
 		return nil
 	}
 

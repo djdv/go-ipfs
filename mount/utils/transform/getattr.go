@@ -2,9 +2,10 @@ package transform
 
 import (
 	"context"
+	"fmt"
 
 	chunk "github.com/ipfs/go-ipfs-chunker"
-	ipld "github.com/ipfs/go-ipld-format"
+	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
@@ -18,19 +19,56 @@ func GetAttr(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, re
 		return nil, IPFSStatRequest{}, err
 	}
 
-	return ipldAttr(ctx, ipldNode, req)
+	switch typedNode := ipldNode.(type) {
+	case *dag.ProtoNode:
+		ufsNode, err := unixfs.ExtractFSNode(typedNode)
+		if err != nil {
+			return nil, IPFSStatRequest{}, err
+		}
+		return unixFSAttr(ctx, ufsNode, req)
+	case *dag.RawNode:
+		return rawAttr(ctx, typedNode, req)
+	default:
+		return nil, IPFSStatRequest{}, fmt.Errorf("unexpected node type: %T", typedNode)
+	}
 }
 
-// returns attr, filled members, error
-func ipldAttr(ctx context.Context, node ipld.Node, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
+func rawAttr(ctx context.Context, rawNode *dag.RawNode, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
 	var (
 		attr        IPFSStat
 		filledAttrs IPFSStatRequest
 	)
-	ufsNode, err := unixfs.ExtractFSNode(node)
-	if err != nil {
-		return nil, filledAttrs, err
+
+	if req.Type {
+		// raw nodes only contain data so we'll treat them as a flat file
+		attr.FileType, filledAttrs.Type = coreiface.TFile, true
 	}
+
+	if req.Blocks {
+		nodeStat, err := rawNode.Stat()
+		if err != nil {
+			return &attr, filledAttrs, err
+		}
+		attr.BlockSize, filledAttrs.Blocks = uint64(nodeStat.BlockSize), true
+	}
+
+	if req.Size {
+		size, err := rawNode.Size()
+		if err != nil {
+			return &attr, filledAttrs, err
+		}
+		attr.Size, filledAttrs.Size = size, true
+	}
+
+	return &attr, filledAttrs, nil
+}
+
+// returns attr, filled members, error
+func unixFSAttr(ctx context.Context, ufsNode *unixfs.FSNode, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
+	var (
+		attr        IPFSStat
+		filledAttrs IPFSStatRequest
+	)
 
 	if req.Type {
 		attr.FileType, filledAttrs.Type = unixfsTypeToCoreType(ufsNode.Type()), true
