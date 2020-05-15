@@ -3,7 +3,6 @@ package transform
 import (
 	"context"
 
-	chunk "github.com/ipfs/go-ipfs-chunker"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
@@ -80,8 +79,13 @@ func unixFSAttr(ufsNode *unixfs.FSNode, req IPFSStatRequest) (*IPFSStat, IPFSSta
 	}
 
 	if req.Blocks {
-		// TODO: when/if UFS supports this metadata field, use it instead
-		attr.BlockSize, filledAttrs.Blocks = uint64(chunk.DefaultBlockSize), true
+		// NOTE: we can't account for variable block size so we use the size of the first block only (if any)
+		if len(ufsNode.BlockSizes()) > 0 {
+			attr.BlockSize = uint64(ufsNode.BlockSize(0))
+		}
+		// 0 is a valid value for this field, especially for non-regular files
+		// so set this to true regardless of if one was provided or not
+		filledAttrs.Blocks = true
 	}
 
 	if req.Size {
