@@ -39,7 +39,7 @@ type (
 	// responsible for assigning an underlying mfs to a key by its name
 	// shared across operations on this key
 	mfsWrapper struct {
-		sync.Mutex // gaurd table access
+		sync.Mutex // guard table access
 		mfsTable   mfsTable
 
 		ctx  context.Context // should be valid for as long as roots+children intend to be accessed via this table or its returned structure

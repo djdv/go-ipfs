@@ -1,4 +1,4 @@
-package mountfuse
+package mountfuse_test
 
 import (
 	"reflect"
@@ -16,10 +16,8 @@ func testGetattr(t *testing.T, path string, expected *fuselib.Stat_t, fh fileHan
 
 	if expected == nil {
 		t.Log("getattr expected value was empty, not comparing")
-	} else {
-		if !reflect.DeepEqual(expected, stat) {
-			t.Errorf("stats for %q do not match\nexpected:%#v\nhave %#v\n", path, expected, stat)
-		}
+	} else if !reflect.DeepEqual(expected, stat) {
+		t.Errorf("stats for %q do not match\nexpected:%#v\nhave %#v\n", path, expected, stat)
 	}
 
 	return stat

@@ -1,4 +1,4 @@
-package mountfuse
+package mountfuse_test
 
 import (
 	"io/ioutil"
@@ -74,7 +74,9 @@ func testRead(t *testing.T, path string, mirror *os.File, fh fileHandle, fs fuse
 		testReadAll(t, path, mirror, fh, fs)
 	})
 
-	mirror.Seek(0, 0)
+	if _, err := mirror.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func testReadAll(t *testing.T, path string, mirror *os.File, fh fileHandle, fs fuselib.FileSystemInterface) {

@@ -1,4 +1,4 @@
-package mountfuse
+package mountfuse_test
 
 import (
 	"context"
@@ -80,7 +80,7 @@ func testInitNode(ctx context.Context, t *testing.T) (*core.IpfsNode, error) {
 
 	repo, err := fsrepo.Open(repoPath)
 	if err != nil {
-		t.Logf("Failed to open newly initalized IPFS repo: %s\n", err)
+		t.Logf("Failed to open newly initialized IPFS repo: %s\n", err)
 		t.FailNow()
 		return nil, err
 	}

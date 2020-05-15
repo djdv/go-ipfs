@@ -166,7 +166,7 @@ func testPlugin(t *testing.T, node *core.IpfsNode) {
 		var b strings.Builder
 		b.WriteString(socketPath)
 
-		// seperate socket file from the rest of the path (NOTE: maddr target not native path)
+		// separate socket file from the rest of the path (NOTE: maddr target not native path)
 		b.WriteRune('/')
 
 		// pad path length to original max length
@@ -504,7 +504,7 @@ func testMFS(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 
 func testShard(ctx context.Context, t *testing.T, core coreiface.CoreAPI) {
 	entryCount := 32
-	// create the sharded structure with an arbitrary ammount of nodes
+	// create the sharded structure with an arbitrary amount of nodes
 	shard, err := hamt.NewShard(core.Dag(), entryCount)
 	if err != nil {
 		t.Error(err)

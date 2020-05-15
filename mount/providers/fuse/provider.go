@@ -62,22 +62,19 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs s
 	}, nil
 }
 
-// NOTE: keep return statements bare
-// the named error value is accessable to a defer statement
-// which is used to modify it post-return by a panic handler in certain circumstances
+// NOTE: the named error value `retErr` is accessed by a deferred panic handler `cgofuseRecover`
+// which is used to modify it before it is returned to the caller (in certain circumstances)
 func (pr *fuseProvider) Graft(target string) (mi mountinter.Instance, retErr error) {
 	pr.Lock()
 	defer pr.Unlock()
 
 	if pr.instances.Exists(target) {
-		retErr = fmt.Errorf("%q already bound", target)
-		return
+		return nil, fmt.Errorf("%q already bound", target)
 	}
 
 	mountHost, initSignal, err := newHost(pr.ctx, pr.namespace, pr.core, pr.filesRoot)
 	if err != nil {
-		retErr = err
-		return
+		return nil, err
 	}
 
 	// cgofuse will panic on fs.Init() if the required libraries are not found
@@ -97,8 +94,7 @@ func (pr *fuseProvider) Graft(target string) (mi mountinter.Instance, retErr err
 	}()
 
 	if err = <-initSignal; err != nil {
-		retErr = err
-		return
+		return nil, err
 	}
 
 	// returned value
@@ -110,11 +106,10 @@ func (pr *fuseProvider) Graft(target string) (mi mountinter.Instance, retErr err
 	}
 
 	if err = pr.instances.Add(target); err != nil {
-		retErr = err
-		return
+		return nil, err
 	}
 
-	return
+	return mi, nil
 }
 func (pr *fuseProvider) Grafted(target string) bool {
 	return pr.instances.Exists(target)

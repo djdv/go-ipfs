@@ -16,7 +16,7 @@ import (
 
 /*
 We have to parse 3 different sources of strings; in priority order they are
-1) command line 2) config file 3) platform reccomended fallback
+1) command line 2) config file 3) platform recommended fallback
 the command line flags, could come from 1 of 2 commands, `ipfs mount` or `ipfs daemon`
 which use the same keywords except prefixed in the case of `daemon`
 e.g. `ipfs mount --target="/path"` == `ipfs daemon --mount --mount-target="/path"`
@@ -28,8 +28,8 @@ const (
 	cmdPathKwd      = "target"
 
 	cmdProviderDesc  = "The underlying provider API to use for the namespace(s). Defaults to config setting or platform appropriate value."
-	cmdNamespaceDesc = "A comma seperated list of namespace to operate on. Defaults to config setting or platform appropriate value/"
-	cmdPathDesc      = "A comma seperated list of path to use. Defaults to config setting or platform appropriate value."
+	cmdNamespaceDesc = "A comma separated list of namespace to operate on. Defaults to config setting or platform appropriate value/"
+	cmdPathDesc      = "A comma separated list of path to use. Defaults to config setting or platform appropriate value."
 
 	cmdDaemonMountDesc  = "Mounts IPFS namespaces to the filesystem"
 	cmdDaemonDescPrefix = "(if using --mount) "

@@ -13,8 +13,8 @@ const (
 )
 
 var (
-	FSCtxNotInitalized = goerrors.New("a required file system context was not initalized")
-	FileOpen           = goerrors.New("file is open")
-	FileNotOpen        = goerrors.New("file is not open")
-	FileClosed         = goerrors.New("file was closed")
+	FSCtxNotInitialized = goerrors.New("a required file system context was not initialized")
+	FileOpen            = goerrors.New("file is open")
+	FileNotOpen         = goerrors.New("file is not open")
+	FileClosed          = goerrors.New("file was closed")
 )

@@ -1,7 +1,6 @@
 package fusecommon
 
 import (
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	config "github.com/ipfs/go-ipfs-config"
 	logging "github.com/ipfs/go-log"
@@ -21,7 +20,7 @@ func (*SharedMethods) Statfs(path string, stat *fuselib.Statfs_t) int {
 	target, err := config.DataStorePath("")
 	if err != nil {
 		log.Errorf("Statfs - Config err %q: %v", path, err)
-		return -fuse.ENOENT
+		return -fuselib.ENOENT
 	}
 
 	goErr, errNo := Statfs(target, stat)

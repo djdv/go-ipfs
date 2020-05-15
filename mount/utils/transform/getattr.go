@@ -25,17 +25,17 @@ func GetAttr(ctx context.Context, path corepath.Path, core coreiface.CoreAPI, re
 		if err != nil {
 			return nil, IPFSStatRequest{}, err
 		}
-		return unixFSAttr(ctx, ufsNode, req)
+		return unixFSAttr(ufsNode, req)
 
 	// pretend Go allows this:
 	// case *dag.RawNode, *cbor.Node:
 	// fallthrough
 	default:
-		return genericAttr(ctx, typedNode, req)
+		return genericAttr(typedNode, req)
 	}
 }
 
-func genericAttr(ctx context.Context, genericNode ipld.Node, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
+func genericAttr(genericNode ipld.Node, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
 	var (
 		attr        IPFSStat
 		filledAttrs IPFSStatRequest
@@ -69,7 +69,7 @@ func genericAttr(ctx context.Context, genericNode ipld.Node, req IPFSStatRequest
 }
 
 // returns attr, filled members, error
-func unixFSAttr(ctx context.Context, ufsNode *unixfs.FSNode, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
+func unixFSAttr(ufsNode *unixfs.FSNode, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error) {
 	var (
 		attr        IPFSStat
 		filledAttrs IPFSStatRequest

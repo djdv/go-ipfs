@@ -5,7 +5,6 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
@@ -30,8 +29,7 @@ type FileSystem struct {
 	directories fusecom.DirectoryTable
 	files       fusecom.FileTable
 
-	log  logging.EventLogger
-	ipfs fuselib.FileSystemInterface
+	log logging.EventLogger
 }
 
 func NewFileSystem(ctx context.Context, mroot gomfs.Root, core coreiface.CoreAPI, opts ...Option) *FileSystem {
@@ -220,7 +218,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	switch path {
 	case "/":
 		fs.log.Warnf("Readlink - root path is an invalid request")
-		return -fuse.EINVAL, ""
+		return -fuselib.EINVAL, ""
 
 	case "":
 		fs.log.Error("Readlink - empty request")

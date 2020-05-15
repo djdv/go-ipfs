@@ -229,9 +229,9 @@ func (ri *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 /* WalkRef relevant */
 
 func (ri *File) Fork() (common.WalkRef, error) {
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if ri.subsystems == nil {
-		return nil, common.FSCtxNotInitalized //TODO: not exactly the right error
+		return nil, common.FSCtxNotInitialized //TODO: not exactly the right error
 	}
 
 	// overlay doesn't have any state to fork (yet)

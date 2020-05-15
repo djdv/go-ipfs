@@ -59,7 +59,7 @@ type pinEntryTranslator struct {
 // this is silly but we need the signature to match; ResolvedPath != Path
 func (pe *pinEntryTranslator) Path() corepath.Path { return pe.Pin.Path() }
 func (pe *pinEntryTranslator) Name() string        { return gopath.Base(pe.Path().String()) }
-func (_ *pinEntryTranslator) Error() error         { return nil }
+func (*pinEntryTranslator) Error() error           { return nil }
 
 func translateEntries(ctx context.Context, pins <-chan coreiface.Pin) <-chan transform.DirectoryStreamEntry {
 	out := make(chan transform.DirectoryStreamEntry)

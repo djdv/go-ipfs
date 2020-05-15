@@ -13,7 +13,7 @@ type Option interface{ apply(*Settings) }
 type Settings struct {
 	InitSignal InitSignal                  // if provided, will be used to return a status from fs.Init()
 	Log        logging.EventLogger         // if provided, will be used as the logger during operations
-	Parent     fuselib.FileSystemInterface // if provided, will be used when refering to ".." of root
+	Parent     fuselib.FileSystemInterface // if provided, will be used when referring to ".." of root
 
 	// non-nilable
 	ResourceLock mountcom.ResourceLock // if provided, will replace the default lock used for operations

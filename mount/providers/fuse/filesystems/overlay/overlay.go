@@ -29,14 +29,14 @@ type FileSystem struct {
 	// init relevant - do not use outside of init(); they will be nil
 	initChan     fusecom.InitSignal
 	resLock      mountcom.ResourceLock // call methods on fs.(Request|Release) instead
-	filesAPIRoot *gomfs.Root           // use fs.filesAPI after it's initalized
+	filesAPIRoot *gomfs.Root           // use fs.filesAPI after it's initialized
 	directories  []string
 
 	// FIXME: zap logger implies newly created logs will respect the zapconfig's set Level
 	// however this doesn't seem to be the case in go-log
 	// `ipfs daemon --debug` will not print debug log for these created logs despite being spawned from a config who's level should now be set to `debug`
 
-	// persistant
+	// persistent
 	log                  logging.EventLogger
 	ipfs, ipns, filesAPI fuselib.FileSystemInterface
 }
@@ -278,8 +278,8 @@ func (fs *FileSystem) Releasedir(path string, fh uint64) int {
 	if targetFs == fs {
 		if fh != rootHandle {
 			return -fuselib.EBADF
-
 		}
+
 		return fusecom.OperationSuccess
 	}
 
@@ -392,7 +392,6 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	case "":
 		fs.log.Error("Readlink - empty request")
 		return -fuselib.ENOENT, ""
-
 	}
 }
 
@@ -580,10 +579,8 @@ func (fs *FileSystem) Symlink(target string, newpath string) int {
 	return targetFs.Symlink(target, remainder)
 }
 
-// TODO: review
+// TODO: needs test
 func (fs *FileSystem) Rename(oldpath string, newpath string) int {
-	return -fuselib.ENOSYS
-
 	targetFs, oldRemainder, err := fs.selectFS(oldpath)
 	if err != nil {
 		fs.log.Error(fuselib.Error(-fuselib.ENOENT))

@@ -8,7 +8,6 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	dag "github.com/ipfs/go-merkledag"
-	"github.com/ipfs/go-mfs"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
 )
@@ -81,7 +80,7 @@ func Symlink(mroot *gomfs.Root, path string, linkTarget string) transform.Error 
 		}
 	}
 
-	parentDir, ok := parentNode.(*mfs.Directory)
+	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
 		return &transform.ErrorActual{
 			GoErr:  fmt.Errorf("%s is not a directory", parentPath),

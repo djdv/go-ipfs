@@ -46,11 +46,12 @@ type coreDirectoryStream struct {
 	out        chan offsetStreamEntry                // proccessed and sent to translation methods
 	wg         sync.WaitGroup                        // prevent caller from calling readdir again before calling a translation method (which must call .Done)
 
-	cursor, upperBound uint64
-	dontreset          bool // dumb FUSE hacks
-	dontTranslate      bool // dumb self hack
+	dontreset     bool // dumb FUSE hacks
+	dontTranslate bool // dumb self hack
 	// ^ this is to prevent the sequence `state := readdir(); state.translate(); state.translate()` which would mess up the wait group
 	// this needs to be refactored out properly instead of hacked away
+
+	cursor, upperBound uint64
 }
 
 func OpenStream(ctx context.Context, streamSource transform.StreamSource, core coreiface.CoreAPI) (*coreDirectoryStream, error) {
@@ -95,7 +96,7 @@ func (cs *coreDirectoryStream) Readdir(ctx context.Context, offset uint64) trans
 	}
 
 	if cs.streamSource == nil {
-		cs.err = errors.New("directory not initalized")
+		cs.err = errors.New("directory not initialized")
 		cs.wg.Done()
 		return cs
 	}

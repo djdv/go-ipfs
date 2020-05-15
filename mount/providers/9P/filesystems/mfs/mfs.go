@@ -64,10 +64,10 @@ func (md *File) Fork() (common.WalkRef, error) {
 		return nil, err
 	}
 
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if md.FilesystemCtx == nil {
-		md.Logger.Error(common.FSCtxNotInitalized)
-		return nil, common.FSCtxNotInitalized
+		md.Logger.Error(common.FSCtxNotInitialized)
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid
@@ -607,9 +607,9 @@ func (md *File) UnlinkAt(name string, flags uint32) error {
 }
 
 func (md *File) clone() (*File, error) {
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if md.ParentCtx == nil {
-		return nil, common.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid

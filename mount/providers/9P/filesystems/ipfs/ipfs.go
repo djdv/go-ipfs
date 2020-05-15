@@ -243,9 +243,9 @@ func (id *File) CheckWalk() error {
 }
 
 func (id *File) Fork() (common.WalkRef, error) {
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if id.FilesystemCtx == nil {
-		return nil, common.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid
@@ -308,9 +308,9 @@ func (id *File) Backtrack() (common.WalkRef, error) {
 }
 
 func (id *File) clone() (*File, error) {
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if id.ParentCtx == nil {
-		return nil, common.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid

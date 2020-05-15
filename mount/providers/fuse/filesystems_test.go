@@ -1,4 +1,4 @@
-package mountfuse
+package mountfuse_test
 
 import (
 	"context"

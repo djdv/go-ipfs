@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
@@ -543,7 +542,7 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 
 	if keyName == "" { // root request
 		fs.log.Warnf("Readlink - root path is an invalid request")
-		return -fuse.EINVAL, ""
+		return -fuselib.EINVAL, ""
 	}
 
 	coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
@@ -686,7 +685,6 @@ func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
 
 	if coreKey != nil { // we own this key
 		if remainder == "/" { // request for the key itself
-
 			file, err := fs.files.Get(fh)
 			if err == nil { // if the file handle is valid, truncate the file directly
 				if err := file.Truncate(uint64(size)); err != nil {
@@ -794,7 +792,7 @@ func (fs *FileSystem) Unlink(path string) int {
 
 	if coreKey == nil {
 		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
-		return -fuse.ENOENT
+		return -fuselib.ENOENT
 	}
 
 	if remainder == "/" { // request to remove the key itself
@@ -859,7 +857,7 @@ func (fs *FileSystem) Rmdir(path string) int {
 
 	if coreKey == nil {
 		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
-		return -fuse.ENOENT
+		return -fuselib.ENOENT
 	}
 
 	if remainder == "/" { // request to remove the key itself

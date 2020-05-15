@@ -30,7 +30,7 @@ const (
 // TODO: [port from plugin] salvage fs tests; discard plugin tests
 
 /* TODO:
-add a set of standard tests that have redundant functionlity for transforms
+add a set of standard tests that have redundant functionality for transforms
 e.g.
 StandardQIDFromStringFunction("/pinfs") == pinfsObject.QIDMethod()
 */

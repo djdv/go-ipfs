@@ -69,7 +69,7 @@ func FillDir(ctx context.Context, directory transform.Directory, writable bool, 
 
 	for ent := range entChan {
 		// stat will always be nil on platforms that have ReaddirPlus disabled
-		// and is not gauranteed to be filled on those that do
+		// and is not guaranteed to be filled on those that do
 		if ent.Stat != nil {
 			ApplyPermissions(writable, &ent.Stat.Mode)
 		}
@@ -110,7 +110,7 @@ func ApplyPermissions(fsWritable bool, mode *uint32) {
 // we'll likely replace instances of this with something more sophisticated
 func CheckOpenFlagsBasic(writable bool, flags int) (error, errno) {
 	// NOTE: SUSv7 doesn't include O_APPEND for EROFS; despite this being a write flag
-	// we're counting it for now, but may remove this if it causes compatability problems
+	// we're counting it for now, but may remove this if it causes compatibility problems
 	const mutableFlags = fuselib.O_WRONLY | fuselib.O_RDWR | fuselib.O_APPEND | fuselib.O_CREAT | fuselib.O_TRUNC
 	if flags&mutableFlags != 0 && !writable {
 		return errors.New("write flags provided for read only system"), -fuselib.EROFS

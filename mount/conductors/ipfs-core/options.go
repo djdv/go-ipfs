@@ -1,7 +1,6 @@
 package ipfsconductor
 
 import (
-	"github.com/ipfs/go-mfs"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
@@ -31,7 +30,7 @@ func WithFilesAPIRoot(mroot gomfs.Root) Option {
 	return mfsOpt(mroot)
 }
 func (r mfsOpt) apply(opts *settings) {
-	opts.filesAPIRoot = (*mfs.Root)(&r)
+	opts.filesAPIRoot = (*gomfs.Root)(&r)
 }
 
 // InForeground tells Graft() to block until the provider system returns

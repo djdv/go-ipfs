@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"unsafe"
 
-	"github.com/billziss-gh/cgofuse/fuse"
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"golang.org/x/sys/windows"
 )
@@ -47,7 +46,7 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	)
 	pathPtr, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return err, -fuse.EFAULT // caller should check for syscall.EINVAL; NUL byte was in string
+		return err, -fuselib.EFAULT // caller should check for syscall.EINVAL; NUL byte was in string
 	}
 
 	r1, _, wErr := proc.Call(uintptr(unsafe.Pointer(pathPtr)),
@@ -81,7 +80,7 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	volumeRoot := filepath.VolumeName(path) + string(filepath.Separator)
 	pathPtr, err = windows.UTF16PtrFromString(volumeRoot)
 	if err != nil {
-		return err, -fuse.EFAULT // caller should check for syscall.EINVAL; NUL byte was in string
+		return err, -fuselib.EFAULT // caller should check for syscall.EINVAL; NUL byte was in string
 	}
 
 	if err = windows.GetVolumeInformation(pathPtr, nil, 0, volumeSerial, componentLimit, volumeFlags, nil, 0); err != nil {
@@ -106,27 +105,4 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	fStatfs.Fsid = uint64(*volumeSerial)
 
 	return nil, OperationSuccess
-}
-
-// TODO: [anyone] Replace with `windows.GetVersion()` when this is resolved: https://github.com/golang/go/issues/17835
-func rawWinver() (major, minor, build uint32) {
-	type rtlOSVersionInfo struct {
-		dwOSVersionInfoSize uint32
-		dwMajorVersion      uint32
-		dwMinorVersion      uint32
-		dwBuildNumber       uint32
-		dwPlatformId        uint32
-		szCSDVersion        [128]byte
-	}
-
-	ntoskrnl := windows.MustLoadDLL("ntoskrnl.exe")
-	defer ntoskrnl.Release()
-
-	proc := ntoskrnl.MustFindProc("RtlGetVersion")
-
-	var verStruct rtlOSVersionInfo
-	verStruct.dwOSVersionInfoSize = uint32(unsafe.Sizeof(verStruct))
-	proc.Call(uintptr(unsafe.Pointer(&verStruct)))
-
-	return verStruct.dwMajorVersion, verStruct.dwMinorVersion, verStruct.dwBuildNumber
 }

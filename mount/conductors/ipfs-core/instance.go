@@ -85,7 +85,7 @@ func (con *conductor) Graft(provider mountinter.ProviderType, targets []mountint
 	// prepare unwind function; detaches any successful mounts if all did not succeed
 	var (
 		failedTarget string
-		instances    []mountinter.Instance
+		instances    = make([]mountinter.Instance, 0, len(instancePairs))
 	)
 	unwind := func() {
 		if len(instances) == 0 {
@@ -136,7 +136,7 @@ func (con *conductor) Detach(target string) error {
 		return err
 	}
 
-	retErr := instance.Detach() // stop tracking regardless of detatch status; host's cleanup responsability now
+	retErr := instance.Detach() // stop tracking regardless of detatch status; host's cleanup responsibility now
 	if err := con.instances.Remove(target); err != nil {
 		log.Error(err)
 	}

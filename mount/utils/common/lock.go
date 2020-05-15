@@ -73,7 +73,7 @@ func (l *looseLock) tryLock(timeout time.Duration) error {
 
 func (l *looseLock) unlock() {
 	if len(l.l) > 0 {
-		// if the lock was previously aquired, the buffer should be filled
+		// if the lock was previously acquired, the buffer should be filled
 		// dump it to release the lock
 		<-l.l
 	} else {

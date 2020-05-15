@@ -62,7 +62,7 @@ func (ft *fileTable) Add(f transform.File) (handle, error) {
 	// we've never hit the cap we can assume the handle is free
 	// but for sanity we check anyway
 	if _, ok := ft.files[ft.index]; ok {
-		panic("handle should be uninitalized but is in use")
+		panic("handle should be uninitialized but is in use")
 	}
 	ft.files[ft.index] = f
 	return ft.index, nil
@@ -146,7 +146,7 @@ func (dt *directoryTable) Add(f transform.Directory) (handle, error) {
 	// we've never hit the cap we can assume the handle is free
 	// but for sanity we check anyway
 	if _, ok := dt.directories[dt.index]; ok {
-		panic("handle should be uninitalized but is in use")
+		panic("handle should be uninitialized but is in use")
 	}
 	dt.directories[dt.index] = f
 	return dt.index, nil

@@ -5,7 +5,7 @@ import (
 )
 
 type options struct {
-	parent fuselib.FileSystemInterface // if provided, will be used when refering to ".." of root
+	parent fuselib.FileSystemInterface // if provided, will be used when referring to ".." of root
 }
 
 // WithParent provides a reference to a node that will act as a parent to the systems own root

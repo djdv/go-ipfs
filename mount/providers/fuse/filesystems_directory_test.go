@@ -1,4 +1,4 @@
-package mountfuse
+package mountfuse_test
 
 import (
 	"os"
@@ -76,7 +76,7 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 	{ // instance 1
 		dirHandle := testOpendir(t, corePath, fs)
 
-		// make sure we can read the directory completley, in one call
+		// make sure we can read the directory completely, in one call
 		var coreEntries []readdirTestDirEnt
 		t.Run("all at once", func(t *testing.T) {
 			coreEntries = testReaddirAll(t, localEntries, fs, corePath, dirHandle)

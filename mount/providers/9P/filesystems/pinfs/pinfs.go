@@ -145,9 +145,9 @@ func (pd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 /* WalkRef relevant */
 
 func (pd *File) Fork() (common.WalkRef, error) {
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if pd.FilesystemCtx == nil {
-		return nil, common.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid
@@ -217,9 +217,9 @@ func (pd *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 }
 
 func (pd *File) clone() (*File, error) {
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if pd.ParentCtx == nil {
-		return nil, common.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid

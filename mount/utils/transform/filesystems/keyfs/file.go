@@ -33,7 +33,7 @@ type (
 	// TODO: since this is exported it'd be better as an interface
 	// responsible for assigning an underlying dag modifier to a key by its name
 	FileWrapper struct {
-		sync.Mutex // gaurd table access
+		sync.Mutex // guard table access
 		dagTable   dagTable
 
 		ctx  context.Context // should be valid for as long as files intend to be accessed via this table
@@ -45,7 +45,7 @@ type (
 	// multiple file descriptors to the same key will share the same underlying dag modifer
 	// so that they may stay in sync with eachother
 	dagRef struct {
-		sync.Mutex // gaurd access to the modifier's methods
+		sync.Mutex // guard access to the modifier's methods
 		*mod.DagModifier
 		refCount  uint
 		publisher func() error

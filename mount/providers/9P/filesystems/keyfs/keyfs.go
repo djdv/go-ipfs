@@ -141,9 +141,9 @@ func (kd *File) Fork() (common.WalkRef, error) {
 		return nil, err
 	}
 
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if kd.FilesystemCtx == nil {
-		return nil, common.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid
@@ -337,9 +337,9 @@ func getKey(ctx context.Context, keyName string, core coreiface.CoreAPI) (coreif
 }
 
 func (kd *File) clone() (*File, error) {
-	// make sure we were actually initalized
+	// make sure we were actually initialized
 	if kd.ParentCtx == nil {
-		return nil, common.FSCtxNotInitalized
+		return nil, common.FSCtxNotInitialized
 	}
 
 	// and also not canceled / still valid
