@@ -191,8 +191,9 @@ Mappings from the core api's get wrapped in an intermediate layer that then gets
 		}
 
 		*stat = *iStat.ToFuse()
-		fusecom.ApplyPermissions(readOnly, &stat.Mode)
-		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
+		var ids fusecom.StatIDGroup
+		ids.Uid, ids.Gid, _ = fuselib.Getcontext()
+		fusecom.ApplyCommonsToStat(stat, filesWritable?, fs.mountTimeGroup, ids)
 		return fusecom.OperationSuccess
 ```
 and under 9P
@@ -200,11 +201,11 @@ and under 9P
 	...
 
 	iStat, iFilled, err := transform.GetAttr(callCtx, id.CorePath(), id.Core, transform.RequestFrom9P(req))
+	nineAttr, nineFilled := iStat.To9P(), iFilled.To9P()
 	if err != nil {
 		id.Logger.Error(err)
-		return qid, iFilled.To9P(), iStat.To9P(), err
+		return qid, nineFilled, nineAttr, err
 	}
-	nineAttr, nineFilled := iStat.To9P(), iFilled.To9P()
 
 	if req.Mode { // UFS provides type bits, we provide permission bits
 		nineAttr.Mode |= common.IRXA
@@ -217,27 +218,10 @@ and under 9P
 
 A version of the `pinfs` (a directory which lists the node's pins as files and directories) has been implemented using this method. ~~Its use within FUSE looks like this:~~  
 This is how it was, but it's in the process of being changed for standards compliance.
-## Old
+## Directory interface (Old v0, has changed in header below)
 ___
-```go 
-// OpenDir(){
-dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
-// Readdir{
-entChan, err := fs.pinDir.Readdir(offset, requestedEntryCount).ToFuse()
-for ent := range entChan {
-	fill(ent.Name, ent.Stat, ent.Offset)
-}
-return OperationSuccess
-```
-Used within 9P, it's very similar
 
-```go 
-// Open(){
-dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
-// Readdir(offset, count) (p9.Dirents, error) {
-return fs.pinDir.Readdir(offset, count).To9P()
-```
-The interface is still in progress, but currently looks like this
+The interface is still in progress, ~~but currently looks like this~~
 ```go
 type Directory interface {
 	// Readdir returns /at most/ count entries; or attempts to return all entires when count is 0
@@ -256,25 +240,32 @@ type DirectoryState interface {
 	ToGoC(predefined chan os.FileInfo) (<-chan os.FileInfo, error)
 	ToFuse() (<-chan FuseStatGroup, error)
 }
-```
 
-## WIP (may change)
-___
+// Within FUSE:
 
-```go 
 // OpenDir(){
-dir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+pinDir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
 // Readdir{
-entChan, err := fs.pinDir.Readdir(readDirCtx, offset).ToFuse()
+entChan, err := pinDir.Readdir(offset, requestedEntryCount).ToFuse()
 for ent := range entChan {
 	fill(ent.Name, ent.Stat, ent.Offset)
 }
 return OperationSuccess
+
+// Within 9P:
+
+// Open(){
+pinDir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+// Readdir(offset, count) (p9.Dirents, error) {
+return pinDir.Readdir(offset, count).To9P()
 ```
+
+## Directory interface (Newer v1, but still bad, notes in header below)
+___
 
 ```go
 type Directory interface {
-	// Readdir returns attempts to return all entires starting from offset until it reaches the end
+	// Readdir attempts to return all entires starting from offset until it reaches the end
 	// or the context is canceled
 	Readdir(ctx context.Context, offset uint64) DirectoryState
 	io.Closer
@@ -288,10 +279,75 @@ type DirectoryState interface {
 	// not likely
 	ToFuse(fillerFunc) error
 }
+
+// OpenDir(){
+pinDir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+// Readdir{
+entChan, err := pinDir.Readdir(readDirCtx, offset).ToFuse()
+for ent := range entChan {
+	fill(ent.Name, ent.Stat, ent.Offset)
+}
+return OperationSuccess
+```
+
+## Directory interface (simpler v2 WIP - stream retained but translation concepts moved elsewhere)
+---
+Directories return a channel of their entries, which contain a name and an offset.  
+The initial call to List must have an offset value of 0.  
+Subsequent calls to List with a non-0 offset shall replay the stream exactly, starting at the provided offset. (entries are returned in the same order with the same values)  
+Calling Reset shall reset the stream as if it had just been opened.  
+Previous offset values may be considered invalid after a Reset, but are not required to be.
+
+translation of the entries into API specific constructs is to be done in the file system layer
+
+```go
+type DirectoryEntry interface {
+	Name() string
+	Offset() uint64
+	Error() error
+}
+
+type Directory interface {
+	// List attempts to return all entires starting from offset until it reaches the end
+	// or the context is canceled
+	// if an error is encountered, an entry is returned containing it, and the channel is closed
+	List(ctx context.Context, offset uint64) <-chan DirectoryEntry
+	Reset() error
+	io.Closer
+}
+```
+
+```go 
+// FUSE OpenDir(){
+pinDir, err := pinfs.OpenDir(fs.Ctx(), fs.Core())
+// FUSE Readdir{
+entChan, err := pinDir.Read(readDirCtx, offset)
+for ent := range entChan {
+	stat := statChild(ent.Name)
+	fill(ent.Name(), stat, ent.Offset()) // simplified for example; fill is unchecked
+}
+return OperationSuccess
 ```
 
 Misc Notes
 ___
+### FUSE
+It should be noted somewhere, the behaviour of (Go)`fuse.Getcontext`/(C)`fuse_get_context`.  
+None of the implementations have useful documentation for this call, other than saying the pointer to the structure should not be held past the operation call that invoked it.  
+The various implementations have varying results. For example, consider the non-exhaustive table below.  
+
+|FreeBSD (fusefs)<br>NetBSD (PUFFS)<br>macOS (FUSE for macOS)   | Linux (libfuse)    | Windows (WinFSP)   |
+|------------------------------------------------------------   | ---------------    | ----------------   |
+| opendir: populated                                            | opendir: populated | opendir: populated |
+| readdir: populated                                            | readdir: populated | readdir: NULL      |
+| releasedir: populated                                         | releasedir: NULL   | releasedir: NULL   |
+
+Inherently, but not via any spec, the context is only required to be populated within operations that create system files and/or check system access. (Without them, you wouldn't be able to implement file systems that adhear to POSIX specifications.)  
+i.e. `opendir` must know the UID/GID of the caller in order to check access permissions, but `readdir` does not, since `readdir` implies that the check was already done in `opendir` (as it must receive a valid reference that was previously returned from `opendir`).  
+
+As such, for our `readdir` implementations, we obtain the context during `opendir`, and bind it with the associated handle construct, if it's needed.  
+During normal operation it's not, but for systems that supporting FUSE's "readdirplus" capability, we need the context of the caller who opened the directory at the time of `readdir` operation.
+
 ### NetBSD
 is only allowing 1 mountpoint to be active at a time, if a second mountpoint is requested, it will be mapped, but the previous mountpoint will be overtaken by the new one.  
 e.g. consider the sequence:  
@@ -300,7 +356,7 @@ e.g. consider the sequence:
 at this moment, listing either `/ipfs` or `/ipns` will return results from the keyfs.  
 This is likely a cgofuse bug, needs looking into.  
 Otherwise, things seem to work as expected.  
-(Env: NetBSD 9.0, Go 1.13.9)
+(Env: NetBSD 9.0, Go 1.14.2)  
 TODO: NetBSD has support for mounting via 9P2000 and 9p2000.u (but not .L)  
 look into adding support for either in the p9 library we use (would add support for a bunch more platforms and tools than NetBSD as well)
 
