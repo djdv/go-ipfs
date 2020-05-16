@@ -185,11 +185,8 @@ func ReadFile(file transform.File, buff []byte, ofst int64) (error, errno) {
 		}
 	}
 
-	if ofst != 0 {
-		_, err := file.Seek(ofst, io.SeekStart)
-		if err != nil {
-			return err, -fuselib.EIO
-		}
+	if _, err := file.Seek(ofst, io.SeekStart); err != nil {
+		return err, -fuselib.EIO
 	}
 
 	buffLen := len(buff)
@@ -230,11 +227,8 @@ func WriteFile(file transform.File, buff []byte, ofst int64) (error, errno) {
 	}
 	*/
 
-	if ofst != 0 {
-		_, err := file.Seek(ofst, io.SeekStart)
-		if err != nil {
-			return fmt.Errorf("offset seek error: %s", err), -fuselib.EIO
-		}
+	if _, err := file.Seek(ofst, io.SeekStart); err != nil {
+		return fmt.Errorf("offset seek error: %s", err), -fuselib.EIO
 	}
 
 	wroteBytes, err := file.Write(buff)
