@@ -284,31 +284,65 @@ func (fs *FileSystem) Mknod(path string, mode uint32, dev uint64) int {
 
 func (fs *FileSystem) Truncate(path string, size int64, fh uint64) int {
 	fs.log.Warnf("Truncate - Request {%X|%d}%q", fh, size, path)
-	return -fuselib.ENOSYS
 
-	/* TODO
 	if size < 0 {
 		return -fuselib.EINVAL
 	}
 
 	if tf, err := fs.files.Get(fh); err == nil { // short path
 		if err := tf.Truncate(uint64(size)); err != nil {
+			fs.log.Error(err)
 			return -fuselib.EIO
 		}
 		return fusecom.OperationSuccess
 	}
 
-	if node, err := gomfs.Lookup(fs.mroot, path); err err == nil { // medium path
+	var loopPrevention bool
+lookup:
+
+	if node, err := gomfs.Lookup(fs.mroot, path); err == nil { // medium path
+		file, ok := node.(*gomfs.File)
+		if !ok {
+			fs.log.Error(fuselib.Error(-fuselib.EISDIR))
+			return -fuselib.EISDIR
+		}
+		fd, err := file.Open(gomfs.Flags{Write: true, Sync: true})
+		if err != nil {
+			fs.log.Error(err)
+			return -fuselib.EIO
+		}
+		if err := fd.Truncate(size); err != nil {
+			fs.log.Error(err)
+			return -fuselib.EIO
+		}
+	} else if loopPrevention {
+		fs.log.Error(err)
+		return -fuselib.EIO
 	}
 
-	 // long path
-	 // mknod; goto medium path
-	*/
+	// long path
+	// mknod; goto medium path
+	if err := mfs.Mknod(fs.mroot, path); err != nil {
+		fs.log.Error(err)
+		return err.ToFuse()
+	}
+	loopPrevention = true
+	goto lookup
 }
 
 func (fs *FileSystem) Write(path string, buff []byte, ofst int64, fh uint64) int {
 	fs.log.Warnf("Write - Request {%X|%d|%d}%q", fh, len(buff), ofst, path)
-	return -fuselib.ENOSYS
+	file, err := fs.files.Get(fh)
+	if err != nil {
+		fs.log.Error(fuselib.Error(-fuselib.EBADF))
+		return -fuselib.EBADF
+	}
+
+	err, retVal := fusecom.WriteFile(file, buff, ofst)
+	if err != nil && err != io.EOF {
+		fs.log.Error(err)
+	}
+	return retVal
 }
 
 func (fs *FileSystem) Link(oldpath string, newpath string) int {
@@ -317,9 +351,14 @@ func (fs *FileSystem) Link(oldpath string, newpath string) int {
 }
 
 func (fs *FileSystem) Unlink(path string) int {
-	fs.log.Warnf("Unlink - Request %q", path)
+	fs.log.Debugf("Unlink - Request %q", path)
 
-	return -fuselib.ENOSYS
+	if err := mfs.Unlink(fs.mroot, path); err != nil {
+		fs.log.Error(err)
+		return err.ToFuse()
+	}
+
+	return fusecom.OperationSuccess
 }
 
 func (fs *FileSystem) Mkdir(path string, mode uint32) int {
@@ -334,7 +373,12 @@ func (fs *FileSystem) Mkdir(path string, mode uint32) int {
 func (fs *FileSystem) Rmdir(path string) int {
 	fs.log.Warnf("Rmdir - Request %q", path)
 
-	return -fuselib.ENOSYS
+	if err := mfs.Rmdir(fs.mroot, path); err != nil {
+		fs.log.Error(err)
+		return err.ToFuse()
+	}
+
+	return fusecom.OperationSuccess
 }
 
 func (fs *FileSystem) Symlink(target string, newpath string) int {
@@ -348,7 +392,15 @@ func (fs *FileSystem) Symlink(target string, newpath string) int {
 	return fusecom.OperationSuccess
 }
 
+// TODO: error disambiguation
+// TODO: account for open handles (fun)
 func (fs *FileSystem) Rename(oldpath string, newpath string) int {
 	fs.log.Warnf("Rename - Request %q->%q", oldpath, newpath)
-	return -fuselib.ENOSYS
+
+	if err := gomfs.Mv(fs.mroot, oldpath, newpath); err != nil {
+		fs.log.Error(err)
+		return -fuselib.EIO
+	}
+
+	return fusecom.OperationSuccess
 }

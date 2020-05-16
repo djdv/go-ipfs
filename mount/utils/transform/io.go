@@ -35,7 +35,7 @@ func IOFlagsFrom9P(nineFlagsAmusementPark ninelib.OpenFlags) IOFlags {
 }
 
 func IOFlagsFromFuse(fuseFlags int) IOFlags {
-	switch fuseFlags {
+	switch fuseFlags & fuselib.O_ACCMODE {
 	case fuselib.O_RDONLY:
 		return IOReadOnly
 	case fuselib.O_WRONLY:

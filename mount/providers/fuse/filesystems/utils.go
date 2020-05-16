@@ -11,7 +11,7 @@ import (
 )
 
 type fuseFillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
-type errno = int
+type errNo = int
 
 // DirectoryPlus is a compatible directory, containing a method to stat it's children
 // (useful for conditionally handling FUSE's readdir plus feature via a type assertion)
@@ -125,7 +125,7 @@ func ApplyCommonsToStat(stat *fuselib.Stat_t, writable bool, tg StatTimeGroup, i
 
 // TODO: same placehold message as ApplyPermissions
 // we'll likely replace instances of this with something more sophisticated
-func CheckOpenFlagsBasic(writable bool, flags int) (error, errno) {
+func CheckOpenFlagsBasic(writable bool, flags int) (error, errNo) {
 	// NOTE: SUSv7 doesn't include O_APPEND for EROFS; despite this being a write flag
 	// we're counting it for now, but may remove this if it causes compatibility problems
 	const mutableFlags = fuselib.O_WRONLY | fuselib.O_RDWR | fuselib.O_APPEND | fuselib.O_CREAT | fuselib.O_TRUNC
@@ -147,7 +147,7 @@ func CheckOpenPathBasic(path string) (error, int) {
 }
 
 // TODO: these are backwards, convention is that error is last
-func ReleaseFile(table FileTable, handle uint64) (error, errno) {
+func ReleaseFile(table FileTable, handle uint64) (error, errNo) {
 	file, err := table.Get(handle)
 	if err != nil {
 		return err, -fuselib.EBADF
@@ -166,7 +166,7 @@ func ReleaseFile(table FileTable, handle uint64) (error, errno) {
 	return file.Close(), OperationSuccess
 }
 
-func ReleaseDir(table DirectoryTable, handle uint64) (error, errno) {
+func ReleaseDir(table DirectoryTable, handle uint64) (error, errNo) {
 	dir, err := table.Get(handle)
 	if err != nil {
 		return err, -fuselib.EBADF
@@ -187,7 +187,7 @@ func ReleaseDir(table DirectoryTable, handle uint64) (error, errno) {
 }
 
 // TODO: read+write; we're not accounting for scenarios where the offset is beyond the end of the file
-func ReadFile(file transform.File, buff []byte, ofst int64) (error, errno) {
+func ReadFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
 	if len(buff) == 0 {
 		return nil, 0
 	}
@@ -224,7 +224,7 @@ func ReadFile(file transform.File, buff []byte, ofst int64) (error, errno) {
 	return err, readBytes
 }
 
-func WriteFile(file transform.File, buff []byte, ofst int64) (error, errno) {
+func WriteFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
 	if len(buff) == 0 {
 		return nil, 0
 	}

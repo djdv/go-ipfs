@@ -954,7 +954,51 @@ func (fs *FileSystem) Symlink(target string, newpath string) int {
 	return -fuselib.ENOENT
 }
 
+// TODO: account for open handles (fun)
+// TODO: cross FS moves (also fun)
 func (fs *FileSystem) Rename(oldpath string, newpath string) int {
 	fs.log.Warnf("Rename - Request %q->%q", oldpath, newpath)
 	return -fuselib.ENOSYS
+	/*
+		keyName, remainder, err := checkAndSplitPath(oldpath)
+		if err != nil {
+			fs.log.Error(err)
+			return -fuselib.ENOENT
+		}
+
+		if keyName == "" { // root request
+			fs.log.Error(fuselib.Error(-fuselib.EEXIST))
+			return -fuselib.EBUSY // TODO: is this the best value for this?
+		}
+
+		coreKey, err := checkKey(fs.Ctx(), fs.Core().Key(), keyName)
+		if err != nil {
+			fs.log.Error(err)
+			return -fuselib.EIO
+		}
+
+		if coreKey != nil {
+			if remainder == "/" { // request to move the key itself
+				fs.log.Error(fuselib.Error(-fuselib.EEXIST))
+				return -fuselib.EEXIST
+			}
+
+			// request for a path within the key
+			mfs, err := fs.mfsTable.OpenRoot(coreKey)
+			if err != nil {
+				if err == keyfs.ErrKeyIsNotDir {
+					fs.log.Errorf("%q requested but %q is not a directory", newpath, keyName)
+					return -fuselib.ENOTDIR
+				}
+				fs.log.Error(err)
+				return -fuselib.ENOENT
+			}
+			//return mfs.Rename(target, remainder)
+		}
+
+		// TODO: resolution of newpath
+
+		// subrequest for a key that doesn't exist
+		return -fuselib.ENOENT
+	*/
 }
