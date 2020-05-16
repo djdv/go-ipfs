@@ -14,7 +14,7 @@ import (
 // if this ever changes (bumps libfuse from 2.8 -> 3.X+), add platform support here (and to any other tags with this UUID)
 // TODO: this would be best in the fuselib itself; make a patch upstream
 // it's only here because we can't put it in fusecommon because of a dependency cycle
-var CanReaddirPlus bool = runtime.GOOS == "windows"
+const CanReaddirPlus bool = runtime.GOOS == "windows"
 
 type (
 	Base interface {
