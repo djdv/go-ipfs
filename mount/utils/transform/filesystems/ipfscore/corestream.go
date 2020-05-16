@@ -31,7 +31,7 @@ type offsetEntry struct {
 	offset uint64
 }
 
-func (oe *offsetEntry) Offset() uint64 { return oe.offset }
+func (oe *offsetEntry) Offset() uint64 { return oe.offset } // TODO: swap this with Path
 
 type coreDirectoryStream struct {
 	core             coreiface.CoreAPI

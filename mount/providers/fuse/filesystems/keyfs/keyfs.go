@@ -22,6 +22,8 @@ import (
 
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
 
+const filesWritable = true
+
 type FileSystem struct {
 	fusecom.SharedMethods
 	provcom.IPFSCore
@@ -38,6 +40,9 @@ type FileSystem struct {
 
 	log  logging.EventLogger
 	ipns fuselib.FileSystemInterface
+
+	mountTimeGroup fusecom.StatTimeGroup
+	rootStat       *fuselib.Stat_t
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
@@ -175,6 +180,22 @@ func (fs *FileSystem) Init() {
 
 	fs.mfsTable = newRootTable(fs.Ctx(), fs.Core())
 	fs.uioTable = keyfs.NewFileWrapper(fs.Ctx(), fs.Core())
+
+	timeOfMount := fuselib.Now()
+
+	fs.mountTimeGroup = fusecom.StatTimeGroup{
+		Atim:     timeOfMount,
+		Mtim:     timeOfMount,
+		Ctim:     timeOfMount,
+		Birthtim: timeOfMount,
+	}
+
+	fs.rootStat = &fuselib.Stat_t{
+		Mode: fuselib.S_IFDIR | fusecom.IRWXA&^(fuselib.S_IWOTH|fuselib.S_IXOTH), // |0774
+		Atim: timeOfMount,
+		Mtim: timeOfMount,
+		Ctim: timeOfMount,
+	}
 }
 
 func (fs *FileSystem) Destroy() {
@@ -190,8 +211,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 		return -fuselib.ENOENT
 	}
 	if keyName == "" { // root request
-		stat.Mode = fuselib.S_IFDIR
-		fusecom.ApplyPermissions(true, &stat.Mode)
+		*stat = *fs.rootStat
 		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 	}
@@ -210,8 +230,9 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 
 		if remainder == "/" { // if no subpath, we're already done
 			*stat = *iStat.ToFuse()
-			fusecom.ApplyPermissions(true, &stat.Mode)
-			stat.Uid, stat.Gid, _ = fuselib.Getcontext()
+			var ids fusecom.StatIDGroup
+			ids.Uid, ids.Gid, _ = fuselib.Getcontext()
+			fusecom.ApplyCommonsToStat(stat, filesWritable, fs.mountTimeGroup, ids)
 			return fusecom.OperationSuccess
 		}
 
@@ -344,7 +365,7 @@ func (fs *FileSystem) Readdir(path string,
 			return -fuselib.EBADF
 		}
 
-		goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, false, fill, ofst)
+		goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, fill, ofst)
 		if goErr != nil {
 			fs.log.Error(goErr)
 		}

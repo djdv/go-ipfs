@@ -26,10 +26,10 @@ type FileSystem struct {
 	provcom.IPFSCore
 	//provcom.MFS
 
-	// init relevant - do not use outside of init(); they will be nil
+	// init relevant
 	initChan     fusecom.InitSignal
-	resLock      mountcom.ResourceLock // call methods on fs.(Request|Release) instead
-	filesAPIRoot *gomfs.Root           // use fs.filesAPI after it's initialized
+	resLock      mountcom.ResourceLock // don't reference directly, call methods on fs.(Request|Release)
+	filesAPIRoot *gomfs.Root           // don't reference directly, use fs.filesAPI after it's initialized
 	directories  []string
 
 	// FIXME: zap logger implies newly created logs will respect the zapconfig's set Level
@@ -39,6 +39,9 @@ type FileSystem struct {
 	// persistent
 	log                  logging.EventLogger
 	ipfs, ipns, filesAPI fuselib.FileSystemInterface
+
+	mountTimeGroup fusecom.StatTimeGroup
+	rootStat       *fuselib.Stat_t
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
@@ -144,6 +147,22 @@ func (fs *FileSystem) Init() {
 		capacity := len(fs.directories) + 1 // this slice lives forever; so cap the reslice to save less bytes than this comment takes
 		fs.directories = append(fs.directories, "file")[:capacity:capacity]
 	}
+
+	timeOfMount := fuselib.Now()
+
+	fs.mountTimeGroup = fusecom.StatTimeGroup{
+		Atim:     timeOfMount,
+		Mtim:     timeOfMount,
+		Ctim:     timeOfMount,
+		Birthtim: timeOfMount,
+	}
+
+	fs.rootStat = &fuselib.Stat_t{
+		Mode: fuselib.S_IFDIR | fusecom.IRXA&^(fuselib.S_IXOTH), // |0554
+		Atim: timeOfMount,
+		Mtim: timeOfMount,
+		Ctim: timeOfMount,
+	}
 }
 
 func (fs *FileSystem) attachPinFS() (fuselib.FileSystemInterface, error) {
@@ -243,8 +262,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 	}
 
 	if targetFs == fs {
-		stat.Mode |= fuselib.S_IFDIR
-		fusecom.ApplyPermissions(false, &stat.Mode)
+		*stat = *fs.rootStat
 		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 	}

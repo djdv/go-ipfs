@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	files "github.com/ipfs/go-ipfs-files"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
@@ -22,6 +21,8 @@ import (
 
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
 
+const filesWritable = false
+
 type FileSystem struct {
 	fusecom.SharedMethods
 	provcom.IPFSCore
@@ -33,6 +34,9 @@ type FileSystem struct {
 
 	log       logging.EventLogger
 	namespace mountinter.Namespace
+
+	mountTimeGroup fusecom.StatTimeGroup
+	rootStat       *fuselib.Stat_t
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
@@ -50,6 +54,10 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 	}
 }
 
+func (fs *FileSystem) joinRoot(path string) corepath.Path {
+	return corepath.New(gopath.Join("/", strings.ToLower(fs.namespace.String()), path))
+}
+
 func (fs *FileSystem) Init() {
 	fs.Lock()
 	fs.log.Debug("init")
@@ -64,6 +72,21 @@ func (fs *FileSystem) Init() {
 	fs.files = fusecom.NewFileTable()
 	fs.directories = fusecom.NewDirectoryTable()
 
+	timeOfMount := fuselib.Now()
+
+	fs.mountTimeGroup = fusecom.StatTimeGroup{
+		Atim:     timeOfMount,
+		Mtim:     timeOfMount,
+		Ctim:     timeOfMount,
+		Birthtim: timeOfMount,
+	}
+
+	fs.rootStat = &fuselib.Stat_t{
+		Mode: fuselib.S_IFDIR | fusecom.IRXA&^(fuselib.S_IXOTH), // |0554
+		Atim: timeOfMount,
+		Mtim: timeOfMount,
+		Ctim: timeOfMount,
+	}
 }
 
 func (fs *FileSystem) Destroy() {
@@ -79,56 +102,126 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 		return -fuselib.ENOENT
 
 	case "/":
-		stat.Mode = fuselib.S_IFDIR
-		fusecom.ApplyPermissions(false, &stat.Mode)
+		*stat = *fs.rootStat
 		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 
 	default:
-		// expectation is to receive `/${multihash}`, not `${namespace}/${mulithash}`
-		// we'll do that
-		// TODO: [investigate] [b6150f2f-8689-4e60-a605-fd40c826c32d]
-		// either `joinRoot` should be exported; ipfscore.GetAttr should take a namespace
-		// or something else
-		fullPath := corepath.New(gopath.Join("/", strings.ToLower(fs.namespace.String()), path))
-
-		iStat, _, err := transform.GetAttr(fs.Ctx(), fullPath, fs.Core(), transform.IPFSStatRequestAll)
-		if err != nil {
-			fs.log.Error(err)
+		if err := fs.getattr(path, stat); err != nil {
+			// TODO: filter out "not found" if we can; omitted completley for now
+			// fs.log.Error(err)
 			return -fuselib.ENOENT
 		}
 
-		*stat = *iStat.ToFuse()
-		fusecom.ApplyPermissions(false, &stat.Mode)
-		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
+		var ids fusecom.StatIDGroup
+		ids.Uid, ids.Gid, _ = fuselib.Getcontext()
+		fusecom.ApplyCommonsToStat(stat, filesWritable, fs.mountTimeGroup, ids)
 		return fusecom.OperationSuccess
 	}
 }
 
+// I hate this and hope the compiler can inline these
+func (fs *FileSystem) getattr(path string, stat *fuselib.Stat_t) error {
+	// expectation is to receive `/${multihash}`, not `${namespace}/${mulithash}`
+	corePath := fs.joinRoot(path)
+	return fs.coreGetattr(corePath, stat)
+}
+func (fs *FileSystem) coreGetattr(corePath corepath.Path, stat *fuselib.Stat_t) error {
+	iStat, _, err := transform.GetAttr(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequestAll)
+	if err != nil {
+		return err
+	}
+
+	if stat.Mode == 0 { // quick direct copy
+		*stat = *iStat.ToFuse()
+		return nil
+	}
+
+	// merge with pre-populated
+
+	coreStat := iStat.ToFuse()
+
+	stat.Mode &^= fuselib.S_IFMT // retain permissions bits, but clear the type bits
+	stat.Mode |= coreStat.Mode   // we don't expect the core mode to contain anything other than the type bits, so we do no filtering on it
+	stat.Size = coreStat.Size
+	stat.Blksize = coreStat.Blksize
+	stat.Blocks = coreStat.Blocks
+
+	return nil
+}
+
 func (fs *FileSystem) Opendir(path string) (int, uint64) {
 	fs.log.Debugf("Opendir - %q", path)
-	var directory transform.Directory
-	switch path {
-	case "":
+
+	if path == "" { // invalid requests
 		fs.log.Error(fuselib.Error(-fuselib.ENOENT))
 		return -fuselib.ENOENT, fusecom.ErrorHandle
+	}
 
-	case "/":
+	var directory transform.Directory
+
+	if path == "/" { // root requests
 		directory = empty.OpenDir()
+		if provcom.CanReaddirPlus {
+			// static assign a copy of the root template, adding in operation context values
+			dotStat := new(fuselib.Stat_t)
+			*dotStat = *fs.rootStat
+			dotStat.Uid, dotStat.Gid, _ = fuselib.Getcontext()
 
-	default:
-		fullPath, err := fusecom.JoinRoot(fs.namespace, path)
-		if err != nil {
-			fs.log.Error(err)
-			return -fuselib.ENOENT, fusecom.ErrorHandle
+			statFunc := func(name string) *fuselib.Stat_t {
+				// TODO: if we're rooted under a parent, return it's stat for `..`
+				if name == "." {
+					return dotStat
+				}
+				return nil
+			}
+
+			directory = &fusecom.DirectoryPlus{directory, statFunc}
 		}
 
-		coreDir, err := ipfscore.OpenDir(fs.Ctx(), fullPath, fs.Core())
-		if err != nil {
-			fs.log.Error(err)
-			return -fuselib.ENOENT, fusecom.ErrorHandle
+		handle, err := fs.directories.Add(directory)
+		if err != nil { // TODO: transform error
+			fs.log.Error(fuselib.Error(-fuselib.EMFILE))
+			return -fuselib.EMFILE, fusecom.ErrorHandle
 		}
-		directory = coreDir
+
+		return fusecom.OperationSuccess, handle
+	}
+
+	// sub requests
+
+	corePath := fs.joinRoot(path)
+
+	var err error
+	directory, err = ipfscore.OpenDir(fs.Ctx(), corePath, fs.Core())
+	if err != nil {
+		fs.log.Error(err)
+		return -fuselib.ENOENT, fusecom.ErrorHandle
+	}
+
+	if provcom.CanReaddirPlus {
+		stat := new(fuselib.Stat_t)
+		var ids fusecom.StatIDGroup
+		ids.Uid, ids.Gid, _ = fuselib.Getcontext()
+		fusecom.ApplyCommonsToStat(stat, filesWritable, fs.mountTimeGroup, ids)
+
+		statFunc := func(name string) *fuselib.Stat_t {
+			switch name {
+			case ".":
+				if err := fs.coreGetattr(corePath, stat); err != nil {
+					return nil // this will force a fallback to full Getattr (which will likely fail again, but will be logged under that call)
+				}
+			case "..":
+				return nil
+			default:
+				if err := fs.coreGetattr(corepath.Join(corePath, name), stat); err != nil {
+					return nil
+				}
+			}
+			return stat
+		}
+
+		directory = &fusecom.DirectoryPlus{directory, statFunc}
 	}
 
 	handle, err := fs.directories.Add(directory)
@@ -168,7 +261,7 @@ func (fs *FileSystem) Readdir(path string,
 		return -fuselib.EBADF
 	}
 
-	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, false, fill, ofst)
+	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, fill, ofst)
 	if goErr != nil {
 		fs.log.Error(goErr)
 	}
@@ -181,7 +274,7 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	defer fs.Unlock()
 	fs.log.Debugf("Open - {%X}%q", flags, path)
 
-	goErr, errNo := fusecom.CheckOpenFlagsBasic(false, flags)
+	goErr, errNo := fusecom.CheckOpenFlagsBasic(filesWritable, flags)
 	if goErr != nil {
 		fs.log.Error(goErr)
 		return errNo, fusecom.ErrorHandle
@@ -193,14 +286,10 @@ func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 		return errNo, fusecom.ErrorHandle
 	}
 
-	fullPath, err := fusecom.JoinRoot(fs.namespace, path)
-	if err != nil {
-		fs.log.Error(err)
-		return -fuselib.ENOENT, fusecom.ErrorHandle
-	}
+	corePath := fs.joinRoot(path)
 
 	// TODO: rename back to err when everything else is abstracted
-	file, tErr := ipfscore.OpenFile(fs.Ctx(), fullPath, fs.Core(), transform.IOFlagsFromFuse(flags))
+	file, tErr := ipfscore.OpenFile(fs.Ctx(), corePath, fs.Core(), transform.IOFlagsFromFuse(flags))
 	if tErr != nil {
 		fs.log.Error(tErr)
 		return tErr.ToFuse(), fusecom.ErrorHandle
@@ -261,29 +350,14 @@ func (fs *FileSystem) Readlink(path string) (int, string) {
 	}
 
 	// TODO: timeout contexts
-	corePath := corepath.New(path[1:])
-	iStat, _, err := transform.GetAttr(fs.Ctx(), corePath, fs.Core(), transform.IPFSStatRequest{Type: true})
+	corePath := fs.joinRoot(path)
+	linkString, err := ipfscore.Readlink(fs.Ctx(), corePath, fs.Core())
 	if err != nil {
 		fs.log.Error(err)
-		return -fuselib.ENOENT, ""
+		return err.ToFuse(), ""
 	}
-
-	if iStat.FileType != coreiface.TSymlink {
-		fs.log.Errorf("Readlink - {%s}%q is not a symlink", iStat.FileType, path)
-		return -fuselib.EINVAL, ""
-	}
-
-	linkNode, err := fs.Core().Unixfs().Get(fs.Ctx(), corePath)
-	if err != nil {
-		fs.log.Error(err)
-		return -fuselib.EIO, ""
-	}
-
-	// NOTE: the implementation of this does no type checks
-	// which is why we check the node's type above
-	linkActual := files.ToSymlink(linkNode)
 
 	// NOTE: paths returned here get sent back to the FUSE library
-	// they should not be native paths
-	return fusecom.OperationSuccess, filepath.ToSlash(linkActual.Target)
+	// they should not be native paths, regardless of their source format
+	return fusecom.OperationSuccess, filepath.ToSlash(linkString)
 }

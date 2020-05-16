@@ -17,17 +17,13 @@ type Directory interface {
 	// Readdir returns attempts to return all entires starting from offset until it reaches the end
 	// or the context is canceled
 	Readdir(ctx context.Context, offset uint64) DirectoryState
+	// TODO: ^ rename to List
+	// TODO: implement
+	// Reset() error
 	io.Closer
 }
 
-// TODO: review; [kludge] if there's a better way to handle this, do it
-// This interface provides a way for stream wrappers to prevent a stream from resetting itself
-// upon the next call to `Readdir`.
-// Allowing a stream handler to replay a stream from the 0th element by calling
-// `stream.DontReset()`; `stream.Readdir(0,0)`
-// This is mainly necessary due to an ambiguity in FUSE
-// which effectively obfuscates/conflates `seekdir(0)` and `rewinddir` at our implementation layer.
-// in the event a stream is not yet initialized, it proceeds as if `DontReset` was not called
+// TODO: remove when implementations have transitioned to new Directory format
 type DirectoryStream interface {
 	Directory
 	DontReset()
@@ -40,17 +36,18 @@ type StreamSource interface {
 
 type DirectoryStreamEntry interface {
 	Name() string
-	Path() corepath.Path
+	Path() corepath.Path // remove this, add offset
 	Error() error
 }
 
 type FuseStatGroup struct {
 	Name   string
 	Offset int64
-	Stat   *fuselib.Stat_t
+	Stat   *fuselib.Stat_t // remove this; formalize Stream entry as the standard with an offset
 }
 
-// TODO: better name
+// TODO: remove this; overly complicates things for no real benefit
+// translation of entries should be done at the FS layer
 type DirectoryState interface {
 	// TODO: for Go and 9P, allow the user to pass in a pre-allocated slice (or nil)
 	// same for Fuse but with a channel, in case they want it buffered

@@ -5,18 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	gopath "path"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
-	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-type fillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
+type fuseFillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 type errno = int
 
-func FillDir(ctx context.Context, directory transform.Directory, writable bool, fill fillFunc, offset int64) (error, int) {
+// DirectoryPlus is a compatible directory, containing a method to stat it's children
+// (useful for conditionally handling FUSE's readdir plus feature via a type assertion)
+type DirectoryPlus struct {
+	transform.Directory
+	StatFunc
+}
+type StatFunc func(name string) *fuselib.Stat_t
+
+func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFunc, offset int64) (error, int) {
 	// dots are optional in POSIX but lots of things break without them, so we fill them in
 	// NOTE: we let the OS populate the stats because it's not worth the complexity yet
 	// later this may change to add 2 closed procedures for self/parent; `{self|parent}Resolve()(*stat, error)`
@@ -33,16 +38,30 @@ func FillDir(ctx context.Context, directory transform.Directory, writable bool, 
 
 	var relativeOffset uint64 // offset used for input, adjusting for dots if any
 
+	var (
+		statFunc StatFunc
+		stat     *fuselib.Stat_t
+	)
+
+	if dirPlus, ok := directory.(*DirectoryPlus); ok {
+		statFunc = dirPlus.StatFunc
+	} else {
+		statFunc = func(string) *fuselib.Stat_t { return nil }
+	}
+
 	switch offset {
 	case 0:
-		if !fill(".", nil, 1) {
+		stat = statFunc(".")
+		if !fill(".", stat, 1) {
 			return nil, OperationSuccess
 		}
-		if !fill("..", nil, 2) {
+		stat = statFunc("..")
+		if !fill("..", stat, 2) {
 			return nil, OperationSuccess
 		}
 	case 1:
-		if !fill("..", nil, 2) {
+		stat = statFunc("..")
+		if !fill("..", stat, 2) {
 			return nil, OperationSuccess
 		}
 	case dotOffsetBase: // do nothing; relativeOffset stays at 0
@@ -59,6 +78,11 @@ func FillDir(ctx context.Context, directory transform.Directory, writable bool, 
 			stream.DontReset()
 		}
 	}
+	/* next version:
+	if offset == 0 {
+		err := directory.Reset()
+	}
+	*/
 
 	readCtx, cancel := context.WithCancel(ctx)
 	defer func() { cancel() }()
@@ -68,13 +92,8 @@ func FillDir(ctx context.Context, directory transform.Directory, writable bool, 
 	}
 
 	for ent := range entChan {
-		// stat will always be nil on platforms that have ReaddirPlus disabled
-		// and is not guaranteed to be filled on those that do
-		if ent.Stat != nil {
-			ApplyPermissions(writable, &ent.Stat.Mode)
-		}
-
-		if !fill(ent.Name, ent.Stat, ent.Offset+dotOffsetBase) {
+		stat = statFunc(ent.Name)
+		if !fill(ent.Name, stat, ent.Offset+dotOffsetBase) {
 			break
 		}
 	}
@@ -82,27 +101,25 @@ func FillDir(ctx context.Context, directory transform.Directory, writable bool, 
 	return nil, OperationSuccess
 }
 
-func JoinRoot(ns mountinter.Namespace, path string) (corepath.Path, error) {
-	var rootPath string
-	switch ns {
-	default:
-		return nil, fmt.Errorf("unsupported namespace: %s", ns.String())
-	case mountinter.NamespaceIPFS:
-		rootPath = "/ipfs"
-	case mountinter.NamespaceIPNS:
-		rootPath = "/ipns"
-	case mountinter.NamespaceCore:
-		rootPath = "/ipld"
-	}
-	return corepath.New(gopath.Join(rootPath, path)), nil
+type StatTimeGroup struct {
+	Atim, Mtim, Ctim, Birthtim fuselib.Timespec
 }
 
-// TODO: this is mostly here as a placeholder/marker until we figure out how best to standardize permissions
-// not everything should have the execute bit set but this isn't stored anywhere for us to fetch either
-func ApplyPermissions(fsWritable bool, mode *uint32) {
-	*mode |= IRXA &^ (fuselib.S_IXOTH) // |0554
-	if fsWritable {
-		*mode |= (fuselib.S_IWGRP | fuselib.S_IWUSR) // |0220
+type StatIDGroup struct {
+	Uid, Gid uint32
+	// These are omitted for now (as they're not used by us)
+	// but belong in this structure if they become needed
+	// Dev, Rdev uint64
+}
+
+func ApplyCommonsToStat(stat *fuselib.Stat_t, writable bool, tg StatTimeGroup, ids StatIDGroup) {
+	stat.Atim, stat.Mtim, stat.Ctim, stat.Birthtim = tg.Atim, tg.Mtim, tg.Ctim, tg.Birthtim
+	stat.Uid, stat.Gid = ids.Uid, ids.Gid
+
+	if writable {
+		stat.Mode |= IRWXA &^ (fuselib.S_IWOTH | fuselib.S_IXOTH) // |0774
+	} else {
+		stat.Mode |= IRXA &^ (fuselib.S_IXOTH) // |0554
 	}
 }
 

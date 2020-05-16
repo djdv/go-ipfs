@@ -19,6 +19,8 @@ import (
 
 var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
 
+const filesWritable = true
+
 type FileSystem struct {
 	fusecom.SharedMethods
 	provcom.IPFSCore
@@ -30,6 +32,8 @@ type FileSystem struct {
 	files       fusecom.FileTable
 
 	log logging.EventLogger
+
+	mountTimeGroup fusecom.StatTimeGroup
 }
 
 func NewFileSystem(ctx context.Context, mroot gomfs.Root, core coreiface.CoreAPI, opts ...Option) *FileSystem {
@@ -68,6 +72,13 @@ func (fs *FileSystem) Init() {
 	// fs.mountTime = fuselib.Now()
 	fs.directories = fusecom.NewDirectoryTable()
 	fs.files = fusecom.NewFileTable()
+	timeOfMount := fuselib.Now()
+	fs.mountTimeGroup = fusecom.StatTimeGroup{
+		Atim:     timeOfMount,
+		Mtim:     timeOfMount,
+		Ctim:     timeOfMount,
+		Birthtim: timeOfMount,
+	}
 }
 
 func (fs *FileSystem) Destroy() {
@@ -97,8 +108,9 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 	}
 
 	*stat = *iStat.ToFuse()
-	fusecom.ApplyPermissions(true, &stat.Mode)
-	stat.Uid, stat.Gid, _ = fuselib.Getcontext()
+	var ids fusecom.StatIDGroup
+	ids.Uid, ids.Gid, _ = fuselib.Getcontext()
+	fusecom.ApplyCommonsToStat(stat, filesWritable, fs.mountTimeGroup, ids)
 	return fusecom.OperationSuccess
 }
 
@@ -143,7 +155,7 @@ func (fs *FileSystem) Readdir(path string,
 		return -fuselib.EBADF
 	}
 
-	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, false, fill, ofst)
+	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, fill, ofst)
 	if goErr != nil {
 		fs.log.Error(goErr)
 	}

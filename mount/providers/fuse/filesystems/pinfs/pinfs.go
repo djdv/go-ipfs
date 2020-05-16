@@ -25,6 +25,9 @@ type FileSystem struct {
 
 	log  logging.EventLogger
 	ipfs fuselib.FileSystemInterface
+
+	mountTimeGroup fusecom.StatTimeGroup
+	rootStat       *fuselib.Stat_t
 }
 
 func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *FileSystem {
@@ -80,6 +83,21 @@ func (fs *FileSystem) Init() {
 
 	// fs.mountTime = fuselib.Now()
 	fs.directories = fusecom.NewDirectoryTable()
+
+	timeOfMount := fuselib.Now()
+	fs.mountTimeGroup = fusecom.StatTimeGroup{
+		Atim:     timeOfMount,
+		Mtim:     timeOfMount,
+		Ctim:     timeOfMount,
+		Birthtim: timeOfMount,
+	}
+
+	fs.rootStat = &fuselib.Stat_t{
+		Mode: fuselib.S_IFDIR | fusecom.IRXA&^(fuselib.S_IXOTH), // |0554
+		Atim: timeOfMount,
+		Mtim: timeOfMount,
+		Ctim: timeOfMount,
+	}
 }
 
 func (fs *FileSystem) Destroy() {
@@ -99,8 +117,7 @@ func (fs *FileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) (err
 		// mapping it to unpin
 		// this isn't POSIX compliant so tools won't work with it by default
 		// but would be useful if documented
-		stat.Mode = fuselib.S_IFDIR
-		fusecom.ApplyPermissions(false, &stat.Mode)
+		*stat = *fs.rootStat
 		stat.Uid, stat.Gid, _ = fuselib.Getcontext()
 		return fusecom.OperationSuccess
 
@@ -118,6 +135,7 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 		return -fuselib.ENOENT, fusecom.ErrorHandle
 
 	case "/":
+		//TODO: wrap for readdir plus, with parent stat (if any)
 		pinDir, err := pinfs.OpenDir(fs.Ctx(), fs.Core())
 		if err != nil {
 			fs.log.Error(err)
@@ -166,7 +184,7 @@ func (fs *FileSystem) Readdir(path string,
 		return -fuselib.EBADF
 	}
 
-	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, false, fill, ofst)
+	goErr, errNo := fusecom.FillDir(fs.Ctx(), directory, fill, ofst)
 	if goErr != nil {
 		fs.log.Error(goErr)
 	}

@@ -80,10 +80,12 @@ func unixFSAttr(ufsNode *unixfs.FSNode, req IPFSStatRequest) (*IPFSStat, IPFSSta
 
 	if req.Blocks {
 		// NOTE: we can't account for variable block size so we use the size of the first block only (if any)
-		if len(ufsNode.BlockSizes()) > 0 {
+		blocks := len(ufsNode.BlockSizes())
+		if blocks > 0 {
 			attr.BlockSize = uint64(ufsNode.BlockSize(0))
+			attr.Blocks = uint64(blocks)
 		}
-		// 0 is a valid value for this field, especially for non-regular files
+		// 0 is a valid value for these fields, especially for non-regular files
 		// so set this to true regardless of if one was provided or not
 		filledAttrs.Blocks = true
 	}
