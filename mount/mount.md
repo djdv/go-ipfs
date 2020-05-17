@@ -7,6 +7,7 @@ The commit log is just terrible, it might be split up later when things are clos
 In short, it's all gross and not fully usable yet. But a lot of it works when built.  
 
 * [Overview](#overview)
+* [Building](#building)
 * [Important interfaces](#important-interfaces)
 	* [Command line](#command-line)
 	* [Conductors](#conductors)
@@ -63,6 +64,47 @@ The conductor will facilitate management of file system "providers" (they're lik
 "Providers" provide implementations of file systems, and facilities to graft them to some target.  
 Typically this will be mounting file systems to a path in the host system.  
 (e.g. mounting the abstract namespace "IPFS" to the local path `/ipfs`  via the FUSE API)
+
+# Building
+The FUSE portions require [the dependencies of cgofuse](https://github.com/billziss-gh/cgofuse#how-to-build)  
+(At the moment there's no build constraint in place to disable building the fuse components, but this will come later, allowing you to specify a build tag that disables FUSE, 9P, and/or other file system providers)
+
+### Without a C compiler
+On Windows, cgofuse can be built without a C compiler by disabling cgo when building `ipfs`.  
+(CMD: `SET CGO_ENABLED=0`,  PowerShell: `$ENV:CGO_ENABLED=0`)  
+
+
+### With a C compiler
+To build with CGO enabled (recommended since other unrelated libraries may benefit from having access to a C compiler), you must have [WinFSP](http://www.secfs.net/winfsp/) installed, with its "Developer" feature included.
+
+When building with CGO, if you encounter an error like this:
+```
+pkg\mod\github.com\billziss-gh\cgofuse@v1.2.0\fuse\fsop_cgo.go:19:2: error: #error platform not supported
+   19 | #error platform not supported
+      |  ^~~~~
+```
+it means you're using an unsupported compiler.  
+MinGW versions of `gcc` are supported. I personally use the MSYS2 project's `mingw64/mingw-w64-x86_64-gcc` with no issues.  
+It should be noted that Cygwin versions of `gcc` may be supported, but will not be covered in this section (In the case of MSYS2, that would be package `msys/gcc`).  
+So be sure to use a Golang compatible, Win32 native, C compiler.
+If/when support is added to Golang, bias towards platform native compilers if you have the choice. (msvc > clang > gcc)
+
+In addition, the C compiler needs to be aware of the WinFSP library headers somehow. Otherwise you'll see an error like this:
+```
+pkg\mod\github.com\billziss-gh\cgofuse@v1.2.0\fuse\host_cgo.go:103:10: fatal error: fuse_common.h: No such file or directory
+  103 | #include <fuse_common.h>
+      |          ^~~~~~~~~~~~~~~
+compilation terminated.
+```
+
+The easiest way to make the compiler aware of these files is put them into the `CPATH` environment variable before before building `ipfs`.  
+By default they're in `"%ProgramFiles(x86)%\WinFsp\inc\fuse"`, so you may set the CPATH environment variable to include that path in its search.
+(CMD: `SET CPATH=%CPATH%;%ProgramFiles(x86)%\WinFsp\inc\fuse`, PowerShell: `$ENV:CPATH += ";${ENV:ProgramFiles(x86)}\Winfsp\inc\fuse"`  
+As stated above, Cygwin equivalents may work, but have not been tested and are not being covered by this document. Feel free to add information here if you try using WinFSP's Cygwin compatibility.
+
+### Running
+
+Regardless of how `ipfs` is built, the WinFSP system service is required for the resulting binary to speak with the kernel. This is included in the "Core" feature of the MSI package, and should remain installed on systems you wish to utilize mount features on. Otherwise commands that invoke mount functions will return an error asking you to install it. (you do not have to restart the node after installing, just re-run the command)
 
 ## Important interfaces
 ### Command line
@@ -336,8 +378,8 @@ It should be noted somewhere, the behaviour of (Go)`fuse.Getcontext`/(C)`fuse_ge
 None of the implementations have useful documentation for this call, other than saying the pointer to the structure should not be held past the operation call that invoked it.  
 The various implementations have varying results. For example, consider the non-exhaustive table below.  
 
-|FreeBSD (fusefs)<br>NetBSD (PUFFS)<br>macOS (FUSE for macOS)   | Linux (libfuse)    | Windows (WinFSP)   |
-|------------------------------------------------------------   | ---------------    | ----------------   |
+|FreeBSD (fusefs)<br>NetBSD (PUFFS)<br>macOS (FUSE for macOS)   | Linux (fuse)       | Windows (WinFSP)   |
+|------------------------------------------------------------   | ------------       | ----------------   |
 | opendir: populated                                            | opendir: populated | opendir: populated |
 | readdir: populated                                            | readdir: populated | readdir: NULL      |
 | releasedir: populated                                         | releasedir: NULL   | releasedir: NULL   |
