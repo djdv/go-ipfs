@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
@@ -62,9 +63,7 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs s
 	}, nil
 }
 
-// NOTE: the named error value `retErr` is accessed by a deferred panic handler `cgofuseRecover`
-// which is used to modify it before it is returned to the caller (in certain circumstances)
-func (pr *fuseProvider) Graft(target string) (mi mountinter.Instance, retErr error) {
+func (pr *fuseProvider) Graft(target string) (mountinter.Instance, error) {
 	pr.Lock()
 	defer pr.Unlock()
 
@@ -77,17 +76,27 @@ func (pr *fuseProvider) Graft(target string) (mi mountinter.Instance, retErr err
 		return nil, err
 	}
 
-	// cgofuse will panic on fs.Init() if the required libraries are not found
-	// we want to recover from this; assigning something useful to the return error
-	defer cgofuseRecover(&retErr)
-
 	fuseTarget, fuseOpts := fuseArgs(target, pr.namespace)
 	go func() {
-		// NOTE: mount will either fail or panic on fuselib issues
-		// if it doesn't it will call fs.Init() which will return either an error or nil
-		// as a result we expect to get 0 results on the channel for panic
-		// 1 result if mount failed from this goroutine or
-		// 1 result from fs.Init() if mount did not fail immediately
+		// cgofuse will panic before calling fs.Init() if the fuse libraries encounter issues
+		// we want to recover from this and return an error to the waiting channel
+		// (instead of exiting the node process)
+		defer func() {
+			if r := recover(); r != nil {
+				switch runtime.GOOS {
+				case "windows":
+					if typedR, ok := r.(string); ok && typedR == "cgofuse: cannot find winfsp" {
+						initSignal <- errors.New("WinFSP(http://www.secfs.net/winfsp/) is required to mount on this platform, but it was not found")
+					}
+				default:
+					initSignal <- fmt.Errorf("cgofuse panicked while attempting to mount: %v", r)
+				}
+			}
+			// if we didn't panic, fs.Init() was invoked properly
+			// and will return an error value itself
+			// (so don't send anything if the panic handler returns nil)
+		}()
+
 		if !mountHost.Mount(fuseTarget, fuseOpts) {
 			initSignal <- errors.New("mount failed for an unexpected reason")
 		}
@@ -97,8 +106,7 @@ func (pr *fuseProvider) Graft(target string) (mi mountinter.Instance, retErr err
 		return nil, err
 	}
 
-	// returned value
-	mi = &mountInstance{
+	mi := &mountInstance{
 		providerMu:             &pr.Mutex,
 		providerDetachCallback: pr.instances.Remove,
 		host:                   mountHost,
@@ -106,6 +114,7 @@ func (pr *fuseProvider) Graft(target string) (mi mountinter.Instance, retErr err
 	}
 
 	if err = pr.instances.Add(target); err != nil {
+		// TODO: we should probably unmount here
 		return nil, err
 	}
 

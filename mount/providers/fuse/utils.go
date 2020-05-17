@@ -1,7 +1,6 @@
 package mountfuse
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -10,22 +9,6 @@ import (
 
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 )
-
-func cgofuseRecover(errPtr *error) {
-	if r := recover(); r != nil {
-		if typedR, ok := r.(string); ok {
-			if runtime.GOOS == "windows" {
-				if typedR == "cgofuse: cannot find winfsp" {
-					*errPtr = errors.New("WinFSP(http://www.secfs.net/winfsp/) is required for mount on this platform, but it was not found")
-					return
-				}
-			}
-
-			*errPtr = fmt.Errorf("mount panicked %v", r)
-			return
-		}
-	}
-}
 
 func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) {
 	var (
