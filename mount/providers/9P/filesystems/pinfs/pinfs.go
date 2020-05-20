@@ -139,7 +139,8 @@ func (pd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	readCtx, cancel := context.WithCancel(pd.OperationsCtx)
 	defer cancel()
 
-	return common.Readdir(readCtx, pd.Core, pd.CorePath(), pd.dir, offset)
+	//return common.Readdir(readCtx, pd.Core, pd.CorePath(), pd.dir, offset)
+	return common.Readdir(readCtx, pd.Core, common.RootPath("/ipfs"), pd.dir, offset)
 }
 
 /* WalkRef relevant */
