@@ -6,48 +6,54 @@ import (
 	"fmt"
 
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
-	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
+	tcom "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems"
 	gomfs "github.com/ipfs/go-mfs"
+	"github.com/ipfs/go-unixfs"
 	uio "github.com/ipfs/go-unixfs/io"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
-	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
+
+// TODO: make a pass on everything [AM] [hasty port]
+
+type mfsDirectoryStream struct {
+	openCtx, listCtx context.Context
+	listCancel       context.CancelFunc
+	mroot            *gomfs.Root
+	path             string
+	core             coreiface.CoreAPI
+	err              error
+	tcom.EntryStorage
+}
 
 // OpenDir returns a Directory for the given path (as a stream of entries)
 func OpenDir(ctx context.Context, mroot *gomfs.Root, path string, core coreiface.CoreAPI) (transform.Directory, error) {
 
-	coreStream := &streamTranslator{
-		ctx:   ctx,
-		path:  path,
-		mroot: mroot,
-		core:  core,
+	mfsStream := &mfsDirectoryStream{
+		openCtx: ctx,
+		path:    path,
+		mroot:   mroot,
+		core:    core, // TODO: drop this for mfs/ipld native methods
 	}
 
-	// TODO: consider writing another stream type that handles MFS so we can drop the reliance on the core here
-	return ipfscore.OpenStream(ctx, coreStream, core)
-}
+	stream, err := mfsStream.open()
+	if err != nil {
+		return nil, err
+	}
 
-type streamTranslator struct {
-	ctx    context.Context
-	mroot  *gomfs.Root
-	path   string
-	core   coreiface.CoreAPI
-	cancel context.CancelFunc
+	mfsStream.EntryStorage = tcom.NewEntryStorage(ctx, stream)
+
+	return mfsStream, nil
 }
 
 // Open opens the source stream and returns a stream of translated entries
-func (cs *streamTranslator) Open() (<-chan transform.DirectoryStreamEntry, error) {
-	if cs.cancel != nil {
-		return nil, errors.New("already opened")
-	}
-
-	mfsNode, err := gomfs.Lookup(cs.mroot, cs.path)
+func (ms *mfsDirectoryStream) open() (<-chan tcom.PartialEntry, error) {
+	mfsNode, err := gomfs.Lookup(ms.mroot, ms.path)
 	if err != nil {
 		return nil, err
 	}
 
 	if mfsNode.Type() != gomfs.TDir {
-		return nil, fmt.Errorf("%q is not a directory (type: %v)", cs.path, mfsNode.Type())
+		return nil, fmt.Errorf("%q is not a directory (type: %v)", ms.path, mfsNode.Type())
 	}
 
 	// TODO: store the snapshot here manually; also needed for dropping core
@@ -68,56 +74,94 @@ func (cs *streamTranslator) Open() (<-chan transform.DirectoryStreamEntry, error
 		return nil, err
 	}
 
-	unixDir, err := uio.NewDirectoryFromNode(cs.core.Dag(), ipldNode)
+	unixDir, err := uio.NewDirectoryFromNode(ms.core.Dag(), ipldNode)
 	if err != nil {
 		return nil, err
 	}
 
-	directoryContext, cancel := context.WithCancel(cs.ctx)
-	cs.cancel = cancel
+	listCtx, listCancel := context.WithCancel(ms.openCtx)
+	unixChan := unixDir.EnumLinksAsync(listCtx)
+	ms.listCtx, ms.listCancel = listCtx, listCancel
 
-	return translateEntries(directoryContext, unixDir), nil
+	// translate the pins to common entries (buffering the next entry between reads as well)
+	listChan := make(chan tcom.PartialEntry, 1) // closed by translateEntries
+	go translateEntries(listCtx, unixChan, listChan)
+
+	return listChan, nil
 }
 
-func (cs *streamTranslator) Close() error {
-	if cs.cancel == nil {
-		return errors.New("not opened")
+func (ms *mfsDirectoryStream) Close() error {
+	if ms.listCancel == nil {
+		return tcom.ErrNotOpen // double close is considered an error
 	}
-	cs.cancel()
-	cs.cancel = nil
+
+	ms.listCancel()
+	ms.listCancel = nil
+
+	ms.err = tcom.ErrNotOpen // invalidate future operations as we're closed
 	return nil
+}
+
+func (ms *mfsDirectoryStream) Reset() error {
+	if err := ms.Close(); err != nil { // invalidate the old stream
+		ms.err = err
+		return err
+	}
+
+	stream, err := ms.open()
+	if err != nil { // get a new stream
+		ms.err = err
+		return err
+	}
+
+	ms.EntryStorage.Reset(stream) // reset the entry store
+
+	ms.err = nil // clear error state, if any
+	return nil
+}
+
+func errWrap(err error) <-chan transform.DirectoryEntry {
+	errChan := make(chan transform.DirectoryEntry, 1)
+	errChan <- &tcom.ErrorEntry{err}
+	return errChan
+}
+
+func (ms *mfsDirectoryStream) List(ctx context.Context, offset uint64) <-chan transform.DirectoryEntry {
+	if ms.err != nil { // refuse to operate
+		return errWrap(ms.err)
+	}
+
+	if ms.EntryStorage == nil {
+		err := errors.New("directory not initialized")
+		ms.err = err
+		return errWrap(err)
+	}
+	return ms.EntryStorage.List(ctx, offset)
 }
 
 type mfsListingTranslator struct {
 	name string
-	path corepath.Path
 	err  error
 }
 
-func (me *mfsListingTranslator) Name() string        { return me.name }
-func (me *mfsListingTranslator) Path() corepath.Path { return me.path }
-func (me *mfsListingTranslator) Error() error        { return me.err }
+func (me *mfsListingTranslator) Name() string { return me.name }
+func (me *mfsListingTranslator) Error() error { return me.err }
 
-func translateEntries(ctx context.Context, unixDir uio.Directory) <-chan transform.DirectoryStreamEntry {
-	out := make(chan transform.DirectoryStreamEntry)
-	go func() {
-		for linkRes := range unixDir.EnumLinksAsync(ctx) {
-			msg := &mfsListingTranslator{
-				err:  linkRes.Err,
-				name: linkRes.Link.Name,
-				path: corepath.IpldPath(linkRes.Link.Cid),
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case out <- msg:
-				if msg.err != nil {
-					return // bail after relaying error
-				}
-			}
+func translateEntries(ctx context.Context, in <-chan unixfs.LinkResult, out chan<- tcom.PartialEntry) {
+out:
+	for linkRes := range in {
+		msg := &mfsListingTranslator{
+			err:  linkRes.Err,
+			name: linkRes.Link.Name,
 		}
-		close(out)
-	}()
-
-	return out
+		select {
+		case out <- msg:
+			if linkRes.Err != nil {
+				break out // exit after relaying a message with an error
+			}
+		case <-ctx.Done():
+			break out
+		}
+	}
+	close(out)
 }

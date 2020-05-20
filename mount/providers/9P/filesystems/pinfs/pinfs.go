@@ -139,7 +139,7 @@ func (pd *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	readCtx, cancel := context.WithCancel(pd.OperationsCtx)
 	defer cancel()
 
-	return pd.dir.Readdir(readCtx, offset).To9P(count)
+	return common.Readdir(readCtx, pd.Core, pd.CorePath(), pd.dir, offset)
 }
 
 /* WalkRef relevant */

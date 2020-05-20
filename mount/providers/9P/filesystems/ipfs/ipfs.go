@@ -190,7 +190,7 @@ func (id *File) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	readCtx, cancel := context.WithCancel(id.OperationsCtx)
 	defer cancel()
 
-	return id.directory.Readdir(readCtx, offset).To9P(count)
+	return common.Readdir(readCtx, id.Core, id.CorePath(), id.directory, offset)
 }
 
 func (id *File) ReadAt(p []byte, offset int64) (int, error) {

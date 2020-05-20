@@ -180,6 +180,8 @@ func testReaddirAllIncremental(t *testing.T, expected []string, fs fuselib.FileS
 		loggedEnts = make([]readdirTestDirEnt, 0, len(expected)+2) // + '.', ".."
 	)
 
+	os.Stdout.Sync()
+
 	for {
 		singleEnt := make([]readdirTestDirEnt, 0, 1)
 		filler := genShortFill(&singleEnt)
@@ -196,6 +198,8 @@ func testReaddirAllIncremental(t *testing.T, expected []string, fs fuselib.FileS
 		if len(singleEnt) != 1 {
 			t.Fatalf("Readdir did not respect fill() stop signal (buffer overflowed)")
 		}
+
+		t.Logf("rai ent:%s\n", singleEnt[0].name)
 
 		entNames = append(entNames, singleEnt[0].name)
 		loggedEnts = append(loggedEnts, singleEnt...)

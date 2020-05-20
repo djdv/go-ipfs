@@ -17,7 +17,6 @@ func testFiles(t *testing.T, testEnv envData, core coreiface.CoreAPI, fs fuselib
 	// we're specifically interested in semi-static data such as the UID, time, blocksize, permissions, etc.
 	statTemplate := testGetattr(t, "/", nil, anonymousRequestHandle, fs)
 	statTemplate.Mode &^= fuselib.S_IFMT
-	statTemplate.Blksize = chunk.DefaultBlockSize
 
 	for _, f := range testEnv[directoryTestSetBasic] {
 		coreFilePath := f.corePath.Cid().String()
@@ -31,6 +30,22 @@ func testFiles(t *testing.T, testEnv envData, core coreiface.CoreAPI, fs fuselib
 			*expected = *statTemplate
 			expected.Mode |= fuselib.S_IFREG
 			expected.Size = f.info.Size()
+
+			if expected.Size == 0 {
+				expected.Blksize = 0
+				expected.Blocks = 0
+			} else {
+				// TODO: we need to test a file larger than the chunk size that doesn't divide cleanly
+				// e.g. file of size defaultchunk+1
+				if expected.Size < chunk.DefaultBlockSize {
+					expected.Blksize = 0 // this is what UFS reports to us
+					expected.Blocks = 0
+				} else {
+					expected.Blksize = chunk.DefaultBlockSize
+					expected.Blocks = expected.Size / expected.Blksize
+				}
+			}
+
 			testGetattr(t, coreFilePath, expected, anonymousRequestHandle, fs)
 
 			fh := testOpen(t, coreFilePath, fuselib.O_RDONLY, fs)

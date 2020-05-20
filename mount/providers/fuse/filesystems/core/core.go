@@ -82,10 +82,11 @@ func (fs *FileSystem) Init() {
 	}
 
 	fs.rootStat = &fuselib.Stat_t{
-		Mode: fuselib.S_IFDIR | fusecom.IRXA&^(fuselib.S_IXOTH), // |0554
-		Atim: timeOfMount,
-		Mtim: timeOfMount,
-		Ctim: timeOfMount,
+		Mode:     fuselib.S_IFDIR | fusecom.IRXA&^(fuselib.S_IXOTH), // |0554
+		Atim:     timeOfMount,
+		Mtim:     timeOfMount,
+		Ctim:     timeOfMount,
+		Birthtim: timeOfMount,
 	}
 }
 

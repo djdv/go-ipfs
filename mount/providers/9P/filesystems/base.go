@@ -1,8 +1,11 @@
 package common
 
 import (
+	"context"
 	gopath "path"
 
+	"github.com/hugelgupf/p9/p9"
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
@@ -53,4 +56,30 @@ func (ib *CoreBase) CorePath(names ...string) corepath.Path {
 		return RootPath(ib.CoreNamespace)
 	}
 	return corepath.Join(RootPath(ib.CoreNamespace), append(ib.Trail, names...)...)
+}
+
+//TODO: move this elsewhere
+// also it needs to be refactored later with the rest of everything
+func Readdir(callCtx context.Context, core coreiface.CoreAPI, self corepath.Path, dir transform.Directory, offset uint64) (p9.Dirents, error) {
+	nineEnts := make(p9.Dirents, 0)
+	for ent := range dir.List(callCtx, offset) {
+		entName := ent.Name()
+		entPath, err := core.ResolvePath(callCtx, corepath.Join(self, entName))
+		if err != nil {
+			return nineEnts, err
+		}
+
+		iStat, _, err := transform.GetAttr(callCtx, entPath, core, transform.IPFSStatRequestAll)
+		if err != nil {
+			return nineEnts, err
+		}
+
+		nineEnts = append(nineEnts, p9.Dirent{
+			Name:   entName,
+			Offset: ent.Offset(),
+			QID:    transform.CidToQID(entPath.Cid(), iStat.FileType),
+		})
+	}
+
+	return nineEnts, nil
 }

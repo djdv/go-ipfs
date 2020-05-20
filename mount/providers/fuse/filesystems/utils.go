@@ -21,20 +21,19 @@ type DirectoryPlus struct {
 }
 type StatFunc func(name string) *fuselib.Stat_t
 
+// TODO: return values are backwards, go errors should come last
 func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFunc, offset int64) (error, int) {
-	// dots are optional in POSIX but lots of things break without them, so we fill them in
-	// NOTE: we let the OS populate the stats because it's not worth the complexity yet
-	// later this may change to add 2 closed procedures for self/parent; `{self|parent}Resolve()(*stat, error)`
 
-	// Returning entries with offset value 0 has a special meaning in FUSE
-	// so all returned offsets values are expected to be 0>
+	// Offset value 0 has a special meaning in FUSE (see: FUSE's `readdir` docs)
+	// so all returned offsets values from us are expected to be 0>
 	// FillDir expects the input directory to follow this convention, and supply us with offsets 0>
 	// to avoid overlap, or range requirements
 	// we sum our local (dot) offset with the entry's offset to get a value suitable to return
 	// and do the inverse to get the directory's input offset value (from a value we previously returned)
-	// rel: SUSv7 `readdir`, `seekdir`, `telldir`
+	// relevant reads: SUSv7 `readdir`, `seekdir`, `telldir`
 
-	const dotOffsetBase = 2 // dot offset ends; stream index 0 begins
+	// dots are optional in POSIX but lots of things break without them, so we fill them in
+	const dotOffsetBase = 2 // FillDir offset ends; stream index 0 begins
 
 	var relativeOffset uint64 // offset used for input, adjusting for dots if any
 
@@ -55,45 +54,44 @@ func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFu
 		if !fill(".", stat, 1) {
 			return nil, OperationSuccess
 		}
-		stat = statFunc("..")
-		if !fill("..", stat, 2) {
-			return nil, OperationSuccess
-		}
+		fallthrough
+
 	case 1:
 		stat = statFunc("..")
 		if !fill("..", stat, 2) {
 			return nil, OperationSuccess
 		}
-	case dotOffsetBase: // do nothing; relativeOffset stays at 0
-	default:
-		// adjust offset value from dots offset range -> stream offset range
+
+	case dotOffsetBase:
+		// do nothing; relativeOffset stays at 0
+
+	default: // `case (offset > dotOffsetBase):`
+		// adjust offset value from FillDir's offset range -> stream's offset range
 		// TODO: [audit] int -> uint needs range check
 		relativeOffset = uint64(offset) - dotOffsetBase
 	}
 
 	// only reset stream when the offset is absolute 0
 	// relative 0 should not reset underlying stream, but instead return the 0th element + [...]
-	if offset != 0 && relativeOffset == 0 {
-		if stream, ok := directory.(transform.DirectoryStream); ok {
-			stream.DontReset()
+	if offset == 0 {
+		// TODO: [d21a38b9-e723-4068-ad72-7473b91cc770]
+		if err := directory.Reset(); err != nil {
+			return err, -fuselib.ENOENT // TODO: [SUS check]: appropriate value?
 		}
 	}
-	/* next version:
-	if offset == 0 {
-		err := directory.Reset()
-	}
-	*/
 
 	readCtx, cancel := context.WithCancel(ctx)
-	defer func() { cancel() }()
-	entChan, err := directory.Readdir(readCtx, relativeOffset).ToFuse()
-	if err != nil {
-		return err, -fuselib.ENOENT
-	}
+	defer func() {
+		cancel()
+	}()
 
-	for ent := range entChan {
-		stat = statFunc(ent.Name)
-		if !fill(ent.Name, stat, ent.Offset+dotOffsetBase) {
+	for ent := range directory.List(readCtx, relativeOffset) {
+		if err := ent.Error(); err != nil {
+			return err, -fuselib.ENOENT // TODO: just stuck in default error value, should probably be a tErr
+		}
+		stat = statFunc(ent.Name())
+		// TODO: uint <-> int shenanigans
+		if !fill(ent.Name(), stat, int64(ent.Offset())+dotOffsetBase) {
 			break
 		}
 	}
