@@ -32,7 +32,11 @@ func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFu
 	// and do the inverse to get the directory's input offset value (from a value we previously returned)
 	// relevant reads: SUSv7 `readdir`, `seekdir`, `telldir`
 
-	// dots are optional in POSIX but lots of things break without them, so we fill them in
+	// TODO: [POSIX] find out if the lack of dots actually breaks anything
+	// SUSv7 says they're optional in `opendir`, however `readdir` explicitly forbids them
+	// "If entries for dot or dot-dot exist, one entry shall be returned for dot and one entry shall be returned for dot-dot; otherwise, they shall not be returned."
+	// this should likely be a config value somewhere; disabled by default?
+	// conf: mount.fuse.enabledots; newFuseProvider(provideropt{dots})
 	const dotOffsetBase = 2 // FillDir offset ends; stream index 0 begins
 
 	var relativeOffset uint64 // offset used for input, adjusting for dots if any
@@ -61,7 +65,6 @@ func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFu
 		if !fill("..", stat, 2) {
 			return nil, OperationSuccess
 		}
-
 	case dotOffsetBase:
 		// do nothing; relativeOffset stays at 0
 

@@ -82,7 +82,7 @@ func (fs *FileSystem) Init() {
 	}
 
 	fs.rootStat = &fuselib.Stat_t{
-		Mode:     fuselib.S_IFDIR | fusecom.IRXA&^(fuselib.S_IXOTH), // |0554
+		Mode:     fuselib.S_IFDIR | (fusecom.IRXA &^ fuselib.S_IXOTH), // |0554
 		Atim:     timeOfMount,
 		Mtim:     timeOfMount,
 		Ctim:     timeOfMount,
@@ -161,6 +161,17 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 
 	var directory transform.Directory
 
+	// FIXME:
+	// on Windows, specifically in Powerhshell when mounted to a UNC path
+	// operations like `Get-ChildItem "\\servername\share\Qm..."`` work fine, but
+	// `Set-Location "\\servername\share\Qm..."` always fail
+	// this seems to do with the fact the share's root does not actually contain the target
+	// the same behaviour is not present when mounted to a drivespec like `I:`
+	// or in other applications (namely Explorer)
+	// we could probably fix this by implementing a listing cache in the root
+	// when getattr succeeds, push the root hash to the list cache which core root will use when `readdir` is called
+	// (this should be a fixed sized LRU style cache consisting of &{name:stat} pairs)
+
 	if path == "/" { // root requests
 		directory = empty.OpenDir()
 		if provcom.CanReaddirPlus {
@@ -169,15 +180,20 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 			*dotStat = *fs.rootStat
 			dotStat.Uid, dotStat.Gid, _ = fuselib.Getcontext()
 
-			statFunc := func(name string) *fuselib.Stat_t {
-				// TODO: if we're rooted under a parent, return it's stat for `..`
-				if name == "." {
-					return dotStat
-				}
-				return nil
-			}
+			directory = &fusecom.DirectoryPlus{Directory: directory,
+				StatFunc: func(name string) *fuselib.Stat_t {
+					switch name {
+					case ".":
+						return dotStat
 
-			directory = &fusecom.DirectoryPlus{directory, statFunc}
+					// TODO: if we're rooted under a parent, return it's stat for `..`
+					//case "..":
+					//return fs.parentStat
+
+					default:
+						return nil
+					}
+				}}
 		}
 
 		handle, err := fs.directories.Add(directory)
