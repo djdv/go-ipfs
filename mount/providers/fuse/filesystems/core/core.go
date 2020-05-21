@@ -209,6 +209,11 @@ func (fs *FileSystem) Opendir(path string) (int, uint64) {
 
 	corePath := fs.joinRoot(path)
 
+	// TODO: [general] make sure to use and store an operations context, derived from the fs ctx
+	// i.e. the liniage for readdir should be ...parentCtx -> fsCtx -> openCtx -> readctx
+	// where openCtx is the operation context, and readctx is the call context
+	// operation context are valid for the life of the handle and canceled on Close
+	// call context should be canceled when the call is done
 	var err error
 	directory, err = ipfscore.OpenDir(fs.Ctx(), corePath, fs.Core())
 	if err != nil {

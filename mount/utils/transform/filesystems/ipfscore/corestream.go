@@ -45,7 +45,7 @@ func OpenDir(ctx context.Context, path corepath.Path, core coreiface.CoreAPI) (*
 		return nil, err
 	}
 
-	coreStream.EntryStorage = tcom.NewEntryStorage(ctx, stream)
+	coreStream.EntryStorage = tcom.NewEntryStorage(stream)
 
 	return coreStream, nil
 }

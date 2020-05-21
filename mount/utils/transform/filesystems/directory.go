@@ -12,7 +12,11 @@ import (
 // TODO: review this garbage; comments, logic, async concerns
 // I have no doubt something is wrong
 
-var ErrNotOpen = errors.New("not opened")
+var (
+	ErrIsOpen         = errors.New("already open")
+	ErrNotOpen        = errors.New("not opened")
+	ErrNotInitialized = errors.New("directory not initialized")
+)
 
 type ErrorEntry struct{ Err error }
 
@@ -57,16 +61,14 @@ type EntryStorage interface {
 	Reset(<-chan PartialEntry)
 }
 
-func NewEntryStorage(ctx context.Context, streamSource <-chan PartialEntry) EntryStorage {
+func NewEntryStorage(streamSource <-chan PartialEntry) EntryStorage {
 	return &entryStorage{
-		openCtx:      ctx,
 		entryStore:   make([]transform.DirectoryEntry, 0),
 		sourceStream: streamSource,
 	}
 }
 
 type entryStorage struct {
-	openCtx      context.Context
 	tail         uint64
 	entryStore   []transform.DirectoryEntry
 	sourceStream <-chan PartialEntry
@@ -176,4 +178,58 @@ func errWrap(err error) <-chan transform.DirectoryEntry {
 	errChan := make(chan transform.DirectoryEntry, 1)
 	errChan <- &ErrorEntry{err}
 	return errChan
+}
+
+type PartialStreamSource interface {
+	Open() (<-chan PartialEntry, error)
+	Close() error
+}
+
+type partialStreamWrapper struct {
+	PartialStreamSource       // actual source of entries
+	EntryStorage              // storage and offset managment for them
+	err                 error // errors persis across calls; cleared on Reset
+}
+
+func (ps *partialStreamWrapper) Reset() error {
+	if err := ps.Close(); err != nil { // invalidate the old stream
+		ps.err = err
+		return err
+	}
+
+	stream, err := ps.Open()
+	if err != nil { // get a new stream
+		ps.err = err
+		return err
+	}
+
+	ps.EntryStorage.Reset(stream) // reset the entry store
+
+	ps.err = nil // clear error state, if any
+	return nil
+}
+
+func (ps *partialStreamWrapper) List(ctx context.Context, offset uint64) <-chan transform.DirectoryEntry {
+	if ps.err != nil { // refuse to operate
+		return errWrap(ps.err)
+	}
+
+	if ps.EntryStorage == nil {
+		err := ErrNotInitialized
+		ps.err = err
+		return errWrap(err)
+	}
+	return ps.EntryStorage.List(ctx, offset)
+}
+
+func PartialEntryUpgrade(streamSource PartialStreamSource) (transform.Directory, error) {
+	stream, err := streamSource.Open()
+	if err != nil {
+		return nil, err
+	}
+
+	return &partialStreamWrapper{
+		PartialStreamSource: streamSource,
+		EntryStorage:        NewEntryStorage(stream),
+	}, nil
 }
