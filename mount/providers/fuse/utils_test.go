@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	chunk "github.com/ipfs/go-ipfs-chunker"
 	config "github.com/ipfs/go-ipfs-config"
 	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/core"
@@ -220,6 +221,7 @@ func generateTestGarbage(t *testing.T, tempDir string, core coreiface.CoreAPI) [
 	junk := [...]int{4, 8, 16, 32}
 	junkFiles := make([]envDataGroup, 0, len(junk))
 
+	// generate files of different sizes filled with random data
 	for _, size := range junk {
 		buf := make([]byte, size<<(10*2))
 		if _, err := randDev.Read(buf); err != nil {
@@ -229,6 +231,28 @@ func generateTestGarbage(t *testing.T, tempDir string, core coreiface.CoreAPI) [
 		path := filepath.Join(tempDir, fmt.Sprintf("%dMiB", size))
 		fi, corePath := wrapTestFile(t, path, buf, core)
 
+		junkFiles = append(junkFiles, envDataGroup{
+			info:      fi,
+			localPath: path,
+			corePath:  corePath,
+		})
+	}
+
+	{
+		// generate a file that fits perfectly in a single block
+		path := filepath.Join(tempDir, "aligned")
+		buf := make([]byte, chunk.DefaultBlockSize, chunk.DefaultBlockSize+1)
+		fi, corePath := wrapTestFile(t, path, buf, core)
+		junkFiles = append(junkFiles, envDataGroup{
+			info:      fi,
+			localPath: path,
+			corePath:  corePath,
+		})
+
+		// generate a file that doesn't fit cleanly in a single block
+		path = filepath.Join(tempDir, "misaligned")
+		buf = append(buf, 0)
+		fi, corePath = wrapTestFile(t, path, buf, core)
 		junkFiles = append(junkFiles, envDataGroup{
 			info:      fi,
 			localPath: path,

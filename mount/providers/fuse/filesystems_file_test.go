@@ -31,18 +31,15 @@ func testFiles(t *testing.T, testEnv envData, core coreiface.CoreAPI, fs fuselib
 			expected.Mode |= fuselib.S_IFREG
 			expected.Size = f.info.Size()
 
-			if expected.Size == 0 {
+			// NOTE: UFS doesn't seem to count the first block; i.e. Blocks == 1 will never be returned
+			if expected.Size <= chunk.DefaultBlockSize {
 				expected.Blksize = 0
 				expected.Blocks = 0
 			} else {
-				// TODO: we need to test a file larger than the chunk size that doesn't divide cleanly
-				// e.g. file of size defaultchunk+1
-				if expected.Size < chunk.DefaultBlockSize {
-					expected.Blksize = 0 // this is what UFS reports to us
-					expected.Blocks = 0
-				} else {
-					expected.Blksize = chunk.DefaultBlockSize
-					expected.Blocks = expected.Size / expected.Blksize
+				expected.Blksize = chunk.DefaultBlockSize
+				expected.Blocks = expected.Size / expected.Blksize
+				if expected.Size%expected.Blksize != 0 {
+					expected.Blocks++ // remaining bits will require an additional block
 				}
 			}
 
