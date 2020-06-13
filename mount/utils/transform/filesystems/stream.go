@@ -2,36 +2,33 @@ package transformcommon
 
 import "context"
 
-// TODO: is there a better name for this?
-// method name is also bad; try again later
-type CoreStreamSource interface {
+type StreamSource interface {
 	// generate a stream and start sending entries to the passed in channel (via a gorotuine)
 	// closing the channel when you're done or canceled
 	// in the event the stream cannot be generated, an error should be returned
 	SendTo(context.Context, chan<- PartialEntry) error
 }
 
-// TODO: is there a better name for this?
-type CoreStreamBase struct {
-	openCtx      context.Context
+type StreamBase struct {
+	parentCtx    context.Context
 	streamCancel context.CancelFunc
 	err          error
-	streamSource CoreStreamSource
+	streamSource StreamSource
 }
 
-func NewCoreStreamBase(ctx context.Context, cs CoreStreamSource) *CoreStreamBase {
-	return &CoreStreamBase{
-		openCtx:      ctx,
+func NewStreamBase(ctx context.Context, cs StreamSource) *StreamBase {
+	return &StreamBase{
+		parentCtx:    ctx,
 		streamSource: cs,
 	}
 }
 
-func (ps *CoreStreamBase) Open() (<-chan PartialEntry, error) {
+func (ps *StreamBase) Open() (<-chan PartialEntry, error) {
 	if ps.streamCancel != nil {
 		return nil, ErrIsOpen
 	}
 
-	streamCtx, streamCancel := context.WithCancel(ps.openCtx)
+	streamCtx, streamCancel := context.WithCancel(ps.parentCtx)
 
 	listChan := make(chan PartialEntry, 1) // closed by SendTo
 
@@ -43,7 +40,7 @@ func (ps *CoreStreamBase) Open() (<-chan PartialEntry, error) {
 	return listChan, nil
 }
 
-func (ps *CoreStreamBase) Close() error {
+func (ps *StreamBase) Close() error {
 	if ps.streamCancel == nil {
 		return ErrNotOpen // double close is considered an error
 	}

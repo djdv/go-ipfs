@@ -1,61 +1,18 @@
 package transform
 
-import (
-	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	ninelib "github.com/hugelgupf/p9/p9"
-	gomfs "github.com/ipfs/go-mfs"
-)
-
 type IOFlags uint
 
+const ioNone IOFlags = 0
 const (
-	ioNone IOFlags = iota
-	IOReadOnly
-	IOWriteOnly
+	// TODO: (re)consider how these should be defined and what we want/need
+	// for now we mimick SUSv7's <fcntl.h>
+	IOReadOnly IOFlags = 1 << iota
 	IOReadWrite
+	IOWriteOnly
 	/* consider if we want to support
 	   append (writes)
-	   create (conditionally)
+	   create (conditional)
 	   excl(usive create)
 	   trunc(ate file)
 	*/
 )
-
-func IOFlagsFrom9P(nineFlagsAmusementPark ninelib.OpenFlags) IOFlags {
-	switch nineFlagsAmusementPark {
-	case ninelib.ReadOnly:
-		return IOReadOnly
-	case ninelib.WriteOnly:
-		return IOWriteOnly
-	case ninelib.ReadWrite:
-		return IOReadWrite
-	default:
-		return ioNone
-	}
-}
-
-func IOFlagsFromFuse(fuseFlags int) IOFlags {
-	switch fuseFlags & fuselib.O_ACCMODE {
-	case fuselib.O_RDONLY:
-		return IOReadOnly
-	case fuselib.O_WRONLY:
-		return IOWriteOnly
-	case fuselib.O_RDWR:
-		return IOReadWrite
-	default:
-		return ioNone
-	}
-}
-
-func (f IOFlags) ToMFS() gomfs.Flags {
-	switch f {
-	case IOReadOnly:
-		return gomfs.Flags{Read: true}
-	case IOWriteOnly:
-		return gomfs.Flags{Write: true}
-	case IOReadWrite:
-		return gomfs.Flags{Read: true, Write: true}
-	default:
-		return gomfs.Flags{}
-	}
-}

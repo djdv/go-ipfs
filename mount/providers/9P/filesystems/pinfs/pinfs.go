@@ -25,6 +25,8 @@ type File struct {
 	common.CoreBase
 	common.OverlayBase
 
+	intf transform.Interface
+
 	dir           transform.Directory
 	parent, proxy common.WalkRef
 	open          bool // FIXME: this was added to the base class as an atomic value; we need to replace it here or there
@@ -39,6 +41,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachO
 			Opened:    new(uintptr),
 		},
 		parent: options.Parent,
+		intf:   pinfs.NewInterface(ctx, core),
 	}
 
 	// set up our subsystem, used to relay walk names to IPFS
@@ -86,7 +89,7 @@ func (pd *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return p9.QID{}, 0, err
 	}
 
-	pinDir, err := pinfs.OpenDir(pd.OperationsCtx, pd.Core)
+	pinDir, err := pd.intf.OpenDirectory("/")
 	if err != nil {
 		return p9.QID{}, 0, err
 	}

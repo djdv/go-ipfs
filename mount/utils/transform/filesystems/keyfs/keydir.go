@@ -3,7 +3,6 @@ package keyfs
 import (
 	"context"
 
-	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	tcom "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -12,11 +11,6 @@ import (
 
 type keyDirectoryStream struct {
 	keyAPI coreiface.KeyAPI
-}
-
-func OpenDir(ctx context.Context, core coreiface.CoreAPI) (transform.Directory, error) {
-	return tcom.PartialEntryUpgrade(
-		tcom.NewCoreStreamBase(ctx, &keyDirectoryStream{keyAPI: core.Key()}))
 }
 
 func (ks *keyDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.PartialEntry) error {
@@ -34,7 +28,7 @@ func (ks *keyDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.P
 type keyTranslator struct{ coreiface.Key }
 
 func (ke *keyTranslator) Name() string { return ke.Key.Name() }
-func (_ *keyTranslator) Error() error  { return nil }
+func (*keyTranslator) Error() error    { return nil }
 
 func translateEntries(ctx context.Context, keys []coreiface.Key, out chan<- tcom.PartialEntry) {
 out:

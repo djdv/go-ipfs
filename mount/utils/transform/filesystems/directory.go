@@ -157,8 +157,8 @@ func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan transfor
 				}
 
 				// attach an offset to the entry and add it to the store
-				es.tail++
 				fullEnt := &fullEntry{ent, es.tail}
+				es.tail++
 				es.entryStore = append(es.entryStore, fullEnt)
 
 				// between getting the entry and now

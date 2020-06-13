@@ -5,101 +5,58 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
-type fuseFillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 type errNo = int
 
-// DirectoryPlus is a compatible directory, containing a method to stat it's children
-// (useful for conditionally handling FUSE's readdir plus feature via a type assertion)
-type DirectoryPlus struct {
-	transform.Directory
-	StatFunc
-}
-type StatFunc func(name string) *fuselib.Stat_t
+type fuseFillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 
-// TODO: return values are backwards, go errors should come last
-func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFunc, offset int64) (error, int) {
+func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFunc, offset int64) (int, error) {
+
+	// TODO: uint <-> int shenanigans
 
 	// Offset value 0 has a special meaning in FUSE (see: FUSE's `readdir` docs)
 	// so all returned offsets values from us are expected to be 0>
-	// FillDir expects the input directory to follow this convention, and supply us with offsets 0>
-	// to avoid overlap, or range requirements
-	// we sum our local (dot) offset with the entry's offset to get a value suitable to return
-	// and do the inverse to get the directory's input offset value (from a value we previously returned)
-	// relevant reads: SUSv7 `readdir`, `seekdir`, `telldir`
-
-	// TODO: [POSIX] find out if the lack of dots actually breaks anything
-	// SUSv7 says they're optional in `opendir`, however `readdir` explicitly forbids them
-	// "If entries for dot or dot-dot exist, one entry shall be returned for dot and one entry shall be returned for dot-dot; otherwise, they shall not be returned."
-	// this should likely be a config value somewhere; disabled by default?
-	// conf: mount.fuse.enabledots; newFuseProvider(provideropt{dots})
-	const dotOffsetBase = 2 // FillDir offset ends; stream index 0 begins
-
-	var relativeOffset uint64 // offset used for input, adjusting for dots if any
+	// `FillDir` expects the input directory to follow this convention, and supply us with offsets 0>
 
 	var (
 		statFunc StatFunc
 		stat     *fuselib.Stat_t
 	)
 
-	if dirPlus, ok := directory.(*DirectoryPlus); ok {
+	if dirPlus, ok := directory.(directoryPlus); ok {
 		statFunc = dirPlus.StatFunc
 	} else {
 		statFunc = func(string) *fuselib.Stat_t { return nil }
 	}
 
-	switch offset {
-	case 0:
-		stat = statFunc(".")
-		if !fill(".", stat, 1) {
-			return nil, OperationSuccess
-		}
-		fallthrough
-
-	case 1:
-		stat = statFunc("..")
-		if !fill("..", stat, 2) {
-			return nil, OperationSuccess
-		}
-	case dotOffsetBase:
-		// do nothing; relativeOffset stays at 0
-
-	default: // `case (offset > dotOffsetBase):`
-		// adjust offset value from FillDir's offset range -> stream's offset range
-		// TODO: [audit] int -> uint needs range check
-		relativeOffset = uint64(offset) - dotOffsetBase
-	}
-
-	// only reset stream when the offset is absolute 0
-	// relative 0 should not reset underlying stream, but instead return the 0th element + [...]
 	if offset == 0 {
-		// TODO: [d21a38b9-e723-4068-ad72-7473b91cc770]
 		if err := directory.Reset(); err != nil {
-			return err, -fuselib.ENOENT // TODO: [SUS check]: appropriate value?
+			// NOTE: POSIX `rewinddir` is not expected to fail
+			// if this happens, we'll inform FUSE's `readdir` that the stream position is (now) invalid
+			return -fuselib.ENOENT, err // see: SUSv7 `readdir` "Errors"
 		}
 	}
 
 	readCtx, cancel := context.WithCancel(ctx)
-	defer func() {
-		cancel()
-	}()
+	defer cancel()
 
-	for ent := range directory.List(readCtx, relativeOffset) {
+	for ent := range directory.List(readCtx, uint64(offset)) {
 		if err := ent.Error(); err != nil {
-			return err, -fuselib.ENOENT // TODO: just stuck in default error value, should probably be a tErr
+			return -fuselib.ENOENT, err
 		}
 		stat = statFunc(ent.Name())
-		// TODO: uint <-> int shenanigans
-		if !fill(ent.Name(), stat, int64(ent.Offset())+dotOffsetBase) {
+		if !fill(ent.Name(), stat, int64(ent.Offset())) {
 			break
 		}
 	}
 
-	return nil, OperationSuccess
+	return OperationSuccess, nil
 }
 
 type StatTimeGroup struct {
@@ -124,34 +81,34 @@ func ApplyCommonsToStat(stat *fuselib.Stat_t, writable bool, tg StatTimeGroup, i
 	}
 }
 
-// TODO: same placehold message as ApplyPermissions
-// we'll likely replace instances of this with something more sophisticated
-func CheckOpenFlagsBasic(writable bool, flags int) (error, errNo) {
+// TODO: remove this; responsability of the `Root` interface (`Root.Open`, `Root.Make`)
+// we should only care about translating flags and making the calls, not making final decisions based on the flags
+func CheckOpenFlagsBasic(writable bool, flags int) (errNo, error) {
 	// NOTE: SUSv7 doesn't include O_APPEND for EROFS; despite this being a write flag
 	// we're counting it for now, but may remove this if it causes compatibility problems
 	const mutableFlags = fuselib.O_WRONLY | fuselib.O_RDWR | fuselib.O_APPEND | fuselib.O_CREAT | fuselib.O_TRUNC
 	if flags&mutableFlags != 0 && !writable {
-		return errors.New("write flags provided for read only system"), -fuselib.EROFS
+		return -fuselib.EROFS, errors.New("write flags provided for read only system")
 	}
-	return nil, OperationSuccess
+	return OperationSuccess, nil
 }
 
-func CheckOpenPathBasic(path string) (error, int) {
+// TODO: improve or remove
+func CheckOpenPathBasic(path string) (int, error) {
 	switch path {
 	case "":
-		return fuselib.Error(-fuselib.ENOENT), -fuselib.ENOENT
+		return -fuselib.ENOENT, fuselib.Error(-fuselib.ENOENT)
 	case "/":
-		return fuselib.Error(-fuselib.EISDIR), -fuselib.EISDIR
+		return -fuselib.EISDIR, fuselib.Error(-fuselib.EISDIR)
 	default:
-		return nil, OperationSuccess
+		return OperationSuccess, nil
 	}
 }
 
-// TODO: these are backwards, convention is that error is last
-func ReleaseFile(table FileTable, handle uint64) (error, errNo) {
+func ReleaseFile(table FileTable, handle uint64) (errNo, error) {
 	file, err := table.Get(handle)
 	if err != nil {
-		return err, -fuselib.EBADF
+		return -fuselib.EBADF, err
 	}
 
 	// SUSv7 `close` (parphrased)
@@ -161,68 +118,61 @@ func ReleaseFile(table FileTable, handle uint64) (error, errNo) {
 	if err := table.Remove(handle); err != nil {
 		// TODO: if the error is not found we need to panic or return a severe error
 		// this should not be possible
-		return err, -fuselib.EBADF
+		return -fuselib.EBADF, err
 	}
 
-	return file.Close(), OperationSuccess
+	return OperationSuccess, file.Close()
 }
 
-func ReleaseDir(table DirectoryTable, handle uint64) (error, errNo) {
+func ReleaseDir(table DirectoryTable, handle uint64) (errNo, error) {
 	dir, err := table.Get(handle)
 	if err != nil {
-		return err, -fuselib.EBADF
+		return -fuselib.EBADF, err
 	}
 
 	if err := table.Remove(handle); err != nil {
 		// TODO: if the error is not found we need to panic or return a severe error
-		// this should not be possible
-		return err, -fuselib.EBADF
+		// since that should not be possible
+		return -fuselib.EBADF, err
 	}
 
 	// NOTE: even if close fails, we return system success
 	// the relevant standard errors do not apply here; `releasedir` is not expected to fail
-	// the handle was valid [EBADF], and we didn't get interupted by the system [EINTR]
+	// the handle was valid [!EBADF], and we didn't get interupted by the system [!EINTR]
 	// if the returned error is not nil, it's an implementation fault that needs to be amended
 	// in the directory interface implementation returned to us from the table
-	return dir.Close(), OperationSuccess
+	return OperationSuccess, dir.Close()
 }
 
 // TODO: read+write; we're not accounting for scenarios where the offset is beyond the end of the file
-func ReadFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
+func ReadFile(file transform.File, buff []byte, ofst int64) (errNo, error) {
 	if len(buff) == 0 {
-		return nil, 0
+		return 0, nil
 	}
 
 	if ofst < 0 {
-		return fmt.Errorf("invalid offset %d", ofst), -fuselib.EINVAL
+		return -fuselib.EINVAL, fmt.Errorf("invalid offset %d", ofst)
 	}
 
 	if fileBound, err := file.Size(); err == nil {
 		if ofst >= fileBound {
-			return nil, 0 // POSIX expects this
+			return 0, nil // POSIX expects this
 		}
 	}
 
 	if _, err := file.Seek(ofst, io.SeekStart); err != nil {
-		return err, -fuselib.EIO
+		return -fuselib.EIO, err
 	}
 
-	buffLen := len(buff)
 	readBytes, err := file.Read(buff)
 	if err != nil && err != io.EOF {
-		return err, -fuselib.EIO
+		readBytes = -fuselib.EIO // POSIX overloads this variable; at this point it becomes an error
 	}
 
-	// io.Reader:
-	// Even if Read returns n < len(p), it may use all of p as scratch space during the call.
-	// we want to assure these are 0'd
-	if readBytes < buffLen {
-		nilZone := buff[readBytes:]
-		copy(nilZone, make([]byte, len(nilZone)))
-	}
+	// NOTE: we don't have to worry about `io.Reader` filling the segment beyond `buff[readBytes:]
+	// (because of POSIX `read` semantics, the caller should not except bytes beyond `readBytes` to be valid)
 
-	// EOF will be returned if it was provided
-	return err, readBytes
+	return readBytes, err // EOF will be returned if it was provided
 }
 
 func WriteFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
@@ -255,4 +205,50 @@ func WriteFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
 	}
 
 	return nil, wroteBytes
+}
+
+func ApplyIntermediateStat(fStat *fuselib.Stat_t, iStat *transform.IPFSStat) {
+	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
+
+	// retain existing permissions (if any), but reset the type bits
+	fStat.Mode = (fStat.Mode &^ fuselib.S_IFMT) | coreTypeToFuseType(iStat.FileType)
+
+	if runtime.GOOS == "windows" && iStat.FileType == coreiface.TSymlink {
+		// NOTE: for the sake of consistency with the native system
+		// we ignore fields which are not set when calling NT's `CreateSymbolicLink` on an NTFS3.1 system
+		fStat.Flags |= fuselib.UF_ARCHIVE // this is set by the system native, so we'll emulate that
+		// no other fields we have access to are significant to NT here
+		return
+	}
+
+	fStat.Size = int64(iStat.Size)
+	fStat.Blksize = int64(iStat.BlockSize)
+	fStat.Blocks = int64(iStat.Blocks)
+}
+
+type fuseFileType = uint32
+
+func coreTypeToFuseType(ct coreiface.FileType) fuseFileType {
+	switch ct {
+	case coreiface.TDirectory:
+		return fuselib.S_IFDIR
+	case coreiface.TSymlink:
+		return fuselib.S_IFLNK
+	case coreiface.TFile:
+		return fuselib.S_IFREG
+	default:
+		return 0
+	}
+}
+func IOFlagsFromFuse(fuseFlags int) transform.IOFlags {
+	switch fuseFlags & fuselib.O_ACCMODE {
+	case fuselib.O_RDONLY:
+		return transform.IOReadOnly
+	case fuselib.O_WRONLY:
+		return transform.IOWriteOnly
+	case fuselib.O_RDWR:
+		return transform.IOReadWrite
+	default:
+		return transform.IOFlags(0)
+	}
 }

@@ -1,16 +1,17 @@
 package mfs
 
 import (
-	"errors"
+	"fmt"
+	"os"
 
-	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
-	"github.com/ipfs/go-mfs"
+	transcom "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems"
+	gomfs "github.com/ipfs/go-mfs"
 )
 
 var _ transform.File = (*mfsIOWrapper)(nil)
 
-type mfsIOWrapper struct{ f mfs.FileDescriptor }
+type mfsIOWrapper struct{ f gomfs.FileDescriptor }
 
 func (mio *mfsIOWrapper) Size() (int64, error)           { return mio.f.Size() }
 func (mio *mfsIOWrapper) Read(buff []byte) (int, error)  { return mio.f.Read(buff) }
@@ -21,38 +22,41 @@ func (mio *mfsIOWrapper) Seek(offset int64, whence int) (int64, error) {
 	return mio.f.Seek(offset, whence)
 }
 
-// TODO: we're going to have to have a simillar pattern to the key:dagmod table
-// MFS has simillar sync concerns that are abstracted via a view of the file
-// store all `mfs.File`'s in a table ("view table" because they're not actuall files)
-// pair the view with the flags; open the view during operations, do the op, close the view
-// shouldn't need to lock anything, the view does this all internally
-func OpenFile(mroot *mfs.Root, path string, flags transform.IOFlags) (*mfsIOWrapper, transform.Error) {
-	mfsNode, err := mfs.Lookup(mroot, path)
+func (mi *mfsInterface) Open(path string, flags transform.IOFlags) (transform.File, error) {
+	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
-		return nil, &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.EACCES, // TODO: [review] is this the best value for this?
-			P9pErr: errors.New("TODO real error for open-lookup [9768fef2-4795-4aba-9009-497c55f3cb72]"),
+		rErr := &transcom.Error{Cause: err}
+		if err == os.ErrNotExist {
+			rErr.Type = transform.ErrorNotExist
+			return nil, rErr
 		}
+		rErr.Type = transform.ErrorPermission
+		return nil, rErr
 	}
 
-	mfsFileIf, ok := mfsNode.(*mfs.File)
+	mfsFileIf, ok := mfsNode.(*gomfs.File)
 	if !ok {
-		return nil, &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.EISDIR,
-			P9pErr: errors.New("TODO real error for open-file-but-not-a-file [cef4642f-2863-4e4a-8e52-9d5a5a687b10]"),
-		}
+		err := fmt.Errorf("%q is not a file (%T)", path, mfsNode)
+		return nil, &transcom.Error{Cause: err, Type: transform.ErrorIsDir}
 	}
 
-	mfsFile, err := mfsFileIf.Open(flags.ToMFS())
+	mfsFile, err := mfsFileIf.Open(translateFlags(flags))
 	if err != nil {
-		return nil, &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.EACCES, // TODO: [review] is this the best value for this?
-			P9pErr: errors.New("TODO real error for open-failure [16a35016-405a-414b-82d2-579eb8712398]"),
-		}
+		return nil, &transcom.Error{Cause: err, Type: transform.ErrorPermission}
 	}
 
 	return &mfsIOWrapper{f: mfsFile}, nil
+}
+
+func translateFlags(flags transform.IOFlags) gomfs.Flags {
+	switch flags {
+	case transform.IOReadOnly:
+		return gomfs.Flags{Read: true}
+	case transform.IOWriteOnly:
+		return gomfs.Flags{Write: true}
+	case transform.IOReadWrite:
+		return gomfs.Flags{Read: true, Write: true}
+	default:
+		return gomfs.Flags{}
+	}
 }

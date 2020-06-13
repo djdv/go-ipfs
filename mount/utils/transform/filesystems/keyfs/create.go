@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	transcom "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
@@ -11,38 +13,103 @@ import (
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-func Mknod(ctx context.Context, core coreiface.CoreAPI, keyName string) error {
-	return makeEmptyKey(ctx, coreiface.TFile, core, keyName)
+func (ki *keyInterface) createSplit(path string) (self bool, remote transform.Interface, fsPath string, err error) {
+	keyName, remainder := splitPath(path)
+	if remainder == "" { // no subpath, request is for us
+		self = true
+		fsPath = keyName
+		return
+	}
+
+	var coreKey coreiface.Key
+	coreKey, err = ki.checkKey(keyName)
+	if err != nil {
+		err = &transcom.Error{
+			Cause: err,
+			Type:  transform.ErrorNotExist,
+		}
+		return
+	}
+
+	if coreKey == nil { // the request was valid, but not for a key we own
+		fsPath = path
+		remote = ki.ipns // let the remote fs handle the requested operation
+		return
+	}
+
+	remote, err = ki.getRoot(coreKey)
+	if err != nil {
+		return
+	}
+
+	fsPath = remainder
+	return
 }
 
-func Mkdir(ctx context.Context, core coreiface.CoreAPI, keyName string) error {
-	return makeEmptyKey(ctx, coreiface.TDirectory, core, keyName)
-}
-
-func Symlink(ctx context.Context, core coreiface.CoreAPI, keyName string, linkTarget string) error {
-	linkNode, err := makeLinkNode(ctx, core.Dag(), linkTarget)
+func (ki *keyInterface) Make(path string) error {
+	self, remote, fsPath, err := ki.createSplit(path)
 	if err != nil {
 		return err
 	}
 
-	if err := makeKeyWithNode(ctx, core, keyName, linkNode); err != nil {
-		return err
+	if self {
+		return ki.makeEmptyKey(coreiface.TFile, fsPath)
 	}
 
-	return localPublish(ctx, core, keyName, corepath.IpldPath(linkNode.Cid()))
+	return remote.Make(fsPath)
 }
 
-func makeEmptyKey(ctx context.Context, nodeType coreiface.FileType, core coreiface.CoreAPI, keyName string) error {
-	nodeFoundation, err := makeEmptyNode(ctx, core.Dag(), nodeType)
+func (ki *keyInterface) MakeDirectory(path string) error {
+	self, remote, fsPath, err := ki.createSplit(path)
 	if err != nil {
 		return err
 	}
 
-	if err := makeKeyWithNode(ctx, core, keyName, nodeFoundation); err != nil {
+	if self {
+		return ki.makeEmptyKey(coreiface.TDirectory, fsPath)
+	}
+
+	return remote.MakeDirectory(fsPath)
+}
+
+func (ki *keyInterface) MakeLink(path string, linkTarget string) error {
+	self, remote, fsPath, err := ki.createSplit(path)
+	if err != nil {
 		return err
 	}
 
-	return localPublish(ctx, core, keyName, corepath.IpldPath(nodeFoundation.Cid()))
+	if self {
+		callCtx, cancel := transcom.CallContext(ki.ctx)
+		defer cancel()
+		linkNode, err := makeLinkNode(callCtx, ki.core.Dag(), linkTarget)
+		if err != nil {
+			return err
+		}
+
+		if err := makeKeyWithNode(callCtx, ki.core, fsPath, linkNode); err != nil {
+			return err
+		}
+
+		return localPublish(callCtx, ki.core, fsPath, corepath.IpfsPath(linkNode.Cid()))
+	}
+
+	return remote.MakeLink(fsPath, linkTarget)
+}
+
+func (ki *keyInterface) makeEmptyKey(nodeType coreiface.FileType, keyName string) error {
+	callCtx, cancel := transcom.CallContext(ki.ctx)
+	defer cancel()
+
+	nodeFoundation, err := makeEmptyNode(callCtx, ki.core.Dag(), nodeType)
+	if err != nil {
+		return err
+	}
+
+	if err := makeKeyWithNode(callCtx, ki.core, keyName, nodeFoundation); err != nil {
+		return err
+	}
+
+	return localPublish(callCtx, ki.core, keyName, corepath.IpfsPath(nodeFoundation.Cid()))
 }
 
 func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType coreiface.FileType) (ipld.Node, error) {
@@ -55,13 +122,20 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 
 	case coreiface.TDirectory:
 		node = unixfs.EmptyDirNode()
+
 	default:
-		return nil, errors.New("unexpected node type")
+		return nil, &transcom.Error{
+			Cause: errors.New("unexpected node type"),
+			Type:  transform.ErrorOther,
+		}
 	}
 
 	// push it to the datastore
 	if err := dagAPI.Add(ctx, node); err != nil {
-		return nil, err
+		return nil, &transcom.Error{
+			Cause: err,
+			Type:  transform.ErrorIO,
+		}
 	}
 
 	return node, nil
@@ -69,11 +143,17 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 
 func makeKeyWithNode(ctx context.Context, core coreiface.CoreAPI, keyName string, node ipld.Node) error {
 	if _, err := core.Key().Generate(ctx, keyName); err != nil {
-		return err
+		return &transcom.Error{
+			Cause: err,
+			Type:  transform.ErrorIO,
+		}
 	}
 
 	if err := core.Dag().Add(ctx, node); err != nil {
-		return err
+		return &transcom.Error{
+			Cause: err,
+			Type:  transform.ErrorIO,
+		}
 	}
 
 	return nil
@@ -82,7 +162,10 @@ func makeKeyWithNode(ctx context.Context, core coreiface.CoreAPI, keyName string
 func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarget string) (ipld.Node, error) {
 	dagData, err := unixfs.SymlinkData(linkTarget)
 	if err != nil {
-		return nil, err
+		return nil, &transcom.Error{
+			Cause: err,
+			Type:  transform.ErrorOther,
+		}
 	}
 
 	// TODO: use raw node with raw codec and tiny blake hash (after testing the standard)
@@ -93,7 +176,10 @@ func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarge
 
 	// push it to the datastore
 	if err := dagAPI.Add(ctx, dagNode); err != nil {
-		return nil, err
+		return nil, &transcom.Error{
+			Cause: err,
+			Type:  transform.ErrorIO,
+		}
 	}
 	return dagNode, nil
 }

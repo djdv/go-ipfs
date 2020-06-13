@@ -10,8 +10,9 @@ import (
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
+// TODO: [lex] drop prefix
 type IPFSStat struct {
-	FileType  coreiface.FileType
+	FileType  coreiface.FileType // TODO: [lex] drop File prefix
 	Size      uint64
 	BlockSize uint64
 	Blocks    uint64
@@ -25,6 +26,7 @@ var IPFSStatRequestAll = IPFSStatRequest{
 	Type: true, Size: true, Blocks: true,
 }
 
+// TODO: [lex] drop prefix
 type IPFSStatRequest struct {
 	Type   bool
 	Size   bool
@@ -63,6 +65,7 @@ func (sr *IPFSStatRequest) To9P() (filled p9.AttrMask) {
 	return
 }
 
+// TODO: expunge
 func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
 
@@ -84,6 +87,7 @@ func (cs *IPFSStat) ToFuse() *fuselib.Stat_t {
 	}
 }
 
+// TODO: expunge
 func (cs *IPFSStat) To9P() p9.Attr {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
 	return p9.Attr{

@@ -33,6 +33,14 @@ func genFill(slice *[]readdirTestDirEnt) func(name string, stat *fuselib.Stat_t,
 	}
 }
 
+func genEndlessFill(slice *[]readdirTestDirEnt) func(name string, stat *fuselib.Stat_t, ofst int64) bool {
+	return func(name string, _ *fuselib.Stat_t, ofst int64) bool {
+		// always populate
+		*slice = append(*slice, readdirTestDirEnt{name, ofst})
+		return true
+	}
+}
+
 func testDirectories(t *testing.T, testEnv envData, fs fuselib.FileSystemInterface) {
 
 	localPath := testEnv[directoryRoot][rootDirectoryTestSetBasic].localPath
@@ -76,10 +84,19 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 	{ // instance 1
 		dirHandle := testOpendir(t, corePath, fs)
 
-		// make sure we can read the directory completely, in one call
+		// make sure we can read the directory completely, in one call; stopped by `Readdir` itself
+		t.Run("all at once (stopped by `Readdir`)", func(t *testing.T) {
+			testReaddirAllFS(t, localEntries, fs, corePath, dirHandle)
+		})
+	}
+
+	{ // instance 2
+		dirHandle := testOpendir(t, corePath, fs)
+
+		// make sure we can read the directory completely, in one call; stopped by our `filler` function when we reach the end
 		var coreEntries []readdirTestDirEnt
-		t.Run("all at once", func(t *testing.T) {
-			coreEntries = testReaddirAll(t, localEntries, fs, corePath, dirHandle)
+		t.Run("all at once (stopped by us)", func(t *testing.T) {
+			coreEntries = testReaddirAllCaller(t, localEntries, fs, corePath, dirHandle)
 		})
 
 		// check that reading with an offset replays the stream exactly
@@ -91,7 +108,7 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 		testReleasedir(t, corePath, dirHandle, fs)
 	}
 
-	{ // instance 2
+	{ // instance 3
 		dirHandle := testOpendir(t, corePath, fs)
 
 		// test reading 1 by 1
@@ -100,7 +117,7 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 		})
 
 		// we only need this for comparison
-		coreEntries := testReaddirAll(t, localEntries, fs, corePath, dirHandle)
+		coreEntries := testReaddirAllCaller(t, localEntries, fs, corePath, dirHandle)
 
 		// check that reading incrementally with an offset replays the stream exactly
 		t.Run("incrementally with offset", func(t *testing.T) {
@@ -112,8 +129,46 @@ func testReaddir(t *testing.T, localPath, corePath string, fs fuselib.FileSystem
 	}
 }
 
-func testReaddirAll(t *testing.T, expected []string, fs fuselib.FileSystemInterface, corePath string, fh fileHandle) []readdirTestDirEnt {
-	coreEntries := make([]readdirTestDirEnt, 0, len(expected)+2) // + '.', ".."
+func sortEnts(expected []string, have []readdirTestDirEnt) ([]string, []string) {
+	// entries are not expected to be sorted from either source
+	// we'll make and munge copies so we don't alter the source inputs
+	sortedExpectations := make([]string, len(expected))
+	copy(sortedExpectations, expected)
+
+	sortedEntries := make([]string, 0, len(expected))
+	for _, ent := range have {
+		sortedEntries = append(sortedEntries, ent.name)
+	}
+
+	// in-place sort actual
+	sort.Strings(sortedEntries)
+	sort.Strings(sortedExpectations)
+
+	return sortedExpectations, sortedEntries
+}
+
+func testReaddirAllFS(t *testing.T, expected []string, fs fuselib.FileSystemInterface, corePath string, fh fileHandle) []readdirTestDirEnt {
+	coreEntries := make([]readdirTestDirEnt, 0, len(expected))
+	filler := genEndlessFill(&coreEntries)
+
+	const offsetVal = 0
+	if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != fusecom.OperationSuccess {
+		t.Fatalf("Readdir failed (status: %s) reading {%#x|%q} with offset %d\n", fuselib.Error(errNo), fh, corePath, offsetVal)
+	}
+
+	sortedExpectations, sortedCoreEntries := sortEnts(expected, coreEntries)
+
+	// actual comparison
+	if !reflect.DeepEqual(sortedExpectations, sortedCoreEntries) {
+		t.Fatalf("entries within directory do not match\nexpected:%v\nhave:%v", sortedExpectations, sortedCoreEntries)
+	}
+
+	t.Logf("%v\n", coreEntries)
+	return coreEntries
+}
+
+func testReaddirAllCaller(t *testing.T, expected []string, fs fuselib.FileSystemInterface, corePath string, fh fileHandle) []readdirTestDirEnt {
+	coreEntries := make([]readdirTestDirEnt, 0, len(expected))
 	filler := genFill(&coreEntries)
 
 	const offsetVal = 0
@@ -121,27 +176,11 @@ func testReaddirAll(t *testing.T, expected []string, fs fuselib.FileSystemInterf
 		t.Fatalf("Readdir failed (status: %s) reading {%#x|%q} with offset %d\n", fuselib.Error(errNo), fh, corePath, offsetVal)
 	}
 
-	// entries are not expected to be sorted from either source
-	// we'll make and munge copies so we don't alter the source inputs
-	sortedExpectationsAndDreams := make([]string, len(expected))
-	copy(sortedExpectationsAndDreams, expected)
-
-	sortedCoreEntries := make([]string, 0, len(expected))
-	for _, ent := range coreEntries {
-		// (Go's `Readnames` doesn't include dots, so exclude them)
-		if ent.name == "." || ent.name == ".." {
-			continue
-		}
-		sortedCoreEntries = append(sortedCoreEntries, ent.name)
-	}
-
-	// in-place sort actual
-	sort.Strings(sortedCoreEntries)
-	sort.Strings(sortedExpectationsAndDreams)
+	sortedExpectations, sortedCoreEntries := sortEnts(expected, coreEntries)
 
 	// actual comparison
-	if !reflect.DeepEqual(sortedExpectationsAndDreams, sortedCoreEntries) {
-		t.Fatalf("entries within directory do not match\nexpected:%v\nhave:%v", sortedExpectationsAndDreams, sortedCoreEntries)
+	if !reflect.DeepEqual(sortedExpectations, sortedCoreEntries) {
+		t.Fatalf("entries within directory do not match\nexpected:%v\nhave:%v", sortedExpectations, sortedCoreEntries)
 	}
 
 	t.Logf("%v\n", coreEntries)
@@ -177,10 +216,8 @@ func testReaddirAllIncremental(t *testing.T, expected []string, fs fuselib.FileS
 	var (
 		offsetVal  int64
 		entNames   = make([]string, 0, len(expected))
-		loggedEnts = make([]readdirTestDirEnt, 0, len(expected)+2) // + '.', ".."
+		loggedEnts = make([]readdirTestDirEnt, 0, len(expected))
 	)
-
-	os.Stdout.Sync()
 
 	for {
 		singleEnt := make([]readdirTestDirEnt, 0, 1)
@@ -214,9 +251,6 @@ func testReaddirAllIncremental(t *testing.T, expected []string, fs fuselib.FileS
 	// in-place sort actual
 	sort.Strings(entNames)
 	sort.Strings(sortedExpectationsAndDreams)
-
-	// remove dots from core names
-	entNames = entNames[2:]
 
 	// actual comparison
 	if !reflect.DeepEqual(sortedExpectationsAndDreams, entNames) {

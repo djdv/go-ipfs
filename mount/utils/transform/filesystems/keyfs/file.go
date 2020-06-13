@@ -1,109 +1,87 @@
 package keyfs
 
 import (
-	"context"
 	"errors"
 	"io"
 	"sync"
 
-	chunk "github.com/ipfs/go-ipfs-chunker"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
-	"github.com/ipfs/go-unixfs/mod"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
-	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 var _ transform.File = (*keyFile)(nil)
 
-// TODO: [review] there's a lot of indirection going on here, some of which might not be necessary
-// if we can get away with less, do so, but we also might not be able to avoid it
-
-// TODO: [review] comments are written in AM PD English; make another pass
-
-func NewFileWrapper(ctx context.Context, core coreiface.CoreAPI) *FileWrapper {
-	return &FileWrapper{
-		ctx:      ctx,
-		core:     core,
-		dagTable: make(dagTable)}
+// TODO: rewrite this in English; split between fileRef too
+// keyFile implements the `File` interface by wrapping a (shared) ufs.`File`
+// references to a `keyFile` should utilize the shared lock on their underlying `fileRef`
+// during operations to prevent conflicting modifications
+// the underlying reference must have its cursor adjusted to match the cursor value stored on each reference
+// as this value is unique per reference while the underlying cursor position may have been modified by another caller
+type keyFile struct {
+	fileRef
+	cursor int64
+	flags  transform.IOFlags // TODO: [cbcd58ed-86e1-4a2f-87ad-5598d4ea1de5]
 }
 
-type (
-	dagTable map[string]*dagRef
+type fileRef struct {
+	transform.File
+	*sync.Mutex
+	counter refCounter
+	io.Closer
+}
 
-	// TODO: since this is exported it'd be better as an interface
-	// responsible for assigning an underlying dag modifier to a key by its name
-	FileWrapper struct {
-		sync.Mutex // guard table access
-		dagTable   dagTable
+// override `File.Close` with our own close method (which should in itself eventually call `File.Close`)
+func (fi fileRef) Close() error { return fi.Closer.Close() }
 
-		ctx  context.Context // should be valid for as long as files intend to be accessed via this table
-		core coreiface.CoreAPI
+func (ki *keyInterface) Open(path string, flags transform.IOFlags) (transform.File, error) {
+	fs, key, fsPath, deferFunc, err := ki.selectFS(path)
+	if err != nil {
+		return nil, err
 	}
-)
+	defer deferFunc()
 
-type (
-	// multiple file descriptors to the same key will share the same underlying dag modifer
-	// so that they may stay in sync with eachother
-	dagRef struct {
-		sync.Mutex // guard access to the modifier's methods
-		*mod.DagModifier
-		refCount  uint
-		publisher func() error
+	if fs == ki {
+		return ki.getFile(key, flags)
 	}
 
-	// the underlyng dag modifier is a single descriptor with its own cursor
-	// we want to share its buffer, but need our own unique cursor for each of our own descriptors
-	keyFile struct {
-		dag    *dagRef
-		cursor int64
-		closer func() error
-	}
-)
+	return fs.Open(fsPath, flags)
+}
 
 func (kio *keyFile) Size() (int64, error) {
 	// NOTE: this could be a read lock since Size shouldn't modify the dagmod
 	// but a rwmutex doesn't seem worth it for single short op
-	kio.dag.Lock()
-	defer kio.dag.Unlock()
-	return kio.dag.Size()
+	kio.fileRef.Lock()
+	defer kio.fileRef.Unlock()
+	return kio.fileRef.Size()
 }
 func (kio *keyFile) Read(buff []byte) (int, error) {
-	kio.dag.Lock()
-	defer kio.dag.Unlock()
-	if _, err := kio.dag.Seek(kio.cursor, io.SeekStart); err != nil {
+	kio.fileRef.Lock()
+	defer kio.fileRef.Unlock()
+	if _, err := kio.fileRef.Seek(kio.cursor, io.SeekStart); err != nil {
 		return 0, err
 	}
 
-	readBytes, err := kio.dag.Read(buff)
-
+	readBytes, err := kio.fileRef.Read(buff)
 	kio.cursor += int64(readBytes)
+
 	return readBytes, err
 }
 func (kio *keyFile) Write(buff []byte) (int, error) {
-	kio.dag.Lock()
-	defer kio.dag.Unlock()
+	kio.fileRef.Lock()
+	defer kio.fileRef.Unlock()
 
-	if _, err := kio.dag.Seek(kio.cursor, io.SeekStart); err != nil {
+	if _, err := kio.fileRef.Seek(kio.cursor, io.SeekStart); err != nil {
 		return 0, err
 	}
 
-	wroteBytes, err := kio.dag.Write(buff)
-
-	if wroteBytes != 0 {
-		kio.cursor += int64(wroteBytes)
-		publishErr := kio.dag.publisher()
-		if err == nil && publishErr != nil { // don't overwrite the write error if there is one
-			err = publishErr
-		}
-	}
+	wroteBytes, err := kio.fileRef.Write(buff)
+	kio.cursor += int64(wroteBytes)
 
 	return wroteBytes, err
 }
-func (kio *keyFile) Close() error { return kio.closer() }
 func (kio *keyFile) Seek(offset int64, whence int) (int64, error) {
-	// NOTE: same note as in Size()
-	kio.dag.Lock()
-	defer kio.dag.Unlock()
+	kio.fileRef.Lock() // NOTE: same note as in Size(); and because of call to dag.Size()
+	defer kio.fileRef.Unlock()
 
 	switch whence {
 	case io.SeekStart:
@@ -114,126 +92,46 @@ func (kio *keyFile) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		kio.cursor += offset
 	case io.SeekEnd:
-		end, err := kio.dag.Size()
+		end, err := kio.fileRef.Size()
 		if err != nil {
 			return kio.cursor, err
 		}
 		kio.cursor = end + offset
 	}
 
-	return kio.cursor, nil
+	// NOTE: this seek isn't actually meaningful outside of validating the offset
+	return kio.fileRef.Seek(kio.cursor, io.SeekStart)
 }
 
 func (kio *keyFile) Truncate(size uint64) error {
-	kio.dag.Lock()
-	defer kio.dag.Unlock()
-	if err := kio.dag.Truncate(int64(size)); err != nil {
-		return err
-	}
-	return kio.dag.publisher()
+	kio.fileRef.Lock()
+	defer kio.fileRef.Unlock()
+	return kio.fileRef.Truncate(size)
 }
 
-// TODO: parse flags and limit functionality contextually (RO, WO, etc.)
-// for now we always give full access
-func (ft *FileWrapper) Open(key coreiface.Key, _ transform.IOFlags) (transform.File, error) {
-	ft.Lock()
-	defer ft.Unlock()
+// getFile will either construct a `File` representation of the key
+// or fetch an existing one from a table of shared references
+// (handling reference count internally/automatically via keyFile's `Close` method)
+
+func (ki *keyInterface) getFile(key coreiface.Key, flags transform.IOFlags) (transform.File, error) {
+	// TODO: [cbcd58ed-86e1-4a2f-87ad-5598d4ea1de5]
+	// the `File`s we `Open` should always have full access
+	// but `keyFile` references that are returned should store the provided flags
+	// and gate operations based on it
+	// e.g. keyFile.Write(){if !self.flags.write; return errRO}
+	// right now we don't do this, we just store them
 
 	keyName := key.Name()
-
-	if dagRef, ok := ft.dagTable[keyName]; ok {
-		dagRef.refCount++
-		closer := func() error {
-			ft.Lock()
-			defer ft.Unlock()
-			dagRef.refCount--
-			if dagRef.refCount == 0 {
-				delete(ft.dagTable, keyName)
-			}
-			return nil
-		}
-
-		return &keyFile{dag: dagRef, closer: closer}, nil
+	opener := func() (transform.File, error) {
+		ki.ufs.SetModifier(ki.publisherGenUFS(keyName))
+		return ki.ufs.Open(key.Path().String(), transform.IOReadWrite)
 	}
 
-	ipldNode, err := ft.core.ResolveNode(ft.ctx, key.Path())
+	fileRef, err := ki.references.getFileRef(key.Name(), opener)
 	if err != nil {
 		return nil, err
 	}
 
-	dmod, err := mod.NewDagModifier(ft.ctx, ipldNode, ft.core.Dag(), func(r io.Reader) chunk.Splitter {
-		return chunk.NewBuzhash(r)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	dagRef := &dagRef{DagModifier: dmod, refCount: 1, publisher: func() error {
-		node, err := dmod.GetNode()
-		if err != nil {
-			return err
-		}
-		return localPublish(ft.ctx, ft.core, keyName, corepath.IpldPath(node.Cid()))
-	}}
-	ft.dagTable[keyName] = dagRef
-
-	closer := func() error {
-		ft.Lock()
-		defer ft.Unlock()
-		dagRef.refCount--
-		if dagRef.refCount == 0 {
-			delete(ft.dagTable, key.Name())
-		}
-		return nil
-	}
-
-	return &keyFile{dag: dagRef, closer: closer}, nil
-}
-
-func (ft *FileWrapper) Truncate(key coreiface.Key, size uint64) error {
-	ft.Lock()
-	defer ft.Unlock()
-
-	keyName := key.Name()
-
-	// reuse active instance if any
-	// don't increase refcount since we're locked and releasing this immediately
-	if dagRef, ok := ft.dagTable[keyName]; ok {
-		if err := dagRef.Truncate(int64(size)); err != nil {
-			return err
-		}
-
-		// implies dagRef.Sync()
-		node, err := dagRef.GetNode()
-		if err != nil {
-			return err
-		}
-
-		return localPublish(ft.ctx, ft.core, keyName, corepath.IpldPath(node.Cid()))
-	}
-
-	// generate one off instance
-	ipldNode, err := ft.core.ResolveNode(ft.ctx, key.Path())
-	if err != nil {
-		return err
-	}
-
-	dmod, err := mod.NewDagModifier(ft.ctx, ipldNode, ft.core.Dag(), func(r io.Reader) chunk.Splitter {
-		return chunk.NewBuzhash(r)
-	})
-	if err != nil {
-		return err
-	}
-
-	if err := dmod.Truncate(int64(size)); err != nil {
-		return err
-	}
-
-	// implies dmod.Sync()
-	node, err := dmod.GetNode()
-	if err != nil {
-		return err
-	}
-
-	return localPublish(ft.ctx, ft.core, keyName, corepath.IpldPath(node.Cid()))
+	// return a wrapper around it with a unique cursor and flagset
+	return &keyFile{fileRef: fileRef, flags: flags}, nil
 }

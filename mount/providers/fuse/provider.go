@@ -163,7 +163,7 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 		if mroot == nil {
 			return nil, nil, fmt.Errorf("MFS root was not provided")
 		}
-		fs = mfs.NewFileSystem(ctx, *mroot, core, mfs.WithCommon(commonOpts...))
+		fs = mfs.NewFileSystem(ctx, mroot, core, mfs.WithCommon(commonOpts...))
 	}
 
 	fsh = fuselib.NewFileSystemHost(fs)

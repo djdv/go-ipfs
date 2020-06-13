@@ -2,31 +2,37 @@ package mfs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	gopath "path"
 
-	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
+	transcom "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
 	unixpb "github.com/ipfs/go-unixfs/pb"
 )
 
-func Unlink(mroot *gomfs.Root, path string) transform.Error { return remove(mroot, path, gomfs.TFile) }
-func Rmdir(mroot *gomfs.Root, path string) transform.Error  { return remove(mroot, path, gomfs.TDir) }
+func (mi *mfsInterface) Remove(path string) error {
+	return mi.remove(path, gomfs.TFile)
+}
 
-// TODO: needs 9P errors
-func remove(mroot *gomfs.Root, path string, nodeType gomfs.NodeType) transform.Error {
+func (mi *mfsInterface) RemoveLink(path string) error {
+	return mi.remove(path, gomfs.TFile) // TODO: this is a gross hack; change the parameter to be a core type and switch on it properly inside remove
+}
+func (mi *mfsInterface) RemoveDirectory(path string) error {
+	return mi.remove(path, gomfs.TDir)
+}
+
+func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 	// prepare to separate child from parent
-	parentDir, childName, tErr := divorce(mroot, path)
-	if tErr != nil {
-		return tErr
+	parentDir, childName, err := splitParentChild(mi.mroot, path)
+	if err != nil {
+		return err
 	}
 
 	childNode, err := parentDir.Child(childName)
 	if err != nil {
-		return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.ENOENT}
+		return &transcom.Error{Cause: err, Type: transform.ErrorNotExist}
 	}
 
 	// check behavior for specific types
@@ -37,61 +43,66 @@ func remove(mroot *gomfs.Root, path string, nodeType gomfs.NodeType) transform.E
 			// make sure it's not a (UFS) symlink
 			ipldNode, err := childNode.GetNode()
 			if err != nil {
-				return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.EPERM}
+				return &transcom.Error{Cause: err, Type: transform.ErrorPermission}
 			}
 			ufsNode, err := unixfs.ExtractFSNode(ipldNode)
 			if err != nil {
-				return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.EPERM}
+				return &transcom.Error{Cause: err, Type: transform.ErrorPermission}
 			}
 			if t := ufsNode.Type(); t != unixpb.Data_Symlink {
-				err := fmt.Errorf("%q is not a file or symlink (%q)", path, t)
-				return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.EPERM}
+				return &transcom.Error{
+					Cause: fmt.Errorf("%q is not a file or symlink (%q)", path, t),
+					Type:  transform.ErrorPermission}
 			}
 		}
 
 	case gomfs.TDir:
 		childDir, ok := childNode.(*gomfs.Directory)
 		if !ok {
-			err := fmt.Errorf("%q is not a directory (%T)", path, childNode)
-			return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.ENOTDIR}
+			return &transcom.Error{
+				Cause: fmt.Errorf("%q is not a directory (%T)", path, childNode),
+				Type:  transform.ErrorNotDir}
 		}
 
 		ents, err := childDir.ListNames(context.TODO())
 		if err != nil {
-			return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.EACCES}
+			return &transcom.Error{Cause: err, Type: transform.ErrorPermission}
 		}
 
 		if len(ents) != 0 {
-			err := fmt.Errorf("directory %q is not empty", path)
-			return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.ENOTEMPTY}
+			return &transcom.Error{
+				Cause: fmt.Errorf("directory %q is not empty", path),
+				Type:  transform.ErrorNotEmpty}
 		}
 
 	default:
-		err := fmt.Errorf("unexpected node type %v", nodeType)
-		return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.EACCES}
+		return &transcom.Error{
+			Cause: fmt.Errorf("unexpected node type %v", nodeType),
+			Type:  transform.ErrorPermission}
 	}
 
 	// unlink parent and child actually
 	if err := parentDir.Unlink(childName); err != nil {
-		return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.EACCES}
+		return &transcom.Error{Cause: err, Type: transform.ErrorPermission}
 	}
 	if err := parentDir.Flush(); err != nil {
-		return &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.EACCES}
+		return &transcom.Error{Cause: err, Type: transform.ErrorPermission}
 	}
 
 	return nil
 }
 
-func divorce(mroot *gomfs.Root, path string) (*gomfs.Directory, string, transform.Error) {
+func splitParentChild(mroot *gomfs.Root, path string) (*gomfs.Directory, string, error) {
 	parentPath, childName := gopath.Split(path)
 	parentNode, err := gomfs.Lookup(mroot, parentPath)
 	if err != nil {
-		return nil, "", &transform.ErrorActual{GoErr: err, ErrNo: -fuselib.ENOENT}
+		return nil, "", &transcom.Error{Cause: err, Type: transform.ErrorNotExist}
 	}
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
-		return nil, "", &transform.ErrorActual{GoErr: errors.New("parent isn't a directory"), ErrNo: -fuselib.ENOTDIR}
+		err = fmt.Errorf("parent %q isn't a directory", parentPath)
+		return nil, "", &transcom.Error{Cause: err, Type: transform.ErrorNotDir}
 	}
 
 	return parentDir, childName, nil

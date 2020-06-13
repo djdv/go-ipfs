@@ -1,93 +1,86 @@
 package keyfs
 
 import (
-	"context"
-	"errors"
+	"fmt"
 
-	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
-	uio "github.com/ipfs/go-unixfs/io"
+	transcom "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
-var (
-	ErrKeyIsNotDir  = errors.New("operation on key that is not a directory")
-	ErrKeyIsNotFile = errors.New("operation on key that is not a file")
-)
-
-//TODO: all the 9P errors
-func Rmdir(ctx context.Context, core coreiface.CoreAPI, coreKey coreiface.Key) transform.Error {
-
-	keyPath := coreKey.Path()
-
-	iStat, _, err := transform.GetAttr(ctx, keyPath, core, transform.IPFSStatRequest{Type: true})
-	if err != nil {
-		return &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.ENOENT,
-			P9pErr: err,
-		}
-	}
-	if iStat.FileType != coreiface.TDirectory {
-		return &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.ENOTDIR,
-			P9pErr: err,
-		}
-	}
-
-	dirNode, err := core.ResolveNode(ctx, keyPath)
-	if err != nil {
-		return &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.ENOENT,
-			P9pErr: err,
-		}
-	}
-
-	unixDir, err := uio.NewDirectoryFromNode(core.Dag(), dirNode)
-	if err != nil {
-		return &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.ENOENT,
-			P9pErr: err,
-		}
-	}
-
-	dirCtx, cancel := context.WithCancel(ctx)
-
-	_, ok := <-unixDir.EnumLinksAsync(dirCtx)
-	if ok {
-		cancel()
-		return &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.ENOTEMPTY,
-			P9pErr: err,
-		}
-	}
-	cancel()
-
-	if _, err = core.Key().Remove(ctx, coreKey.Name()); err != nil {
-		return &transform.ErrorActual{
-			GoErr:  err,
-			ErrNo:  -fuselib.EIO,
-			P9pErr: err,
-		}
-	}
-	return nil
-}
-
-func Unlink(ctx context.Context, core coreiface.CoreAPI, coreKey coreiface.Key) error {
-	keyPath := coreKey.Path()
-
-	iStat, _, err := transform.GetAttr(ctx, keyPath, core, transform.IPFSStatRequest{Type: true})
+func (ki *keyInterface) Remove(path string) error {
+	fs, _, fsPath, deferFunc, err := ki.selectFS(path)
 	if err != nil {
 		return err
 	}
-	if iStat.FileType != coreiface.TFile {
-		return ErrKeyIsNotFile
+	defer deferFunc()
+
+	if fs == ki {
+		return ki.remove(fsPath, coreiface.TFile)
+	}
+	return fs.Remove(fsPath)
+}
+
+func (ki *keyInterface) RemoveLink(path string) error {
+	fs, _, fsPath, deferFunc, err := ki.selectFS(path)
+	if err != nil {
+		return err
+	}
+	defer deferFunc()
+
+	if fs == ki {
+		return ki.remove(fsPath, coreiface.TSymlink)
+	}
+	return fs.RemoveLink(fsPath)
+}
+
+func (ki *keyInterface) RemoveDirectory(path string) error {
+	fs, _, fsPath, deferFunc, err := ki.selectFS(path)
+	if err != nil {
+		return err
+	}
+	defer deferFunc()
+
+	if fs == ki {
+		return ki.remove(fsPath, coreiface.TDirectory)
+	}
+	return fs.RemoveDirectory(fsPath)
+}
+
+func (ki *keyInterface) remove(path string, nodeType coreiface.FileType) error {
+	iStat, _, err := ki.Info(path, transform.IPFSStatRequest{Type: true})
+	if err != nil {
+		return err
 	}
 
-	_, err = core.Key().Remove(ctx, coreKey.Name())
-	return err
+	if iStat.FileType != nodeType {
+		switch nodeType {
+		case coreiface.TFile:
+			return &transcom.Error{
+				Cause: fmt.Errorf("%q is not a file", path),
+				Type:  transform.ErrorIsDir,
+			}
+		case coreiface.TDirectory:
+			return &transcom.Error{
+				Cause: fmt.Errorf("%q is not a directory", path),
+				Type:  transform.ErrorNotDir,
+			}
+		case coreiface.TSymlink:
+			return &transcom.Error{
+				Cause: fmt.Errorf("%q is not a link", path),
+				Type:  transform.ErrorNotExist, // TODO: [review] SUS doesn't distinguish between files and links in `unlink` so there's no real appropriate value for this
+			}
+		}
+	}
+
+	callCtx, cancel := transcom.CallContext(ki.ctx)
+	defer cancel()
+	keyName := path[1:]
+	if _, err = ki.core.Key().Remove(callCtx, keyName); err != nil {
+		return &transcom.Error{
+			Cause: err,
+			Type:  transform.ErrorIO,
+		}
+	}
+	return nil
 }

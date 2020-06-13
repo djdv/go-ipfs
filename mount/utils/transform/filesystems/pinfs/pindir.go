@@ -4,7 +4,6 @@ import (
 	"context"
 	gopath "path"
 
-	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	tcom "github.com/ipfs/go-ipfs/mount/utils/transform/filesystems"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
@@ -12,14 +11,9 @@ import (
 
 // TODO: make a pass on everything [AM] [hasty port]
 
+// a `Directory` containing the node's pins (as a stream of entries)
 type pinDirectoryStream struct {
 	pinAPI coreiface.PinAPI
-}
-
-// OpenDir returns a Directory containing the node's pins (as a stream of entries)
-func OpenDir(ctx context.Context, core coreiface.CoreAPI) (transform.Directory, error) {
-	return tcom.PartialEntryUpgrade(
-		tcom.NewCoreStreamBase(ctx, &pinDirectoryStream{pinAPI: core.Pin()}))
 }
 
 func (ps *pinDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.PartialEntry) error {

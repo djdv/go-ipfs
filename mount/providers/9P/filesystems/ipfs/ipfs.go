@@ -7,6 +7,7 @@ import (
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
+	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	common "github.com/ipfs/go-ipfs/mount/providers/9P/filesystems"
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 	"github.com/ipfs/go-ipfs/mount/utils/transform/filesystems/ipfscore"
@@ -26,6 +27,10 @@ type File struct {
 	common.CoreBase
 	common.OverlayBase
 
+	// TODO: [WIP] we're doing all the new stuff in FUSE and only porting things back here when it breaks
+	// the 9P tree will need a pass when everything is final, until then everything is just kind of tacked on and hacked up
+	Intf transform.Interface // NOTE: this should replace CoreBase + OverlayBase when done
+
 	// operation handle storage
 	file      transform.File
 	directory transform.Directory
@@ -41,6 +46,7 @@ func Attacher(ctx context.Context, core coreiface.CoreAPI, ops ...common.AttachO
 		CoreBase:    common.NewCoreBase("/ipfs", core, ops...),
 		OverlayBase: common.OverlayBase{ParentCtx: ctx},
 		Parent:      options.Parent,
+		Intf:        ipfscore.NewInterface(ctx, core, mountinter.NamespaceIPFS),
 	}
 }
 
@@ -81,7 +87,7 @@ func (id *File) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
 		return p9.QID{}, p9.AttrMask{}, p9.Attr{}, err
 	}
 
-	iStat, iFilled, err := transform.GetAttr(callCtx, id.CorePath(), id.Core, transform.RequestFrom9P(req))
+	iStat, iFilled, err := id.Intf.Info(id.String(), transform.RequestFrom9P(req))
 	if err != nil {
 		id.Logger.Error(err)
 		return qid, iFilled.To9P(), iStat.To9P(), err
@@ -115,7 +121,7 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		}
 
 		// everything else
-		dir, err := ipfscore.OpenDir(id.OperationsCtx, id.CorePath(), id.Core)
+		dir, err := id.Intf.OpenDirectory(id.String())
 		if err != nil {
 			return qid, 0, err
 		}
@@ -125,10 +131,7 @@ func (id *File) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
 		return qid, 0, nil
 	}
 
-	callCtx, cancel := id.CallCtx()
-	defer cancel()
-
-	file, err := ipfscore.OpenFile(callCtx, id.CorePath(), id.Core, transform.IOFlagsFrom9P(mode))
+	file, err := id.Intf.Open(id.String(), common.IOFlagsFrom9P(mode))
 	if err != nil {
 		return qid, 0, err
 	}

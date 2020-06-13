@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	provcom "github.com/ipfs/go-ipfs/mount/providers"
 	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/keyfs"
 	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
@@ -22,15 +21,23 @@ var _ fuselib.FileSystemInterface = (*FileSystem)(nil)
 
 const rootHandle = 42 // we handle directory listings on the fly, no need for dynamic directory objects/handles
 
-type FileSystem struct {
-	provcom.IPFSCore
-	//provcom.MFS
+// TODO: proper port of the overlay in intermediate layer; hacks for now
+func (fs *FileSystem) Ctx() context.Context    { return fs.ctx }
+func (fs *FileSystem) Core() coreiface.CoreAPI { return fs.core }
 
+//
+
+type FileSystem struct {
 	// init relevant
 	initChan     fusecom.InitSignal
 	resLock      mountcom.ResourceLock // don't reference directly, call methods on fs.(Request|Release)
 	filesAPIRoot *gomfs.Root           // don't reference directly, use fs.filesAPI after it's initialized
 	directories  []string
+
+	//port hacks; remove these later
+	ctx  context.Context
+	core coreiface.CoreAPI
+	//
 
 	// FIXME: zap logger implies newly created logs will respect the zapconfig's set Level
 	// however this doesn't seem to be the case in go-log
@@ -48,7 +55,6 @@ func NewFileSystem(ctx context.Context, core coreiface.CoreAPI, opts ...Option) 
 	settings := parseOptions(opts...)
 
 	return &FileSystem{
-		IPFSCore:     provcom.NewIPFSCore(ctx, core, settings.ResourceLock),
 		initChan:     settings.InitSignal,
 		log:          settings.Log,
 		resLock:      settings.ResourceLock,
@@ -195,7 +201,7 @@ func (fs *FileSystem) attachIPNS() (fuselib.FileSystemInterface, error) {
 	keyfsSubsys := keyfs.NewFileSystem(fs.Ctx(), fs.Core(),
 		keyfs.WithCommon(
 			fusecom.WithInitSignal(initChan),
-			fusecom.WithResourceLock(fs.IPFSCore),
+			fusecom.WithResourceLock(fs.resLock),
 			fusecom.WithParent(fs),
 		),
 	)
@@ -222,10 +228,10 @@ func (fs *FileSystem) attachFilesAPI() (fuselib.FileSystemInterface, error) {
 	}
 
 	// handle `/file` requests via MFS
-	fileSubsys := mfs.NewFileSystem(fs.Ctx(), *fs.filesAPIRoot, fs.Core(),
+	fileSubsys := mfs.NewFileSystem(fs.Ctx(), fs.filesAPIRoot, fs.Core(),
 		mfs.WithCommon(
 			fusecom.WithInitSignal(initChan),
-			fusecom.WithResourceLock(fs.IPFSCore),
+			fusecom.WithResourceLock(fs.resLock),
 			fusecom.WithParent(fs),
 		),
 	)
@@ -338,9 +344,9 @@ func (fs *FileSystem) Readdir(path string,
 func (fs *FileSystem) Open(path string, flags int) (int, uint64) {
 	fs.log.Debugf("Open - Request {%X}%q", flags, path)
 
-	goErr, errNo := fusecom.CheckOpenFlagsBasic(false, flags)
-	if goErr != nil {
-		fs.log.Error(goErr)
+	errNo, err := fusecom.CheckOpenFlagsBasic(false, flags)
+	if err != nil {
+		fs.log.Error(err)
 		return errNo, fusecom.ErrorHandle
 	}
 

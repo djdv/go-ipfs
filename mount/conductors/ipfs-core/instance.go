@@ -170,7 +170,7 @@ func (con *conductor) newProvider(prov mountinter.ProviderType, provParam string
 		provcom.WithResourceLock(con.resLock),
 	}
 	if con.filesAPIRoot != nil {
-		pOps = append(pOps, provcom.WithFilesAPIRoot(*con.filesAPIRoot))
+		pOps = append(pOps, provcom.WithFilesAPIRoot(con.filesAPIRoot))
 	}
 
 	switch prov {

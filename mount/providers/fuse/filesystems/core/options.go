@@ -1,4 +1,4 @@
-package ipfscore
+package core
 
 import (
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
