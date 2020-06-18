@@ -1,4 +1,4 @@
-package fusecommon
+package fuse
 
 import (
 	"errors"
@@ -7,26 +7,17 @@ import (
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 )
 
-// NOTE: handles in operations (typically named `fh`) are not the actual `fd` returned to the caller
-// they're abstracted by FUSE
 type (
 	handle = uint64
 	fMap   map[handle]transform.File
 	dMap   map[handle]transform.Directory
 )
 
-func NewFileTable() *fileTable           { return &fileTable{files: make(fMap)} }
-func NewDirectoryTable() *directoryTable { return &directoryTable{directories: make(dMap)} }
+func newFileTable() *fileTableStruct           { return &fileTableStruct{files: make(fMap)} }
+func newDirectoryTable() *directoryTableStruct { return &directoryTableStruct{directories: make(dMap)} }
 
 type (
-	fileTable struct {
-		sync.RWMutex
-		index   uint64
-		wrapped bool // if true; we start reclaiming dead index values
-		files   fMap
-	}
-
-	FileTable interface {
+	fileTable interface {
 		Add(transform.File) (handle, error)
 		Exists(handle) bool
 		Get(handle) (transform.File, error)
@@ -35,9 +26,15 @@ type (
 		// TODO: [lint]
 		// List() []string // This might be nice to have; list names of handles, but not necessary
 	}
+	fileTableStruct struct {
+		sync.RWMutex
+		index   uint64
+		wrapped bool // if true; we start reclaiming dead index values
+		files   fMap
+	}
 )
 
-func (ft *fileTable) Add(f transform.File) (handle, error) {
+func (ft *fileTableStruct) Add(f transform.File) (handle, error) {
 	ft.Lock()
 	defer ft.Unlock()
 
@@ -56,10 +53,10 @@ func (ft *fileTable) Add(f transform.File) (handle, error) {
 			ft.index = index
 			return index, nil
 		}
-		return ErrorHandle, errors.New("all slots filled")
+		return errorHandle, errors.New("all slots filled")
 	}
 
-	// we've never hit the cap we can assume the handle is free
+	// we've never hit the cap, so we can assume the handle is free
 	// but for sanity we check anyway
 	if _, ok := ft.files[ft.index]; ok {
 		panic("handle should be uninitialized but is in use")
@@ -68,14 +65,14 @@ func (ft *fileTable) Add(f transform.File) (handle, error) {
 	return ft.index, nil
 }
 
-func (ft *fileTable) Exists(fh handle) bool {
+func (ft *fileTableStruct) Exists(fh handle) bool {
 	ft.RLock()
 	defer ft.RUnlock()
 	_, exists := ft.files[fh]
 	return exists
 }
 
-func (ft *fileTable) Get(fh handle) (transform.File, error) {
+func (ft *fileTableStruct) Get(fh handle) (transform.File, error) {
 	ft.RLock()
 	defer ft.RUnlock()
 	f, exists := ft.files[fh]
@@ -85,7 +82,7 @@ func (ft *fileTable) Get(fh handle) (transform.File, error) {
 	return f, nil
 }
 
-func (ft *fileTable) Remove(fh handle) error {
+func (ft *fileTableStruct) Remove(fh handle) error {
 	ft.Lock()
 	defer ft.Unlock()
 	if _, exists := ft.files[fh]; !exists {
@@ -95,33 +92,29 @@ func (ft *fileTable) Remove(fh handle) error {
 	return nil
 }
 
-func (ft *fileTable) Length() int {
+func (ft *fileTableStruct) Length() int {
 	ft.RLock()
 	defer ft.RUnlock()
 	return len(ft.files)
 }
 
-// TODO: consider a way to consolidate these without losing type safety
-// since File and Directory interfaces don't overlap cleanly
-// we can't just (formally) make a super-interface of both
-// (it's possible manually but requires exporting the stat types)
 type (
-	directoryTable struct {
-		sync.RWMutex
-		index       uint64
-		wrapped     bool // if true; we start reclaiming dead index values
-		directories map[handle]transform.Directory
-	}
-	DirectoryTable interface {
+	directoryTable interface {
 		Add(transform.Directory) (handle, error)
 		Exists(handle) bool
 		Get(handle) (transform.Directory, error)
 		Remove(handle) error
 		Length() int
 	}
+	directoryTableStruct struct {
+		sync.RWMutex
+		index       uint64
+		wrapped     bool // if true; we start reclaiming dead index values
+		directories map[handle]transform.Directory
+	}
 )
 
-func (dt *directoryTable) Add(f transform.Directory) (handle, error) {
+func (dt *directoryTableStruct) Add(f transform.Directory) (handle, error) {
 	dt.Lock()
 	defer dt.Unlock()
 
@@ -140,10 +133,10 @@ func (dt *directoryTable) Add(f transform.Directory) (handle, error) {
 			dt.index = index
 			return index, nil
 		}
-		return ErrorHandle, errors.New("all slots filled")
+		return errorHandle, errors.New("all slots filled")
 	}
 
-	// we've never hit the cap we can assume the handle is free
+	// we've never hit the cap, so we can assume the handle is free
 	// but for sanity we check anyway
 	if _, ok := dt.directories[dt.index]; ok {
 		panic("handle should be uninitialized but is in use")
@@ -152,14 +145,14 @@ func (dt *directoryTable) Add(f transform.Directory) (handle, error) {
 	return dt.index, nil
 }
 
-func (dt *directoryTable) Exists(fh handle) bool {
+func (dt *directoryTableStruct) Exists(fh handle) bool {
 	dt.RLock()
 	defer dt.RUnlock()
 	_, exists := dt.directories[fh]
 	return exists
 }
 
-func (dt *directoryTable) Get(fh handle) (transform.Directory, error) {
+func (dt *directoryTableStruct) Get(fh handle) (transform.Directory, error) {
 	dt.RLock()
 	defer dt.RUnlock()
 	f, exists := dt.directories[fh]
@@ -169,7 +162,7 @@ func (dt *directoryTable) Get(fh handle) (transform.Directory, error) {
 	return f, nil
 }
 
-func (dt *directoryTable) Remove(fh handle) error {
+func (dt *directoryTableStruct) Remove(fh handle) error {
 	dt.Lock()
 	defer dt.Unlock()
 	if _, exists := dt.directories[fh]; !exists {
@@ -179,7 +172,7 @@ func (dt *directoryTable) Remove(fh handle) error {
 	return nil
 }
 
-func (dt *directoryTable) Length() int {
+func (dt *directoryTableStruct) Length() int {
 	dt.RLock()
 	defer dt.RUnlock()
 	return len(dt.directories)

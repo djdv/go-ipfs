@@ -1,4 +1,4 @@
-package mountfuse
+package fuse
 
 import (
 	"context"
@@ -10,12 +10,6 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
 	provcom "github.com/ipfs/go-ipfs/mount/providers"
-	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
-	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/keyfs"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/mfs"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/overlay"
-	"github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/pinfs"
 	mountcom "github.com/ipfs/go-ipfs/mount/utils/common"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -33,10 +27,8 @@ type fuseProvider struct {
 	filesRoot *gomfs.Root
 
 	// FS provider
-	ctx       context.Context
-	cancel    context.CancelFunc
-	closed    chan struct{}
-	serverErr error
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// mount interface
 	instances mountcom.InstanceCollectionState
@@ -45,10 +37,10 @@ type fuseProvider struct {
 }
 
 func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, opts ...provcom.Option) (*fuseProvider, error) {
-	options := provcom.ParseOptions(opts...)
+	settings := provcom.ParseOptions(opts...)
 
-	if options.ResourceLock == nil {
-		options.ResourceLock = mountcom.NewResourceLocker()
+	if settings.ResourceLock == nil {
+		settings.ResourceLock = mountcom.NewResourceLocker()
 	}
 
 	fsCtx, cancel := context.WithCancel(ctx)
@@ -57,8 +49,8 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs s
 		cancel:    cancel,
 		core:      api,
 		namespace: namespace,
-		resLock:   options.ResourceLock,
-		filesRoot: options.FilesAPIRoot,
+		resLock:   settings.ResourceLock,
+		filesRoot: settings.FilesAPIRoot,
 		instances: mountcom.NewInstanceCollectionState(),
 	}, nil
 }
@@ -128,10 +120,11 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 	var (
 		fsh        *fuselib.FileSystemHost
 		fs         fuselib.FileSystemInterface
-		initSignal = make(fusecom.InitSignal)
-		commonOpts = []fusecom.Option{
-			fusecom.WithInitSignal(initSignal),
-			// TODO: fusecom.WithResourceLock(options.resourceLock), pass in from caller
+		initSignal = make(InitSignal)
+		systemOpts = []SystemOption{
+			WithInitSignal(initSignal),
+			// TODO: exit signal (for foreground)
+			// TODO: WithResourceLock(options.resourceLock), pass in from caller
 		}
 	)
 
@@ -139,31 +132,30 @@ func newHost(ctx context.Context, namespace mountinter.Namespace, core coreiface
 	default:
 		return nil, nil, fmt.Errorf("unknown namespace: %v", namespace)
 
-	case mountinter.NamespaceAllInOne:
+	case mountinter.NamespaceCombined:
+		/* TODO
 		oOps := []overlay.Option{overlay.WithCommon(commonOpts...)}
 		if mroot != nil {
 			oOps = append(oOps, overlay.WithMFSRoot(*mroot))
 		}
 
 		fs = overlay.NewFileSystem(ctx, core, oOps...)
+		*/
 
 	case mountinter.NamespacePinFS:
-		fs = pinfs.NewFileSystem(ctx, core, pinfs.WithCommon(commonOpts...))
+		fs = NewPinFileSystem(ctx, core, systemOpts...)
 
 	case mountinter.NamespaceKeyFS:
-		fs = keyfs.NewFileSystem(ctx, core, keyfs.WithCommon(commonOpts...))
+		fs = NewKeyFileSystem(ctx, core, systemOpts...)
 
 	case mountinter.NamespaceIPFS, mountinter.NamespaceIPNS:
-		fs = ipfscore.NewFileSystem(ctx, core,
-			ipfscore.WithNamespace(namespace),
-			ipfscore.WithCommon(commonOpts...),
-		)
+		fs = NewCoreFileSystem(ctx, core, namespace, systemOpts...)
 
 	case mountinter.NamespaceFiles:
 		if mroot == nil {
 			return nil, nil, fmt.Errorf("MFS root was not provided")
 		}
-		fs = mfs.NewFileSystem(ctx, mroot, core, mfs.WithCommon(commonOpts...))
+		fs = NewMutableFileSystem(ctx, mroot, systemOpts...)
 	}
 
 	fsh = fuselib.NewFileSystemHost(fs)

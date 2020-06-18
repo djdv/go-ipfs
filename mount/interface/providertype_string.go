@@ -8,18 +8,18 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[ProviderNone-0]
 	_ = x[ProviderPlan9Protocol-1]
 	_ = x[ProviderFuse-2]
 }
 
-const _ProviderType_name = "NonePlan9ProtocolFuse"
+const _ProviderType_name = "Plan9ProtocolFuse"
 
-var _ProviderType_index = [...]uint8{0, 4, 17, 21}
+var _ProviderType_index = [...]uint8{0, 13, 17}
 
 func (i ProviderType) String() string {
+	i -= 1
 	if i < 0 || i >= ProviderType(len(_ProviderType_index)-1) {
-		return "ProviderType(" + strconv.FormatInt(int64(i), 10) + ")"
+		return "ProviderType(" + strconv.FormatInt(int64(i+1), 10) + ")"
 	}
 	return _ProviderType_name[_ProviderType_index[i]:_ProviderType_index[i+1]]
 }

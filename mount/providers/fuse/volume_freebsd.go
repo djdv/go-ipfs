@@ -1,6 +1,4 @@
-// +build !windows,!darwin,!freebsd,!openbsd,!netbsd
-
-package fusecommon
+package fuse
 
 import (
 	"syscall"
@@ -9,15 +7,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() { Statfs = statfsUnix }
+func init() { statfs = statfsFreeBSD }
 
-func statfsUnix(path string, fStatfs *fuselib.Statfs_t) (error, int) {
+func statfsFreeBSD(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	sysStat := &unix.Statfs_t{}
 	if err := unix.Statfs(path, sysStat); err != nil {
 		if errno, ok := err.(syscall.Errno); ok {
 			return err, int(errno)
 		}
-		return err, -fuselib.EACCES
+		return -fuselib.EACCES, err
 	}
 
 	// NOTE: These values are ignored by cgofuse
@@ -25,13 +23,13 @@ func statfsUnix(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	fStatfs.Fsid = uint64(sysStat.Fsid.Val[0])<<32 | uint64(sysStat.Fsid.Val[1])
 	fStatfs.Flag = uint64(sysStat.Flags)
 
-	fStatfs.Bsize = uint64(sysStat.Bsize)
+	fStatfs.Bsize = sysStat.Bsize
 	fStatfs.Blocks = sysStat.Blocks
 	fStatfs.Bfree = sysStat.Bfree
-	fStatfs.Bavail = sysStat.Bavail
+	fStatfs.Bavail = uint64(sysStat.Bavail)
 	fStatfs.Files = sysStat.Files
-	fStatfs.Ffree = sysStat.Ffree
-	fStatfs.Frsize = uint64(sysStat.Frsize)
-	fStatfs.Namemax = uint64(sysStat.Namelen)
-	return nil, OperationSuccess
+	fStatfs.Ffree = uint64(sysStat.Ffree)
+	fStatfs.Frsize = uint64(sysStat.Bsize)
+	fStatfs.Namemax = uint64(sysStat.Namemax)
+	return operationSuccess, nil
 }

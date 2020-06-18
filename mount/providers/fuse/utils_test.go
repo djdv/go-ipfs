@@ -1,4 +1,4 @@
-package mountfuse_test
+package fuse_test
 
 import (
 	"context"
@@ -186,7 +186,6 @@ func generateEnvData(t *testing.T, ctx context.Context, core coreiface.CoreAPI) 
 			envRoot[rootFileSmall],
 		}, subJunkFiles...,
 		)
-
 	}
 
 	iPath, err := pinAddDir(ctx, core, testDir)

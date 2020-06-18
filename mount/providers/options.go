@@ -13,13 +13,13 @@ import (
 // it's only here because we can't put it in fusecommon because of a dependency cycle
 const CanReaddirPlus bool = runtime.GOOS == "windows"
 
-type Options struct {
+type Settings struct {
 	ResourceLock mountcom.ResourceLock // if provided, will replace the default lock used for operations
 	FilesAPIRoot *gomfs.Root           // required when mounting the FilesAPI namespace, otherwise nil-able
 }
 
-func ParseOptions(opts ...Option) *Options {
-	options := new(Options)
+func ParseOptions(opts ...Option) *Settings {
+	options := new(Settings)
 	for _, opt := range opts {
 		opt.apply(options)
 	}
@@ -37,7 +37,7 @@ func WithResourceLock(rl mountcom.ResourceLock) Option {
 	return resourceLockOpt(resourceLockOptContainer{rl})
 }
 
-type Option interface{ apply(*Options) }
+type Option interface{ apply(*Settings) }
 
 type (
 	resourceLockOpt          resourceLockOptContainer
@@ -46,10 +46,10 @@ type (
 	mfsOptContainer          struct{ *gomfs.Root }
 )
 
-func (rc resourceLockOpt) apply(opts *Options) {
+func (rc resourceLockOpt) apply(opts *Settings) {
 	opts.ResourceLock = mountcom.ResourceLock(rc.ResourceLock)
 }
 
-func (rc mfsOpt) apply(opts *Options) {
+func (rc mfsOpt) apply(opts *Settings) {
 	opts.FilesAPIRoot = (*gomfs.Root)(rc.Root)
 }

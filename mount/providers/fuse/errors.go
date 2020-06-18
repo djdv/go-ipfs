@@ -1,4 +1,4 @@
-package fusecommon
+package fuse
 
 import (
 	"fmt"
@@ -7,8 +7,7 @@ import (
 	"github.com/ipfs/go-ipfs/mount/utils/transform"
 )
 
-// this is a refactor shim for now until we define error types and values in the intermediate layer
-func InterpretError(err error) errNo {
+func interpretError(err error) errNo {
 	if errIntf, ok := err.(transform.Error); ok {
 		return kindToFuse[errIntf.Kind()]
 	}

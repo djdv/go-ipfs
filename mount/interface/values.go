@@ -1,15 +1,24 @@
 package mountinter
 
-import "strings"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 type (
 	ProviderType int
 	Namespace    int
 )
 
+var (
+	ErrInvalidNamespace = errors.New("invalid namespace")
+	ErrInvalidProvider  = errors.New("invalid provider")
+)
+
 //go:generate stringer -type=ProviderType -trimprefix=Provider
 const (
-	ProviderNone ProviderType = iota
+	_ ProviderType = iota
 	ProviderPlan9Protocol
 	ProviderFuse
 	// WindowsProjectedFileSystem
@@ -17,15 +26,13 @@ const (
 	// AndroidFileSystemProvider
 )
 
-//go:generate stringer -type=Namespace -trimprefix=Namespace -linecomment
+//go:generate stringer -type=Namespace -trimprefix=Namespace
 const (
-	// TODO: consider renaming AllInOne to Overlay or similar
 	// NOTE:
 	// NamespaceAll should be implemented by conductors; targeting all available namespaces
-	// NamespaceAllInOne should be implemented by providers
+	// NamespaceCombined should be implemented by providers
 
-	NamespaceNone Namespace = iota
-	NamespaceCore
+	_ Namespace = iota
 	NamespaceIPFS
 	NamespaceIPNS
 	NamespaceFiles
@@ -34,7 +41,7 @@ const (
 	// mounts all namespaces to their config or default targets
 	NamespaceAll
 	// mounts all namespaces within a single directory to a single target
-	NamespaceAllInOne // Overlay
+	NamespaceCombined
 )
 
 var (
@@ -81,24 +88,31 @@ func (pairs TargetCollections) String() string {
 	return prettyPaths.String()
 }
 
-func ParseNamespace(in string) Namespace {
-	// core/ipld namespace is omitted for now
-	return map[string]Namespace{
+func ParseNamespace(in string) (Namespace, error) {
+	ns, ok := map[string]Namespace{
 		strings.ToLower(NamespaceIPFS.String()):     NamespaceIPFS,
 		strings.ToLower(NamespaceIPNS.String()):     NamespaceIPNS,
 		strings.ToLower(NamespaceFiles.String()):    NamespaceFiles,
 		strings.ToLower(NamespacePinFS.String()):    NamespacePinFS,
 		strings.ToLower(NamespaceKeyFS.String()):    NamespaceKeyFS,
 		strings.ToLower(NamespaceAll.String()):      NamespaceAll,
-		strings.ToLower(NamespaceAllInOne.String()): NamespaceAllInOne,
+		strings.ToLower(NamespaceCombined.String()): NamespaceCombined,
 	}[strings.ToLower(in)]
+	if !ok {
+		return Namespace(0), fmt.Errorf("%w:%s", ErrInvalidNamespace, in)
+	}
+	return ns, nil
 }
 
-func ParseProvider(in string) ProviderType {
-	return map[string]ProviderType{
+func ParseProvider(in string) (ProviderType, error) {
+	pt, ok := map[string]ProviderType{
 		strings.ToLower(ProviderPlan9Protocol.String()): ProviderPlan9Protocol,
 		strings.ToLower(ProviderFuse.String()):          ProviderFuse,
 	}[strings.ToLower(in)]
+	if !ok {
+		return ProviderType(0), fmt.Errorf("%w:%s", ErrInvalidProvider, in)
+	}
+	return pt, nil
 }
 
 func SuggestedProvider() ProviderType {
@@ -113,7 +127,7 @@ func SuggestedTargets() []string {
 	return suggestedTargets()
 }
 
-func SuggestedAllInOnePath() string {
+func SuggestedCombinedPath() string {
 	return allInOnePath()
 }
 

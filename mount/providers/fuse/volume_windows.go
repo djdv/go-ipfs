@@ -1,4 +1,4 @@
-package fusecommon
+package fuse
 
 import (
 	"path/filepath"
@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func init() { Statfs = statfsWin }
+func init() { statfs = statfsWin }
 
 const LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800
 
@@ -22,16 +22,16 @@ func loadSystemDLL(name string) (*windows.DLL, error) {
 	return &windows.DLL{Name: name, Handle: modHandle}, nil
 }
 
-func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
+func statfsWin(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	mod, err := loadSystemDLL("kernel32.dll")
 	if err != nil {
-		return err, -fuselib.ENOMEM // kind of true, probably better than EIO
+		return -fuselib.ENOMEM, err // kind of true, probably better than EIO
 	}
 	defer mod.Release()
 
 	proc, err := mod.FindProc("GetDiskFreeSpaceExW")
 	if err != nil {
-		return err, -fuselib.ENOMEM // kind of true, probably better than EIO
+		return -fuselib.ENOMEM, err // kind of true, probably better than EIO
 	}
 
 	var (
@@ -46,7 +46,7 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	)
 	pathPtr, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return err, -fuselib.EFAULT // caller should check for syscall.EINVAL; NUL byte was in string
+		return -fuselib.EFAULT, err // caller should check for syscall.EINVAL; NUL byte was in string
 	}
 
 	r1, _, wErr := proc.Call(uintptr(unsafe.Pointer(pathPtr)),
@@ -55,7 +55,7 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 		uintptr(unsafe.Pointer(&TotalNumberOfFreeBytes)),
 	)
 	if r1 == 0 {
-		return wErr, -fuselib.ENOMEM
+		return -fuselib.ENOMEM, wErr
 	}
 
 	proc, _ = mod.FindProc("GetDiskFreeSpaceW")
@@ -68,7 +68,7 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 		0,
 	)
 	if r1 == 0 {
-		return wErr, -fuselib.EIO
+		return -fuselib.EIO, wErr
 	}
 
 	var (
@@ -80,11 +80,11 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	volumeRoot := filepath.VolumeName(path) + string(filepath.Separator)
 	pathPtr, err = windows.UTF16PtrFromString(volumeRoot)
 	if err != nil {
-		return err, -fuselib.EFAULT // caller should check for syscall.EINVAL; NUL byte was in string
+		return -fuselib.EFAULT, err // caller should check for syscall.EINVAL; NUL byte was in string
 	}
 
 	if err = windows.GetVolumeInformation(pathPtr, nil, 0, volumeSerial, componentLimit, volumeFlags, nil, 0); err != nil {
-		return err, -fuselib.EIO
+		return -fuselib.EIO, err
 	}
 
 	fStatfs.Bsize = uint64(SectorsPerCluster * BytesPerSector)
@@ -104,5 +104,5 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	fStatfs.Flag = uint64(*volumeFlags)
 	fStatfs.Fsid = uint64(*volumeSerial)
 
-	return nil, OperationSuccess
+	return operationSuccess, nil
 }

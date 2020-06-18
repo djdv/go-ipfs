@@ -325,7 +325,7 @@ func newServer(ctx context.Context, namespace mountinter.Namespace, core coreifa
 		ops = append(ops, common.Logger(logging.Logger("9P/FilesAPI")))
 		attacher = mfs.Attacher(ctx, core, ops...)
 
-	case mountinter.NamespaceAllInOne:
+	case mountinter.NamespaceCombined:
 		ops = append(ops, common.Logger(logging.Logger("9P/Overlay")))
 		attacher = overlay.Attacher(ctx, core, ops...)
 

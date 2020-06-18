@@ -1,4 +1,4 @@
-package fusecommon
+package fuse
 
 import (
 	"math"
@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	OperationSuccess = 0
-	ErrorHandle      = math.MaxUint64
-	handleMax        = ErrorHandle - 1
+	operationSuccess = 0
+	errorHandle      = math.MaxUint64
+	handleMax        = errorHandle - 1
 
 	S_IRWXO = fuselib.S_IROTH | fuselib.S_IWOTH | fuselib.S_IXOTH
 	S_IRWXG = fuselib.S_IRGRP | fuselib.S_IWGRP | fuselib.S_IXGRP

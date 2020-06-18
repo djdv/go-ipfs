@@ -1,4 +1,4 @@
-package mountfuse_test
+package fuse_test
 
 import (
 	"os"
@@ -7,8 +7,9 @@ import (
 	"testing"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 )
+
+const operationSuccess = 0
 
 type readdirTestDirEnt struct {
 	name   string
@@ -42,7 +43,6 @@ func genEndlessFill(slice *[]readdirTestDirEnt) func(name string, stat *fuselib.
 }
 
 func testDirectories(t *testing.T, testEnv envData, fs fuselib.FileSystemInterface) {
-
 	localPath := testEnv[directoryRoot][rootDirectoryTestSetBasic].localPath
 	corePath := testEnv[directoryRoot][rootDirectoryTestSetBasic].corePath.Cid().String()
 
@@ -55,7 +55,7 @@ func testDirectories(t *testing.T, testEnv envData, fs fuselib.FileSystemInterfa
 
 func testOpendir(t *testing.T, path string, fs fuselib.FileSystemInterface) fileHandle {
 	errno, fh := fs.Opendir(path)
-	if errno != fusecom.OperationSuccess {
+	if errno != operationSuccess {
 		t.Fatalf("failed to open directory %q: %s\n", path, fuselib.Error(errno))
 	}
 	return fh
@@ -63,7 +63,7 @@ func testOpendir(t *testing.T, path string, fs fuselib.FileSystemInterface) file
 
 func testReleasedir(t *testing.T, path string, fh fileHandle, fs fuselib.FileSystemInterface) {
 	errno := fs.Releasedir(path, fh)
-	if errno != fusecom.OperationSuccess {
+	if errno != operationSuccess {
 		t.Fatalf("failed to release directory %q: %s\n", path, fuselib.Error(errno))
 	}
 }
@@ -152,7 +152,7 @@ func testReaddirAllFS(t *testing.T, expected []string, fs fuselib.FileSystemInte
 	filler := genEndlessFill(&coreEntries)
 
 	const offsetVal = 0
-	if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != fusecom.OperationSuccess {
+	if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != operationSuccess {
 		t.Fatalf("Readdir failed (status: %s) reading {%#x|%q} with offset %d\n", fuselib.Error(errNo), fh, corePath, offsetVal)
 	}
 
@@ -172,7 +172,7 @@ func testReaddirAllCaller(t *testing.T, expected []string, fs fuselib.FileSystem
 	filler := genFill(&coreEntries)
 
 	const offsetVal = 0
-	if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != fusecom.OperationSuccess {
+	if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != operationSuccess {
 		t.Fatalf("Readdir failed (status: %s) reading {%#x|%q} with offset %d\n", fuselib.Error(errNo), fh, corePath, offsetVal)
 	}
 
@@ -193,7 +193,7 @@ func testReaddirOffset(t *testing.T, existing []readdirTestDirEnt, fs fuselib.Fi
 
 	offsetVal := existing[0].offset
 	// read back the same entries. starting at an offset, contents should match
-	if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != fusecom.OperationSuccess {
+	if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != operationSuccess {
 		t.Fatalf("Readdir failed (status: %s) reading {%#x|%q} with offset %d\n", fuselib.Error(errNo), fh, corePath, offsetVal)
 	}
 
@@ -223,7 +223,7 @@ func testReaddirAllIncremental(t *testing.T, expected []string, fs fuselib.FileS
 		singleEnt := make([]readdirTestDirEnt, 0, 1)
 		filler := genShortFill(&singleEnt)
 
-		if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != fusecom.OperationSuccess {
+		if errNo := fs.Readdir(corePath, filler, offsetVal, fh); errNo != operationSuccess {
 			t.Fatalf("Readdir failed (status: %s) reading {%#x|%q} with offset %d\n", fuselib.Error(errNo), fh, corePath, offsetVal)
 		}
 
@@ -267,7 +267,7 @@ func testReaddirIncrementalOffset(t *testing.T, existing []readdirTestDirEnt, fs
 		singleEnt := make([]readdirTestDirEnt, 0, 1)
 		shortFiller := genShortFill(&singleEnt)
 
-		if errNo := fs.Readdir(corePath, shortFiller, offsetVal, fh); errNo != fusecom.OperationSuccess {
+		if errNo := fs.Readdir(corePath, shortFiller, offsetVal, fh); errNo != operationSuccess {
 			t.Fatalf("Readdir failed (status: %s) reading {%#x|%q} with offset %d\n", fuselib.Error(errNo), fh, corePath, offsetVal)
 		}
 

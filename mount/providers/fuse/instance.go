@@ -1,4 +1,4 @@
-package mountfuse
+package fuse
 
 import (
 	"errors"

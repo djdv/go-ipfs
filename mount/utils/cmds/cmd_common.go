@@ -83,7 +83,11 @@ func parseRequest(daemonRequest requestType, req *cmds.Request, nodeConf *config
 	// --provider=
 	var provider mountinter.ProviderType
 	if providerString, found := req.Options[transform(cmdProviderKwd)].(string); found {
-		provider = mountinter.ParseProvider(providerString)
+		pt, err := mountinter.ParseProvider(providerString)
+		if err != nil {
+			return pt, nil, err
+		}
+		provider = pt
 	} else {
 		provider = mountinter.SuggestedProvider()
 	}
@@ -91,18 +95,18 @@ func parseRequest(daemonRequest requestType, req *cmds.Request, nodeConf *config
 	// --namespace=
 	namespaces, err := parseNamespace(req, transform, nodeConf)
 	if err != nil {
-		return mountinter.ProviderNone, nil, err
+		return provider, nil, err
 	}
 
 	// --target=
 	targets, err := parseTarget(req, transform, nodeConf, namespaces)
 	if err != nil {
-		return mountinter.ProviderNone, nil, err
+		return provider, nil, err
 	}
 
 	targetCollections, err := combine(provider, namespaces, targets)
 	if err != nil {
-		return mountinter.ProviderNone, nil, err
+		return provider, nil, err
 
 	}
 
@@ -161,9 +165,9 @@ func parseNamespaceArgs(req *cmds.Request, t transformFunc) ([]mountinter.Namesp
 
 		var namespaces []mountinter.Namespace
 		for _, ns := range namespaceStrings {
-			typedNs := mountinter.ParseNamespace(ns)
-			if typedNs == mountinter.NamespaceNone {
-				return nil, fmt.Errorf("%q does not match a supported namespace", ns)
+			typedNs, err := mountinter.ParseNamespace(ns)
+			if err != nil {
+				return nil, err
 			}
 			namespaces = append(namespaces, typedNs)
 		}
@@ -240,9 +244,9 @@ func parseTargetConfig(nodeConf *config.Config, namespaces []mountinter.Namespac
 		case mountinter.NamespaceFiles:
 			// TODO: config value default + platform portability
 			targets = append(targets, mountinter.MountRoot()+"file")
-		case mountinter.NamespaceAllInOne:
+		case mountinter.NamespaceCombined:
 			// TODO: config value default + platform portability
-			targets = append(targets, mountinter.SuggestedAllInOnePath())
+			targets = append(targets, mountinter.SuggestedCombinedPath())
 		default:
 			return nil, fmt.Errorf("unexpected namespace: %s", ns.String())
 		}

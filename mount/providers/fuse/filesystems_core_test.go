@@ -1,24 +1,19 @@
-package mountfuse_test
+package fuse_test
 
 import (
 	"context"
 	"testing"
 
 	mountinter "github.com/ipfs/go-ipfs/mount/interface"
-	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
-	ipfscore "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems/core"
+	fuse "github.com/ipfs/go-ipfs/mount/providers/fuse"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
 func testIPFS(ctx context.Context, t *testing.T, testEnv envData, core coreiface.CoreAPI) {
-
-	initChan := make(fusecom.InitSignal)
-	fs := ipfscore.NewFileSystem(ctx, core,
-		ipfscore.WithNamespace(mountinter.NamespaceIPFS),
-		ipfscore.WithCommon(
-			fusecom.WithInitSignal(initChan),
-			// fusecom.WithResourceLock(fs.IPFSCore), //TODO
-		),
+	initChan := make(fuse.InitSignal)
+	fs := fuse.NewCoreFileSystem(ctx, core, mountinter.NamespaceIPFS,
+		fuse.WithInitSignal(initChan),
+		// WithResourceLock(fs.IPFSCore), //TODO
 	)
 
 	go fs.Init()

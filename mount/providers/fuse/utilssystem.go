@@ -1,10 +1,10 @@
-package fusecommon
+package fuse
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
+	gopath "path"
 	"runtime"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
@@ -16,8 +16,26 @@ type errNo = int
 
 type fuseFillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 
-func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFunc, offset int64) (int, error) {
+type (
+	// directoryPlus is used in `FillDir` to handle FUSE's readdir plus feature
+	// (via a type assertion of objects returned from `UpgradeDirectory`)
+	directoryPlus struct {
+		transform.Directory
+		statFunc
+	}
 
+	statFunc       func(name string) *fuselib.Stat_t
+	readdirplusGen func(transform.Interface, string, *fuselib.Stat_t) statFunc
+)
+
+// upgradeDirectory binds a Directory and a means to get attributes for its elements
+// this should be used to transform directories into readdir plus capable directories
+// before being sent to `FillDir`
+func upgradeDirectory(d transform.Directory, sf statFunc) transform.Directory {
+	return directoryPlus{Directory: d, statFunc: sf}
+}
+
+func fillDir(ctx context.Context, directory transform.Directory, fill fuseFillFunc, offset int64) (int, error) {
 	// TODO: uint <-> int shenanigans
 
 	// Offset value 0 has a special meaning in FUSE (see: FUSE's `readdir` docs)
@@ -25,12 +43,12 @@ func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFu
 	// `FillDir` expects the input directory to follow this convention, and supply us with offsets 0>
 
 	var (
-		statFunc StatFunc
+		statFunc statFunc
 		stat     *fuselib.Stat_t
 	)
 
 	if dirPlus, ok := directory.(directoryPlus); ok {
-		statFunc = dirPlus.StatFunc
+		statFunc = dirPlus.statFunc
 	} else {
 		statFunc = func(string) *fuselib.Stat_t { return nil }
 	}
@@ -56,23 +74,23 @@ func FillDir(ctx context.Context, directory transform.Directory, fill fuseFillFu
 		}
 	}
 
-	return OperationSuccess, nil
+	return operationSuccess, nil
 }
 
-type StatTimeGroup struct {
-	Atim, Mtim, Ctim, Birthtim fuselib.Timespec
+type statTimeGroup struct {
+	atim, mtim, ctim, birthtim fuselib.Timespec
 }
 
-type StatIDGroup struct {
-	Uid, Gid uint32
+type statIDGroup struct {
+	uid, gid uint32
 	// These are omitted for now (as they're not used by us)
 	// but belong in this structure if they become needed
 	// Dev, Rdev uint64
 }
 
-func ApplyCommonsToStat(stat *fuselib.Stat_t, writable bool, tg StatTimeGroup, ids StatIDGroup) {
-	stat.Atim, stat.Mtim, stat.Ctim, stat.Birthtim = tg.Atim, tg.Mtim, tg.Ctim, tg.Birthtim
-	stat.Uid, stat.Gid = ids.Uid, ids.Gid
+func applyCommonsToStat(stat *fuselib.Stat_t, writable bool, tg statTimeGroup, ids statIDGroup) {
+	stat.Atim, stat.Mtim, stat.Ctim, stat.Birthtim = tg.atim, tg.mtim, tg.ctim, tg.birthtim
+	stat.Uid, stat.Gid = ids.uid, ids.gid
 
 	if writable {
 		stat.Mode |= IRWXA &^ (fuselib.S_IWOTH | fuselib.S_IXOTH) // |0774
@@ -81,31 +99,8 @@ func ApplyCommonsToStat(stat *fuselib.Stat_t, writable bool, tg StatTimeGroup, i
 	}
 }
 
-// TODO: remove this; responsability of the `Root` interface (`Root.Open`, `Root.Make`)
-// we should only care about translating flags and making the calls, not making final decisions based on the flags
-func CheckOpenFlagsBasic(writable bool, flags int) (errNo, error) {
-	// NOTE: SUSv7 doesn't include O_APPEND for EROFS; despite this being a write flag
-	// we're counting it for now, but may remove this if it causes compatibility problems
-	const mutableFlags = fuselib.O_WRONLY | fuselib.O_RDWR | fuselib.O_APPEND | fuselib.O_CREAT | fuselib.O_TRUNC
-	if flags&mutableFlags != 0 && !writable {
-		return -fuselib.EROFS, errors.New("write flags provided for read only system")
-	}
-	return OperationSuccess, nil
-}
-
-// TODO: improve or remove
-func CheckOpenPathBasic(path string) (int, error) {
-	switch path {
-	case "":
-		return -fuselib.ENOENT, fuselib.Error(-fuselib.ENOENT)
-	case "/":
-		return -fuselib.EISDIR, fuselib.Error(-fuselib.EISDIR)
-	default:
-		return OperationSuccess, nil
-	}
-}
-
-func ReleaseFile(table FileTable, handle uint64) (errNo, error) {
+// TODO: inline
+func releaseFile(table fileTable, handle uint64) (errNo, error) {
 	file, err := table.Get(handle)
 	if err != nil {
 		return -fuselib.EBADF, err
@@ -121,10 +116,11 @@ func ReleaseFile(table FileTable, handle uint64) (errNo, error) {
 		return -fuselib.EBADF, err
 	}
 
-	return OperationSuccess, file.Close()
+	return operationSuccess, file.Close()
 }
 
-func ReleaseDir(table DirectoryTable, handle uint64) (errNo, error) {
+// TODO: inline
+func releaseDir(table directoryTable, handle uint64) (errNo, error) {
 	dir, err := table.Get(handle)
 	if err != nil {
 		return -fuselib.EBADF, err
@@ -141,11 +137,11 @@ func ReleaseDir(table DirectoryTable, handle uint64) (errNo, error) {
 	// the handle was valid [!EBADF], and we didn't get interupted by the system [!EINTR]
 	// if the returned error is not nil, it's an implementation fault that needs to be amended
 	// in the directory interface implementation returned to us from the table
-	return OperationSuccess, dir.Close()
+	return operationSuccess, dir.Close()
 }
 
 // TODO: read+write; we're not accounting for scenarios where the offset is beyond the end of the file
-func ReadFile(file transform.File, buff []byte, ofst int64) (errNo, error) {
+func readFile(file transform.File, buff []byte, ofst int64) (errNo, error) {
 	if len(buff) == 0 {
 		return 0, nil
 	}
@@ -175,7 +171,7 @@ func ReadFile(file transform.File, buff []byte, ofst int64) (errNo, error) {
 	return readBytes, err // EOF will be returned if it was provided
 }
 
-func WriteFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
+func writeFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
 	if len(buff) == 0 {
 		return nil, 0
 	}
@@ -185,6 +181,8 @@ func WriteFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
 	}
 
 	/* TODO: test this; it should be handled internally by seek()+write()
+	if not, uncomment, if so, remove
+
 	if fileBound, err := file.Size(); err == nil {
 		if ofst >= fileBound {
 			newEnd := fileBound - (ofst - int64(len(buff)))
@@ -207,7 +205,7 @@ func WriteFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
 	return nil, wroteBytes
 }
 
-func ApplyIntermediateStat(fStat *fuselib.Stat_t, iStat *transform.IPFSStat) {
+func applyIntermediateStat(fStat *fuselib.Stat_t, iStat *transform.IPFSStat) {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
 
 	// retain existing permissions (if any), but reset the type bits
@@ -250,5 +248,41 @@ func IOFlagsFromFuse(fuseFlags int) transform.IOFlags {
 		return transform.IOReadWrite
 	default:
 		return transform.IOFlags(0)
+	}
+}
+
+func getStat(r transform.Interface, path string, template *fuselib.Stat_t) *fuselib.Stat_t {
+	iStat, _, err := r.Info(path, transform.IPFSStatRequestAll)
+	if err != nil {
+		return nil
+	}
+
+	subStat := new(fuselib.Stat_t)
+	*subStat = *template
+	applyIntermediateStat(subStat, iStat)
+	return subStat
+}
+
+// statticStat generates a statFunc
+// that fetches attributes for a requests, and caches the results for subsiquent requests
+func staticStat(r transform.Interface, basePath string, template *fuselib.Stat_t) statFunc {
+	stats := make(map[string]*fuselib.Stat_t, 1)
+
+	return func(name string) *fuselib.Stat_t {
+		if cachedStat, ok := stats[name]; ok {
+			return cachedStat
+		}
+
+		subStat := getStat(r, gopath.Join(basePath, name), template)
+		stats[name] = subStat
+		return subStat
+	}
+}
+
+// dynamicStat generates a statFunc
+// that always fetches attributes for a requests (assuming they may have changed since the last request)
+func dynamicStat(r transform.Interface, basePath string, template *fuselib.Stat_t) statFunc {
+	return func(name string) *fuselib.Stat_t {
+		return getStat(r, gopath.Join(basePath, name), template)
 	}
 }

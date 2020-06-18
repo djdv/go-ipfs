@@ -1,4 +1,4 @@
-package mountfuse_test
+package fuse_test
 
 import (
 	"io/ioutil"
@@ -8,7 +8,6 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	chunk "github.com/ipfs/go-ipfs-chunker"
-	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -67,7 +66,7 @@ func testFiles(t *testing.T, testEnv envData, core coreiface.CoreAPI, fs fuselib
 
 func testOpen(t *testing.T, path string, flags int, fs fuselib.FileSystemInterface) fileHandle {
 	errno, fh := fs.Open(path, flags)
-	if errno != fusecom.OperationSuccess {
+	if errno != operationSuccess {
 		t.Fatalf("failed to open file %q: %s\n", path, fuselib.Error(errno))
 	}
 	return fh
@@ -75,7 +74,7 @@ func testOpen(t *testing.T, path string, flags int, fs fuselib.FileSystemInterfa
 
 func testRelease(t *testing.T, path string, fh fileHandle, fs fuselib.FileSystemInterface) errNo {
 	errno := fs.Release(path, fh)
-	if errno != fusecom.OperationSuccess {
+	if errno != operationSuccess {
 		t.Fatalf("failed to release file %q: %s\n", path, fuselib.Error(errno))
 	}
 	return errno

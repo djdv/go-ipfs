@@ -1,16 +1,15 @@
-package mountfuse_test
+package fuse_test
 
 import (
 	"reflect"
 	"testing"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	fusecom "github.com/ipfs/go-ipfs/mount/providers/fuse/filesystems"
 )
 
 func testGetattr(t *testing.T, path string, expected *fuselib.Stat_t, fh fileHandle, fs fuselib.FileSystemInterface) *fuselib.Stat_t {
 	stat := new(fuselib.Stat_t)
-	if errno := fs.Getattr(path, stat, fh); errno != fusecom.OperationSuccess {
+	if errno := fs.Getattr(path, stat, fh); errno != operationSuccess {
 		t.Fatalf("failed to get stat for %q: %s\n", path, fuselib.Error(errno))
 	}
 

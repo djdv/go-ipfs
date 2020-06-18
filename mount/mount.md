@@ -1,10 +1,10 @@
 # Editors note
+
+**This document is out of date and needs to be updated!**
+
 The purpose of this document is to get feedback from a handful of people.  
 The sources in this branch are a work in progress and shouldn't be read at all yet.  
 (Nothing is final, nothing is documented, and nothing is tested)  
-The commit log is just terrible, it might be split up later when things are closer to final, broken up into sections like "Add conductor", "Add provider FUSE", etc.  
-
-In short, it's all gross and not fully usable yet. But a lot of it works when built.  
 
 * [Overview](#overview)
 * [Building](#building)
@@ -236,7 +236,7 @@ Mappings from the core api's get wrapped in an intermediate layer that then gets
 		var ids fusecom.StatIDGroup
 		ids.Uid, ids.Gid, _ = fuselib.Getcontext()
 		fusecom.ApplyCommonsToStat(stat, filesWritable?, fs.mountTimeGroup, ids)
-		return fusecom.OperationSuccess
+		return operationSuccess
 ```
 and under 9P
 ```go
@@ -292,7 +292,7 @@ entChan, err := pinDir.Readdir(offset, requestedEntryCount).ToFuse()
 for ent := range entChan {
 	fill(ent.Name, ent.Stat, ent.Offset)
 }
-return OperationSuccess
+return operationSuccess
 
 // Within 9P:
 
@@ -329,7 +329,7 @@ entChan, err := pinDir.Readdir(readDirCtx, offset).ToFuse()
 for ent := range entChan {
 	fill(ent.Name, ent.Stat, ent.Offset)
 }
-return OperationSuccess
+return operationSuccess
 ```
 
 ## Directory interface (simpler v2 WIP - stream retained but translation concepts moved elsewhere)
@@ -368,7 +368,7 @@ for ent := range entChan {
 	stat := statChild(ent.Name)
 	fill(ent.Name(), stat, ent.Offset()) // simplified for example; fill is unchecked
 }
-return OperationSuccess
+return operationSuccess
 ```
 
 Misc Notes

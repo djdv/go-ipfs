@@ -1,4 +1,4 @@
-package fusecommon
+package fuse
 
 import (
 	"syscall"
@@ -7,15 +7,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() { Statfs = statfsFreeBSD }
+func init() { statfs = statfsOpenBSD }
 
-func statfsFreeBSD(path string, fStatfs *fuselib.Statfs_t) (error, int) {
+func statfsOpenBSD(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	sysStat := &unix.Statfs_t{}
 	if err := unix.Statfs(path, sysStat); err != nil {
 		if errno, ok := err.(syscall.Errno); ok {
 			return err, int(errno)
 		}
-		return err, -fuselib.EACCES
+		return -fuselib.EACCES, err
 	}
 
 	// NOTE: These values are ignored by cgofuse
@@ -31,5 +31,5 @@ func statfsFreeBSD(path string, fStatfs *fuselib.Statfs_t) (error, int) {
 	fStatfs.Ffree = uint64(sysStat.F_ffree)
 	fStatfs.Frsize = uint64(sysStat.F_bsize)
 	fStatfs.Namemax = uint64(sysStat.F_namemax)
-	return nil, OperationSuccess
+	return operationSuccess, nil
 }

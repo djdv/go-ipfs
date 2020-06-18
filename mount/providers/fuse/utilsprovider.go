@@ -1,4 +1,4 @@
-package mountfuse
+package fuse
 
 import (
 	"fmt"
@@ -28,7 +28,7 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 		// refer to the WinFSP documentation for expected parameters and their literal format
 
 		// basic info
-		if namespace == mountinter.NamespaceAllInOne {
+		if namespace == mountinter.NamespaceCombined {
 			opts = "FileSystemName=IPFS,volname=IPFS"
 		} else {
 			opts = fmt.Sprintf("FileSystemName=%s,volname=%s", namespace.String(), namespace.String())
@@ -47,7 +47,7 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 		// target is local reference; use it
 		retTarget = target
 	case "freebsd":
-		if namespace == mountinter.NamespaceAllInOne {
+		if namespace == mountinter.NamespaceCombined {
 			opts = "fsname=IPFS,subtype=IPFS"
 		} else {
 			opts = fmt.Sprintf("fsname=%s,subtype=%s", namespace.String(), namespace.String())
@@ -68,7 +68,6 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 			// both for our internal context (getattr)
 			// as well as allowing them to pass the uid= and gid= FUSE options (not specifically, pass anything)
 			// (^system ignores our values and substitutes its own)
-
 		}
 
 		args = append(args, "-o", opts)
@@ -79,7 +78,7 @@ func fuseArgs(target string, namespace mountinter.Namespace) (string, []string) 
 		retTarget = target
 
 	case "darwin":
-		if namespace == mountinter.NamespaceAllInOne {
+		if namespace == mountinter.NamespaceCombined {
 			// TODO: see if we can provide `volicon` via an IPFS path; or make the overlay provide one via `/.VolumeIcon.icns` on darwin
 			opts = "fsname=IPFS,volname=IPFS"
 		} else {
