@@ -38,8 +38,8 @@ import (
 	prometheus "github.com/prometheus/client_golang/prometheus"
 	promauto "github.com/prometheus/client_golang/prometheus/promauto"
 
-	mountcon "github.com/ipfs/go-ipfs/mount/conductors/ipfs-core"
-	mountcmds "github.com/ipfs/go-ipfs/mount/utils/cmds"
+	mountcmds "github.com/ipfs/go-ipfs/filesystem/mount/cmds"
+	mountcon "github.com/ipfs/go-ipfs/filesystem/mount/conductors/ipfs-core"
 )
 
 func init() {

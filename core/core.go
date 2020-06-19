@@ -44,7 +44,7 @@ import (
 	"github.com/ipfs/go-ipfs/core/bootstrap"
 	"github.com/ipfs/go-ipfs/core/node"
 	"github.com/ipfs/go-ipfs/core/node/libp2p"
-	mountinter "github.com/ipfs/go-ipfs/mount/interface"
+	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	"github.com/ipfs/go-ipfs/namesys"
 	ipnsrp "github.com/ipfs/go-ipfs/namesys/republisher"
 	"github.com/ipfs/go-ipfs/p2p"
