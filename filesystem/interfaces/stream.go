@@ -30,10 +30,12 @@ func (ps *StreamBase) Open() (<-chan PartialEntry, error) {
 
 	streamCtx, streamCancel := context.WithCancel(ps.parentCtx)
 
-	listChan := make(chan PartialEntry, 1) // closed by SendTo
+	listChan := make(chan PartialEntry, 1) // SendTo is responsible for this channel
+	// it must close it when encountering an error or upon reaching the end of the stream
 
 	if err := ps.streamSource.SendTo(streamCtx, listChan); err != nil {
 		streamCancel()
+		return nil, err
 	}
 	ps.streamCancel = streamCancel
 

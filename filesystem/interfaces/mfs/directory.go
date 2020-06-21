@@ -31,10 +31,12 @@ func (mi *mfsInterface) OpenDirectory(path string) (transform.Directory, error) 
 func (ms *mfsDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.PartialEntry) error {
 	mfsNode, err := gomfs.Lookup(ms.mroot, ms.path)
 	if err != nil {
+		close(receiver)
 		return err
 	}
 
 	if mfsNode.Type() != gomfs.TDir {
+		close(receiver)
 		return fmt.Errorf("%q is not a directory (type: %v)", ms.path, mfsNode.Type())
 	}
 
@@ -42,6 +44,7 @@ func (ms *mfsDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.P
 
 	snapshot, err := mfsDir.ListNames(ctx)
 	if err != nil {
+		close(receiver)
 		return err
 	}
 

@@ -17,6 +17,7 @@ func (ks *keyDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.P
 	// prepare the keys
 	keys, err := ks.keyAPI.List(ctx)
 	if err != nil {
+		close(receiver)
 		return err
 	}
 

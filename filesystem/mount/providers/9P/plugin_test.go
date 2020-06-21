@@ -1,4 +1,4 @@
-package mount9p
+package p9fsp
 
 /* not ported over yet
 import (

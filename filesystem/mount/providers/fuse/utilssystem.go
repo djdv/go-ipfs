@@ -17,7 +17,7 @@ type errNo = int
 type fuseFillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 
 type (
-	// directoryPlus is used in `FillDir` to handle FUSE's readdir plus feature
+	// directoryPlus is used in `fillDir` to handle FUSE's readdir plus feature
 	// (via a type assertion of objects returned from `UpgradeDirectory`)
 	directoryPlus struct {
 		transform.Directory
@@ -30,7 +30,7 @@ type (
 
 // upgradeDirectory binds a Directory and a means to get attributes for its elements
 // this should be used to transform directories into readdir plus capable directories
-// before being sent to `FillDir`
+// before being sent to `fillDir`
 func upgradeDirectory(d transform.Directory, sf statFunc) transform.Directory {
 	return directoryPlus{Directory: d, statFunc: sf}
 }
@@ -40,7 +40,7 @@ func fillDir(ctx context.Context, directory transform.Directory, fill fuseFillFu
 
 	// Offset value 0 has a special meaning in FUSE (see: FUSE's `readdir` docs)
 	// so all returned offsets values from us are expected to be 0>
-	// `FillDir` expects the input directory to follow this convention, and supply us with offsets 0>
+	// `fillDir` expects the input directory to follow this convention, and supply us with offsets 0>
 
 	var (
 		statFunc statFunc
@@ -238,7 +238,8 @@ func coreTypeToFuseType(ct coreiface.FileType) fuseFileType {
 		return 0
 	}
 }
-func IOFlagsFromFuse(fuseFlags int) transform.IOFlags {
+
+func ioFlagsFromFuse(fuseFlags int) transform.IOFlags {
 	switch fuseFlags & fuselib.O_ACCMODE {
 	case fuselib.O_RDONLY:
 		return transform.IOReadOnly

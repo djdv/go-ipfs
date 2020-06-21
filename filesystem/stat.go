@@ -1,7 +1,6 @@
-package transform
+package filesystem
 
 import (
-	"github.com/hugelgupf/p9/p9"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -31,42 +30,4 @@ type IPFSStatRequest struct {
 	MTime       bool
 	CTime       bool
 	*/
-}
-
-func RequestFrom9P(req p9.AttrMask) IPFSStatRequest {
-	var iReq IPFSStatRequest
-	if req.Mode {
-		iReq.Type = true
-	}
-	if req.Size {
-		iReq.Size = true
-	}
-	if iReq.Blocks {
-		iReq.Blocks = true
-	}
-	return iReq
-}
-
-func (sr *IPFSStatRequest) To9P() (filled p9.AttrMask) {
-	if sr.Type {
-		filled.Mode = true
-	}
-	if sr.Size {
-		filled.Size = true
-	}
-	if sr.Blocks {
-		filled.Blocks = true
-	}
-	return
-}
-
-// TODO: expunge
-func (cs *IPFSStat) To9P() p9.Attr {
-	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
-	return p9.Attr{
-		Mode:      coreTypeTo9PType(cs.FileType),
-		Size:      cs.Size,
-		BlockSize: cs.BlockSize,
-		Blocks:    cs.Blocks,
-	}
 }

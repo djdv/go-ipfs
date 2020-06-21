@@ -18,7 +18,7 @@ func (fs *fileSystem) Open(path string, flags int) (int, uint64) {
 		return -fuselib.EISDIR, errorHandle
 	}
 
-	file, err := fs.intf.Open(path, IOFlagsFromFuse(flags))
+	file, err := fs.intf.Open(path, ioFlagsFromFuse(flags))
 	if err != nil {
 		fs.log.Error(err)
 		return interpretError(err), errorHandle

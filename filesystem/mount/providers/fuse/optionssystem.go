@@ -19,9 +19,9 @@ type systemSettings struct {
 	provcom.ResourceLock // if provided, will replace the default lock used for operations
 }
 
-func parseSystemOptions(opts ...SystemOption) *systemSettings {
+func parseSystemOptions(options ...SystemOption) *systemSettings {
 	settings := new(systemSettings)
-	for _, opt := range opts {
+	for _, opt := range options {
 		opt.apply(settings)
 	}
 
@@ -59,16 +59,16 @@ type (
 	resourceLockOptContainer struct{ provcom.ResourceLock }
 )
 
-func (ic initSignalOpt) apply(opts *systemSettings) {
-	opts.InitSignal = InitSignal(ic)
+func (ic initSignalOpt) apply(settings *systemSettings) {
+	settings.InitSignal = InitSignal(ic)
 }
 
-func (lc logOpt) apply(opts *systemSettings) {
-	opts.log = logging.EventLogger(lc.EventLogger)
+func (lc logOpt) apply(settings *systemSettings) {
+	settings.log = logging.EventLogger(lc.EventLogger)
 }
 
-func (rc resourceLockOpt) apply(opts *systemSettings) {
-	opts.ResourceLock = provcom.ResourceLock(rc.ResourceLock)
+func (rc resourceLockOpt) apply(settings *systemSettings) {
+	settings.ResourceLock = provcom.ResourceLock(rc.ResourceLock)
 }
 
 func maybeAppendLog(baseOpts []SystemOption, logName string) []SystemOption {

@@ -93,7 +93,9 @@ func (es *entryStorage) Reset(streamSource <-chan PartialEntry) {
 	// or was pointing at the end of the stream; we consider it an invalid request past this point
 	// The (new) leftmost offset will be based on this (new) boundary value
 	// (i.e. the next entry read will be resident/relative 0 of/to the store)
-	es.tail++
+	if es.tail != 0 { // (except when the directory hasn't been read yet)
+		es.tail++
+	}
 	es.Done()
 }
 
@@ -157,8 +159,8 @@ func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan transfor
 				}
 
 				// attach an offset to the entry and add it to the store
-				fullEnt := &fullEntry{ent, es.tail}
 				es.tail++
+				fullEnt := &fullEntry{ent, es.tail}
 				es.entryStore = append(es.entryStore, fullEnt)
 
 				// between getting the entry and now

@@ -20,6 +20,7 @@ func (ps *pinDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.P
 	// get the pin stream
 	pinChan, err := ps.pinAPI.Ls(ctx, coreoptions.Pin.Ls.Recursive())
 	if err != nil {
+		close(receiver)
 		return err
 	}
 

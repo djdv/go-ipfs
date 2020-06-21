@@ -1,4 +1,4 @@
-package mount9p
+package p9fsp
 
 import (
 	"context"
@@ -15,13 +15,6 @@ import (
 	config "github.com/ipfs/go-ipfs-config"
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	provcom "github.com/ipfs/go-ipfs/filesystem/mount/providers"
-	common "github.com/ipfs/go-ipfs/filesystem/mount/providers/9P/filesystems"
-	"github.com/ipfs/go-ipfs/filesystem/mount/providers/9P/filesystems/ipfs"
-	"github.com/ipfs/go-ipfs/filesystem/mount/providers/9P/filesystems/ipns"
-	"github.com/ipfs/go-ipfs/filesystem/mount/providers/9P/filesystems/keyfs"
-	"github.com/ipfs/go-ipfs/filesystem/mount/providers/9P/filesystems/mfs"
-	"github.com/ipfs/go-ipfs/filesystem/mount/providers/9P/filesystems/overlay"
-	"github.com/ipfs/go-ipfs/filesystem/mount/providers/9P/filesystems/pinfs"
 	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -297,11 +290,7 @@ func (pr *p9pProvider) Close() error {
 }
 
 func newServer(ctx context.Context, namespace mountinter.Namespace, core coreiface.CoreAPI, mroot *gomfs.Root) (*p9.Server, error) {
-	ops := []common.AttachOption{
-		common.MFSRoot(mroot),
-	}
-	var attacher p9.Attacher
-
+	/* TODO: [lint]
 	switch namespace {
 	case mountinter.NamespaceIPFS:
 		ops = append(ops, common.Logger(logging.Logger("9P/IPFS")))
@@ -327,6 +316,24 @@ func newServer(ctx context.Context, namespace mountinter.Namespace, core coreifa
 		ops = append(ops, common.Logger(logging.Logger("9P/Overlay")))
 		attacher = overlay.Attacher(ctx, core, ops...)
 
+	default:
+		return nil, fmt.Errorf("unknown namespace: %v", namespace)
+	}
+	*/
+
+	var attacher p9.Attacher
+
+	switch namespace {
+	case mountinter.NamespaceIPFS, mountinter.NamespaceIPNS:
+		attacher = CoreAttacher(ctx, core, namespace)
+	case mountinter.NamespacePinFS:
+		attacher = PinAttacher(ctx, core)
+	case mountinter.NamespaceKeyFS:
+		attacher = KeyAttacher(ctx, core)
+	case mountinter.NamespaceFiles:
+		attacher = MutableAttacher(ctx, mroot)
+	// TODO
+	//case mountinter.NamespaceCombined:
 	default:
 		return nil, fmt.Errorf("unknown namespace: %v", namespace)
 	}

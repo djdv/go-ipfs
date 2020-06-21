@@ -9,6 +9,18 @@ import (
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
+var _ transform.Directory = (*emptyDir)(nil)
+
+type emptyDir struct{}
+
+func (*emptyDir) Close() error { return nil }
+func (*emptyDir) Reset() error { return nil }
+func (*emptyDir) List(_ context.Context, _ uint64) <-chan transform.DirectoryEntry {
+	ret := make(chan transform.DirectoryEntry)
+	close(ret) // it had a good run but it's over now
+	return ret
+}
+
 type coreDirectoryStream struct {
 	core coreiface.CoreAPI // used during stream source construction
 	path corepath.Path     // the streams source location; used to (re)construct the stream in `Open`/`Reset`
@@ -16,6 +28,10 @@ type coreDirectoryStream struct {
 
 // OpenDirectory returns a Directory for the given path (as a stream of entries)
 func (ci *coreInterface) OpenDirectory(path string) (transform.Directory, error) {
+	if path == "/" {
+		return &emptyDir{}, nil
+	}
+
 	coreStream := &coreDirectoryStream{
 		core: ci.core,
 		path: ci.joinRoot(path),
@@ -29,6 +45,7 @@ func (ci *coreInterface) OpenDirectory(path string) (transform.Directory, error)
 func (cs *coreDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.PartialEntry) error {
 	coreDirChan, err := cs.core.Unixfs().Ls(ctx, cs.path)
 	if err != nil {
+		close(receiver)
 		return err
 	}
 

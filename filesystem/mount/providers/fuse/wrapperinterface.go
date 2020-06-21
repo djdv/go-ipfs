@@ -10,7 +10,7 @@ import (
 )
 
 type fileSystem struct {
-	intf transform.Interface // interface between FUSE and IPFS APIs
+	intf transform.Interface // interface between FUSE and the target API
 
 	initChan InitSignal          // optional message channel to communicate with the caller
 	log      logging.EventLogger // general operations log
@@ -18,8 +18,9 @@ type fileSystem struct {
 	readdirplusGen      // if set, we'll use this function to equip directories with a means to stat their elements
 	filesWritable  bool // switch for metadata fields and operation availability
 
-	files          fileTable // reference tables
-	directories    directoryTable
+	files       fileTable // tables for open references
+	directories directoryTable
+
 	mountTimeGroup statTimeGroup // artificial file time signatures
 }
 

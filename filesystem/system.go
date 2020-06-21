@@ -1,4 +1,4 @@
-package transform
+package filesystem
 
 //TODO: reconsider the name of this interface
 // Interface? FileSystem? Index? GoodiesAndTreatsBag?
