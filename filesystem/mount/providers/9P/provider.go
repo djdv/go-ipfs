@@ -160,11 +160,14 @@ func (pr *p9pProvider) Where() []string {
 	return pr.instances.List()
 }
 
+// TODO: [review] this needs to be redone
+// mount is probably beter as a function what takes in a target and optionally a maddr (not as a method, although maybe)
+// PlatformMount needs to either be generalized (lol no) or moved into this package and kept 9P specific
 func (pr *p9pProvider) mount(target string) error {
-	// TODO: either require the multiaddr to not be encapsulated and check for it
+	// TODO: [hack] either require the multiaddr to not be encapsulated and check for it
 	// or handle encapsulation somehow
-	// for now this isn't very good
-	comp, _ := multiaddr.SplitFirst(pr.maddr)
+	// for now this whole parsing scheme isn't very good
+	comp, remainder := multiaddr.SplitFirst(pr.maddr)
 
 	var (
 		mArgs   string
@@ -175,9 +178,15 @@ func (pr *p9pProvider) mount(target string) error {
 	case multiaddr.P_UNIX:
 		mArgs = "trans=unix"
 		mSource = comp.Value()
-	case multiaddr.P_TCP:
+	case multiaddr.P_IP4, multiaddr.P_IP6:
+		mSource = comp.Value()
+		comp, _ = multiaddr.SplitFirst(remainder)
+		if comp.Protocol().Code != multiaddr.P_TCP {
+			return fmt.Errorf("%q must reference a TCP port", pr.maddr)
+		}
 		mArgs = "port=" + comp.Value()
-		mSource = comp.String()
+	default:
+		return fmt.Errorf("%q is not recongized as a supported address", pr.maddr)
 	}
 
 	return mountinter.PlatformMount(mSource, target, mArgs)
