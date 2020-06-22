@@ -108,9 +108,10 @@ func applyCommonsToAttr(attr *ninelib.Attr, writable bool, tg timeGroup, ids idG
 	// TODO: [review] 9P permissions may have subtle differences
 	// specifically re-read the section on the creation mask used for dirents
 	// something about inheritance
+	// TODO: also when UID's and GID's are accounted for, restrict Other access
 	if writable {
-		attr.Mode |= IRWXA &^ (S_IWOTH | S_IXOTH) // |0774
+		attr.Mode |= IRWXA &^ S_IWOTH // |0775
 	} else {
-		attr.Mode |= IRXA &^ (S_IXOTH) // |0554
+		attr.Mode |= IRXA // |0555
 	}
 }

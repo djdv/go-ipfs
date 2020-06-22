@@ -291,6 +291,7 @@ func (f *fid) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 }
 
 func (f *fid) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
+	f.log.Debugf("GetAttr: %s", f.path.String())
 
 	fidInfo, infoFilled, err := f.intf.Info(f.path.String(), requestFrom9P(req))
 	if err != nil {
