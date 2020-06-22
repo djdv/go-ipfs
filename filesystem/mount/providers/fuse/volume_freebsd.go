@@ -13,7 +13,7 @@ func statfsFreeBSD(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	sysStat := &unix.Statfs_t{}
 	if err := unix.Statfs(path, sysStat); err != nil {
 		if errno, ok := err.(syscall.Errno); ok {
-			return err, int(errno)
+			return int(errno), err
 		}
 		return -fuselib.EACCES, err
 	}
