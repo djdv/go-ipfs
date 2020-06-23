@@ -9,7 +9,7 @@ type Interface interface {
 	// index
 	Open(path string, flags IOFlags) (File, error)
 	OpenDirectory(path string) (Directory, error)
-	Info(path string, req IPFSStatRequest) (*IPFSStat, IPFSStatRequest, error)
+	Info(path string, req StatRequest) (*Stat, StatRequest, error)
 	ExtractLink(path string) (string, error)
 
 	// creation

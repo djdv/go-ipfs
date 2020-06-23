@@ -3,7 +3,7 @@ package pinfs
 import (
 	"context"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/interfaces/ipfscore"
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -12,10 +12,10 @@ import (
 type pinInterface struct {
 	ctx  context.Context
 	core coreiface.CoreAPI
-	ipfs transform.Interface
+	ipfs filesystem.Interface
 }
 
-func NewInterface(ctx context.Context, core coreiface.CoreAPI) transform.Interface {
+func NewInterface(ctx context.Context, core coreiface.CoreAPI) filesystem.Interface {
 	return &pinInterface{
 		ctx:  ctx,
 		core: core,

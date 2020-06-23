@@ -3,6 +3,7 @@ package filesystem
 type (
 	Kind uint8
 
+	// TODO: this needs to be broken out into its own `errors` package
 	Error interface {
 		error
 		Kind() Kind

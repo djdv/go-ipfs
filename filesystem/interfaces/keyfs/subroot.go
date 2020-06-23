@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	"github.com/ipfs/go-ipfs/filesystem/interfaces/mfs"
 	"github.com/ipfs/go-merkledag"
 	gomfs "github.com/ipfs/go-mfs"
@@ -15,7 +15,7 @@ import (
 // rootRef wraps a foreign file system
 // with means to manage sub-references of that system
 type rootRef struct {
-	transform.Interface
+	filesystem.Interface
 	counter refCounter
 	//io.Closer
 }
@@ -28,11 +28,11 @@ func (rr rootRef) Close() error { return rr.counter.decrement() }
 // for the same reason
 type (
 	rootFileRef struct {
-		transform.File
+		filesystem.File
 		io.Closer
 	}
 	rootDirectoryRef struct {
-		transform.Directory
+		filesystem.Directory
 		io.Closer
 	}
 )
@@ -53,7 +53,7 @@ func rootCloserGen(rootRef *rootRef, subRef io.Closer) closer {
 
 // `Open` overrides the native system's `Open` method
 // adding in reference tracking to a shared instance of the system
-func (rr rootRef) Open(path string, flags transform.IOFlags) (transform.File, error) {
+func (rr rootRef) Open(path string, flags filesystem.IOFlags) (filesystem.File, error) {
 	rr.counter.increment()
 	file, err := rr.Interface.Open(path, flags)
 	if err != nil {
@@ -67,7 +67,7 @@ func (rr rootRef) Open(path string, flags transform.IOFlags) (transform.File, er
 	}, nil
 }
 
-func (rr rootRef) OpenDirectory(path string) (transform.Directory, error) {
+func (rr rootRef) OpenDirectory(path string) (filesystem.Directory, error) {
 	rr.counter.increment()
 	directory, err := rr.Interface.OpenDirectory(path)
 	if err != nil {
@@ -81,8 +81,8 @@ func (rr rootRef) OpenDirectory(path string) (transform.Directory, error) {
 	}, nil
 }
 
-func (ki *keyInterface) getRoot(key coreiface.Key) (transform.Interface, error) {
-	return ki.references.getRootRef(key.Name(), func() (transform.Interface, error) {
+func (ki *keyInterface) getRoot(key coreiface.Key) (filesystem.Interface, error) {
+	return ki.references.getRootRef(key.Name(), func() (filesystem.Interface, error) {
 		mroot, err := ki.keyToMFSRoot(key)
 		if err != nil {
 			return nil, err
@@ -93,7 +93,7 @@ func (ki *keyInterface) getRoot(key coreiface.Key) (transform.Interface, error) 
 }
 
 func (ki *keyInterface) keyToMFSRoot(key coreiface.Key) (*gomfs.Root, error) {
-	callCtx, cancel := transcom.CallContext(ki.ctx)
+	callCtx, cancel := interfaceutils.CallContext(ki.ctx)
 	defer cancel()
 
 	path, err := ki.core.ResolvePath(callCtx, key.Path())
@@ -106,25 +106,25 @@ func (ki *keyInterface) keyToMFSRoot(key coreiface.Key) (*gomfs.Root, error) {
 		return nil, err
 	}
 
-	iStat, _, err := ki.core.Stat(callCtx, path, transform.IPFSStatRequest{Type: true})
+	iStat, _, err := ki.core.Stat(callCtx, path, filesystem.StatRequest{Type: true})
 	if err != nil {
 		return nil, err
 	}
 
-	if iStat.FileType != coreiface.TDirectory {
-		err := fmt.Errorf("key %q is not a directory (type: %s)", key.Name(), iStat.FileType.String())
-		return nil, &transcom.Error{Cause: err, Type: transform.ErrorNotDir}
+	if iStat.Type != coreiface.TDirectory {
+		err := fmt.Errorf("key %q is not a directory (type: %s)", key.Name(), iStat.Type.String())
+		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorNotDir}
 	}
 
 	pbNode, ok := ipldNode.(*merkledag.ProtoNode)
 	if !ok {
 		err := fmt.Errorf("key %q has incompatible root node type (%T)", key.Name(), ipldNode)
-		return nil, &transcom.Error{Cause: err, Type: transform.ErrorInvalidItem}
+		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorInvalidItem}
 	}
 
 	mroot, err := gomfs.NewRoot(ki.ctx, ki.core.Dag(), pbNode, ki.publisherGenMFS(key.Name()))
 	if err != nil {
-		return nil, &transcom.Error{Cause: err, Type: transform.ErrorIO}
+		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
 	}
 	return mroot, nil
 }

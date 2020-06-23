@@ -4,9 +4,8 @@ import (
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
-// TODO: [lex] drop prefix
-type IPFSStat struct {
-	FileType  coreiface.FileType // TODO: [lex] drop File prefix
+type Stat struct {
+	Type      coreiface.FileType
 	Size      uint64
 	BlockSize uint64
 	Blocks    uint64
@@ -16,12 +15,11 @@ type IPFSStat struct {
 	CTimeNano int64 */
 }
 
-var IPFSStatRequestAll = IPFSStatRequest{
+var StatRequestAll = StatRequest{
 	Type: true, Size: true, Blocks: true,
 }
 
-// TODO: [lex] drop prefix
-type IPFSStatRequest struct {
+type StatRequest struct {
 	Type   bool
 	Size   bool
 	Blocks bool

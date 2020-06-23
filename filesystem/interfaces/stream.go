@@ -1,39 +1,68 @@
-package transformcommon
+package interfaceutils
 
-import "context"
+import (
+	"context"
+	"errors"
+	"io"
 
-type StreamSource interface {
-	// generate a stream and start sending entries to the passed in channel (via a gorotuine)
-	// closing the channel when you're done or canceled
-	// in the event the stream cannot be generated, an error should be returned
+	"github.com/ipfs/go-ipfs/filesystem"
+)
+
+var (
+	ErrIsOpen         = errors.New("already open")
+	ErrNotOpen        = errors.New("not opened")
+	ErrNotInitialized = errors.New("directory not initialized")
+)
+
+// PartialEntry implements part of `filesystem.DirectoryEntry`
+type PartialEntry interface {
+	Name() string
+	Error() error
+}
+
+// PartialStream implements a stream of `PartialEntry`s  that can be (re)opened and closed
+type PartialStream interface {
+	Open() (<-chan PartialEntry, error)
+	io.Closer
+}
+
+// PartialStreamGenerator will receive `SendTo` requests
+// instructing it to generate a stream of `PartialEntry`s and start sending them to a receiver
+type PartialStreamGenerator interface {
+	// SendTo is to generate a stream
+	// and start (asynchronously) sending entries to the receiver channel it was passed
+	// If the stream cannot be generated, an error is to be returned
+	// The provided channel must be closed under any of the following conditions:
+	//  - The end of the stream is reached
+	//  - The context is canceled
+	//  - The stream could not be generated and an error is being returned
 	SendTo(context.Context, chan<- PartialEntry) error
 }
 
-type StreamBase struct {
-	parentCtx    context.Context
-	streamCancel context.CancelFunc
-	err          error
-	streamSource StreamSource
+// streamBase implements a basic `PartialStream` by utilizing a `PartialStreamGenerator`
+// to handle `Open` and `Close` requests
+type streamBase struct {
+	parentCtx       context.Context
+	streamCancel    context.CancelFunc
+	streamGenerator PartialStreamGenerator
 }
 
-func NewStreamBase(ctx context.Context, cs StreamSource) *StreamBase {
-	return &StreamBase{
-		parentCtx:    ctx,
-		streamSource: cs,
+func NewStreamBase(ctx context.Context, sg PartialStreamGenerator) *streamBase {
+	return &streamBase{
+		parentCtx:       ctx,
+		streamGenerator: sg,
 	}
 }
 
-func (ps *StreamBase) Open() (<-chan PartialEntry, error) {
+func (ps *streamBase) Open() (<-chan PartialEntry, error) {
 	if ps.streamCancel != nil {
 		return nil, ErrIsOpen
 	}
 
 	streamCtx, streamCancel := context.WithCancel(ps.parentCtx)
-
 	listChan := make(chan PartialEntry, 1) // SendTo is responsible for this channel
-	// it must close it when encountering an error or upon reaching the end of the stream
 
-	if err := ps.streamSource.SendTo(streamCtx, listChan); err != nil {
+	if err := ps.streamGenerator.SendTo(streamCtx, listChan); err != nil {
 		streamCancel()
 		return nil, err
 	}
@@ -42,14 +71,67 @@ func (ps *StreamBase) Open() (<-chan PartialEntry, error) {
 	return listChan, nil
 }
 
-func (ps *StreamBase) Close() error {
+func (ps *streamBase) Close() error {
 	if ps.streamCancel == nil {
-		return ErrNotOpen // double close is considered an error
+		return ErrNotOpen // we consider double close an error
 	}
 
 	ps.streamCancel()
 	ps.streamCancel = nil
 
-	ps.err = ErrNotOpen // invalidate future operations as we're closed
 	return nil
+}
+
+// partialStreamWrapper implements a full `filesystem.Directory`
+// utilizing a `PartialStream` and `EntryStorage` to
+// support requests to `List` that contain an offset
+type partialStreamWrapper struct {
+	PartialStream       // actual source of entries
+	EntryStorage        // storage and offset management for them
+	err           error // errors persist across calls; cleared on Reset
+}
+
+func (ps *partialStreamWrapper) Reset() error {
+	if err := ps.PartialStream.Close(); err != nil { // invalidate the old stream
+		ps.err = err
+		return err
+	}
+
+	stream, err := ps.PartialStream.Open()
+	if err != nil { // get a new stream
+		ps.err = err
+		return err
+	}
+
+	ps.EntryStorage.Reset(stream) // reset the entry store
+
+	ps.err = nil // clear error state, if any
+	return nil
+}
+
+func (ps *partialStreamWrapper) List(ctx context.Context, offset uint64) <-chan filesystem.DirectoryEntry {
+	if ps.err != nil { // refuse to operate
+		return errWrap(ps.err)
+	}
+
+	if ps.EntryStorage == nil {
+		err := ErrNotInitialized
+		ps.err = err
+		return errWrap(err)
+	}
+
+	return ps.EntryStorage.List(ctx, offset)
+}
+
+// PartialEntryUpgrade wraps a PartialStreamSource and adds in data to transform it into a full Directory
+func PartialEntryUpgrade(streamSource PartialStream) (filesystem.Directory, error) {
+	stream, err := streamSource.Open()
+	if err != nil {
+		return nil, err
+	}
+
+	return &partialStreamWrapper{
+		PartialStream: streamSource,
+		EntryStorage:  NewEntryStorage(stream),
+	}, nil
 }

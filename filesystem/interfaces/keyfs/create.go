@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
@@ -13,7 +13,7 @@ import (
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-func (ki *keyInterface) createSplit(path string) (self bool, remote transform.Interface, fsPath string, err error) {
+func (ki *keyInterface) createSplit(path string) (self bool, remote filesystem.Interface, fsPath string, err error) {
 	keyName, remainder := splitPath(path)
 	if remainder == "" { // no subpath, request is for us
 		self = true
@@ -24,9 +24,9 @@ func (ki *keyInterface) createSplit(path string) (self bool, remote transform.In
 	var coreKey coreiface.Key
 	coreKey, err = ki.checkKey(keyName)
 	if err != nil {
-		err = &transcom.Error{
+		err = &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist,
+			Type:  filesystem.ErrorNotExist,
 		}
 		return
 	}
@@ -79,7 +79,7 @@ func (ki *keyInterface) MakeLink(path string, linkTarget string) error {
 	}
 
 	if self {
-		callCtx, cancel := transcom.CallContext(ki.ctx)
+		callCtx, cancel := interfaceutils.CallContext(ki.ctx)
 		defer cancel()
 		linkNode, err := makeLinkNode(callCtx, ki.core.Dag(), linkTarget)
 		if err != nil {
@@ -97,7 +97,7 @@ func (ki *keyInterface) MakeLink(path string, linkTarget string) error {
 }
 
 func (ki *keyInterface) makeEmptyKey(nodeType coreiface.FileType, keyName string) error {
-	callCtx, cancel := transcom.CallContext(ki.ctx)
+	callCtx, cancel := interfaceutils.CallContext(ki.ctx)
 	defer cancel()
 
 	nodeFoundation, err := makeEmptyNode(callCtx, ki.core.Dag(), nodeType)
@@ -124,17 +124,17 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 		node = unixfs.EmptyDirNode()
 
 	default:
-		return nil, &transcom.Error{
+		return nil, &interfaceutils.Error{
 			Cause: errors.New("unexpected node type"),
-			Type:  transform.ErrorOther,
+			Type:  filesystem.ErrorOther,
 		}
 	}
 
 	// push it to the datastore
 	if err := dagAPI.Add(ctx, node); err != nil {
-		return nil, &transcom.Error{
+		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorIO,
+			Type:  filesystem.ErrorIO,
 		}
 	}
 
@@ -143,16 +143,16 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 
 func makeKeyWithNode(ctx context.Context, core coreiface.CoreAPI, keyName string, node ipld.Node) error {
 	if _, err := core.Key().Generate(ctx, keyName); err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorIO,
+			Type:  filesystem.ErrorIO,
 		}
 	}
 
 	if err := core.Dag().Add(ctx, node); err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorIO,
+			Type:  filesystem.ErrorIO,
 		}
 	}
 
@@ -162,9 +162,9 @@ func makeKeyWithNode(ctx context.Context, core coreiface.CoreAPI, keyName string
 func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarget string) (ipld.Node, error) {
 	dagData, err := unixfs.SymlinkData(linkTarget)
 	if err != nil {
-		return nil, &transcom.Error{
+		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorOther,
+			Type:  filesystem.ErrorOther,
 		}
 	}
 
@@ -176,9 +176,9 @@ func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarge
 
 	// push it to the datastore
 	if err := dagAPI.Add(ctx, dagNode); err != nil {
-		return nil, &transcom.Error{
+		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorIO,
+			Type:  filesystem.ErrorIO,
 		}
 	}
 	return dagNode, nil

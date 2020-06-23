@@ -38,10 +38,6 @@ type fuseProvider struct {
 func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, opts ...provcom.Option) (*fuseProvider, error) {
 	settings := provcom.ParseOptions(opts...)
 
-	if settings.ResourceLock == nil {
-		settings.ResourceLock = provcom.NewResourceLocker()
-	}
-
 	fsCtx, cancel := context.WithCancel(ctx)
 	return &fuseProvider{
 		ctx:       fsCtx,

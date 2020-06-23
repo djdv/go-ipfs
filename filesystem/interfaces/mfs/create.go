@@ -5,8 +5,8 @@ import (
 	"os"
 	gopath "path"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	dag "github.com/ipfs/go-merkledag"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
@@ -16,33 +16,33 @@ func (mi *mfsInterface) Make(path string) error {
 	parentPath, childName := gopath.Split(path)
 	parentNode, err := gomfs.Lookup(mi.mroot, parentPath)
 	if err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist,
+			Type:  filesystem.ErrorNotExist,
 		}
 	}
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%s is not a directory", parentPath),
-			Type:  transform.ErrorNotDir,
+			Type:  filesystem.ErrorNotDir,
 		}
 	}
 
 	if _, err := parentDir.Child(childName); err == nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%q already exists", path),
-			Type:  transform.ErrorExist,
+			Type:  filesystem.ErrorExist,
 		}
 	}
 
 	dagFile := dag.NodeWithData(unixfs.FilePBData(nil, 0))
 	dagFile.SetCidBuilder(parentDir.GetCidBuilder())
 	if err := parentDir.AddChild(childName, dagFile); err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorIO,
+			Type:  filesystem.ErrorIO,
 		}
 	}
 
@@ -51,12 +51,12 @@ func (mi *mfsInterface) Make(path string) error {
 
 func (mi *mfsInterface) MakeDirectory(path string) error {
 	if err := gomfs.Mkdir(mi.mroot, path, gomfs.MkdirOpts{Flush: true}); err != nil {
-		retErr := &transcom.Error{
+		retErr := &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorPermission,
+			Type:  filesystem.ErrorPermission,
 		}
 		if err == os.ErrExist {
-			retErr.Type = transform.ErrorExist
+			retErr.Type = filesystem.ErrorExist
 		}
 		return retErr
 	}
@@ -68,32 +68,32 @@ func (mi *mfsInterface) MakeLink(path string, linkTarget string) error {
 
 	parentNode, err := gomfs.Lookup(mi.mroot, parentPath)
 	if err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist,
+			Type:  filesystem.ErrorNotExist,
 		}
 	}
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%s is not a directory", parentPath),
-			Type:  transform.ErrorNotDir,
+			Type:  filesystem.ErrorNotDir,
 		}
 	}
 
 	if _, err := parentDir.Child(linkName); err == nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%q already exists", path),
-			Type:  transform.ErrorExist,
+			Type:  filesystem.ErrorExist,
 		}
 	}
 
 	dagData, err := unixfs.SymlinkData(linkTarget)
 	if err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist,
+			Type:  filesystem.ErrorNotExist,
 		}
 	}
 
@@ -102,9 +102,9 @@ func (mi *mfsInterface) MakeLink(path string, linkTarget string) error {
 	dagNode.SetCidBuilder(parentDir.GetCidBuilder())
 
 	if err := parentDir.AddChild(linkName, dagNode); err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist, // SUSv7 "...or write permission is denied on the parent directory of the directory to be created"
+			Type:  filesystem.ErrorNotExist, // SUSv7 "...or write permission is denied on the parent directory of the directory to be created"
 		}
 	}
 	return nil

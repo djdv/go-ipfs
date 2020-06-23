@@ -6,7 +6,6 @@ import (
 	"github.com/hugelgupf/p9/p9"
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/filesystem"
-	transform "github.com/ipfs/go-ipfs/filesystem"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -53,21 +52,21 @@ func coreTypeTo9PType(ct coreiface.FileType) p9.FileMode {
 	}
 }
 
-func ioFlagsFrom9P(nineFlagsAmusementPark ninelib.OpenFlags) transform.IOFlags {
+func ioFlagsFrom9P(nineFlagsAmusementPark ninelib.OpenFlags) filesystem.IOFlags {
 	switch nineFlagsAmusementPark.Mode() {
 	case ninelib.ReadOnly:
-		return transform.IOReadOnly
+		return filesystem.IOReadOnly
 	case ninelib.WriteOnly:
-		return transform.IOWriteOnly
+		return filesystem.IOWriteOnly
 	case ninelib.ReadWrite:
-		return transform.IOReadWrite
+		return filesystem.IOReadWrite
 	default:
-		return transform.IOFlags(0)
+		return filesystem.IOFlags(0)
 	}
 }
 
-func requestFrom9P(req p9.AttrMask) filesystem.IPFSStatRequest {
-	var iReq filesystem.IPFSStatRequest
+func requestFrom9P(req p9.AttrMask) filesystem.StatRequest {
+	var iReq filesystem.StatRequest
 	if req.Mode {
 		iReq.Type = true
 	}
@@ -80,17 +79,17 @@ func requestFrom9P(req p9.AttrMask) filesystem.IPFSStatRequest {
 	return iReq
 }
 
-func filledFromCore(coreFilled filesystem.IPFSStatRequest) (nineFilled p9.AttrMask) {
+func filledFromCore(coreFilled filesystem.StatRequest) (nineFilled p9.AttrMask) {
 	nineFilled.Mode = coreFilled.Type
 	nineFilled.Size = coreFilled.Size
 	nineFilled.Blocks = coreFilled.Blocks
 	return
 }
 
-func attrFromCore(cs *filesystem.IPFSStat) p9.Attr {
+func attrFromCore(cs *filesystem.Stat) p9.Attr {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
 	return p9.Attr{
-		Mode:      coreTypeTo9PType(cs.FileType),
+		Mode:      coreTypeTo9PType(cs.Type),
 		Size:      cs.Size,
 		BlockSize: cs.BlockSize,
 		Blocks:    cs.Blocks,

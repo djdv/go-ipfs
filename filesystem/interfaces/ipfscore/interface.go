@@ -6,32 +6,32 @@ import (
 	gopath "path"
 	"strings"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-var errNotImplemented = &transcom.Error{
+var errNotImplemented = &interfaceutils.Error{
 	Cause: errors.New("read only FS, modification operations are not implemented"),
-	Type:  transform.ErrorInvalidOperation,
+	Type:  filesystem.ErrorInvalidOperation,
 }
 
-var _ transform.Interface = (*coreInterface)(nil)
+var _ filesystem.Interface = (*coreInterface)(nil)
 
 type coreInterface struct {
 	ctx       context.Context
-	core      transcom.CoreExtender
+	core      interfaceutils.CoreExtender
 	namespace mountinter.Namespace
 }
 
-var _ transform.Interface = (*coreInterface)(nil)
+var _ filesystem.Interface = (*coreInterface)(nil)
 
-func NewInterface(ctx context.Context, core coreiface.CoreAPI, namespace mountinter.Namespace) transform.Interface {
+func NewInterface(ctx context.Context, core coreiface.CoreAPI, namespace mountinter.Namespace) filesystem.Interface {
 	return &coreInterface{
 		ctx:       ctx,
-		core:      &transcom.CoreExtended{core},
+		core:      &interfaceutils.CoreExtended{core},
 		namespace: namespace,
 	}
 }

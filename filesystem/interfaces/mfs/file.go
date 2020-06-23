@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
-var _ transform.File = (*mfsIOWrapper)(nil)
+var _ filesystem.File = (*mfsIOWrapper)(nil)
 
 type mfsIOWrapper struct{ f gomfs.FileDescriptor }
 
@@ -22,39 +22,39 @@ func (mio *mfsIOWrapper) Seek(offset int64, whence int) (int64, error) {
 	return mio.f.Seek(offset, whence)
 }
 
-func (mi *mfsInterface) Open(path string, flags transform.IOFlags) (transform.File, error) {
+func (mi *mfsInterface) Open(path string, flags filesystem.IOFlags) (filesystem.File, error) {
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
-		rErr := &transcom.Error{Cause: err}
+		rErr := &interfaceutils.Error{Cause: err}
 		if err == os.ErrNotExist {
-			rErr.Type = transform.ErrorNotExist
+			rErr.Type = filesystem.ErrorNotExist
 			return nil, rErr
 		}
-		rErr.Type = transform.ErrorPermission
+		rErr.Type = filesystem.ErrorPermission
 		return nil, rErr
 	}
 
 	mfsFileIf, ok := mfsNode.(*gomfs.File)
 	if !ok {
 		err := fmt.Errorf("%q is not a file (%T)", path, mfsNode)
-		return nil, &transcom.Error{Cause: err, Type: transform.ErrorIsDir}
+		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIsDir}
 	}
 
 	mfsFile, err := mfsFileIf.Open(translateFlags(flags))
 	if err != nil {
-		return nil, &transcom.Error{Cause: err, Type: transform.ErrorPermission}
+		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorPermission}
 	}
 
 	return &mfsIOWrapper{f: mfsFile}, nil
 }
 
-func translateFlags(flags transform.IOFlags) gomfs.Flags {
+func translateFlags(flags filesystem.IOFlags) gomfs.Flags {
 	switch flags {
-	case transform.IOReadOnly:
+	case filesystem.IOReadOnly:
 		return gomfs.Flags{Read: true}
-	case transform.IOWriteOnly:
+	case filesystem.IOWriteOnly:
 		return gomfs.Flags{Write: true}
-	case transform.IOReadWrite:
+	case filesystem.IOReadWrite:
 		return gomfs.Flags{Read: true, Write: true}
 	default:
 		return gomfs.Flags{}

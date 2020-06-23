@@ -4,18 +4,19 @@ import (
 	"testing"
 
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
+	provcom "github.com/ipfs/go-ipfs/filesystem/mount/providers"
 )
 
 func TestAll(t *testing.T) {
-	locker := NewResourceLocker()
+	locker := provcom.NewResourceLocker()
 	t.Run("Acquire", func(t *testing.T) { testAcquire(t, locker) })
 }
 
-func testAcquire(t *testing.T, locker ResourceLock) {
+func testAcquire(t *testing.T, locker provcom.ResourceLock) {
 	const (
 		namespace = mountinter.NamespaceIPFS
 		target    = "/lock/test/path"
-		lType     = LockDataWrite
+		lType     = provcom.LockDataWrite
 		timeout   = 0
 	)
 	// acquire lock

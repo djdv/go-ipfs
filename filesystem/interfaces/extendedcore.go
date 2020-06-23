@@ -1,4 +1,4 @@
-package transformcommon
+package interfaceutils
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"time"
 
 	files "github.com/ipfs/go-ipfs-files"
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
@@ -17,10 +17,15 @@ import (
 
 const callTimeout = 20 * time.Second
 
+// CallContext provides a standard context
+// to be used during file system operation calls that make short lived calls to functions which
+// take a context. For example, `CoreAPI.ResolveNode`
+// But not for long lived operations such as a hypothetical `File.Open(ctx)`
 func CallContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, callTimeout)
 }
 
+//TODO: docs
 type CoreExtender interface {
 	coreiface.CoreAPI
 	// Stat takes in a path and a list of desired attributes for the object residing at that path
@@ -32,26 +37,28 @@ type CoreExtender interface {
 	// to see if values they require were in fact populated
 	// (this is due to the fact that the referenced objects
 	// may not implement the constructs requested)
-	Stat(context.Context, corepath.Path, transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error)
+	Stat(context.Context, corepath.Path, filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error)
 	// ExtractLink takes in a path to a link and returns the string it contains
 	ExtractLink(corepath.Path) (string, error)
 }
 
+//TODO: docs
 type CoreExtended struct{ coreiface.CoreAPI }
 
-func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
+//TODO: docs
+func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	ipldNode, err := core.ResolveNode(ctx, path)
 	if err != nil {
-		return nil, transform.IPFSStatRequest{}, err
+		return nil, filesystem.StatRequest{}, err
 	}
 
 	switch typedNode := ipldNode.(type) {
 	case *dag.ProtoNode:
 		ufsNode, err := unixfs.ExtractFSNode(typedNode)
 		if err != nil {
-			return nil, transform.IPFSStatRequest{}, &Error{
+			return nil, filesystem.StatRequest{}, &Error{
 				Cause: err,
-				Type:  transform.ErrorOther,
+				Type:  filesystem.ErrorOther,
 			}
 		}
 		return unixFSAttr(ufsNode, req)
@@ -63,19 +70,21 @@ func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req tran
 		return genericAttr(typedNode, req)
 	}
 }
+
+// ExtractLink takes in a path to a UFS symlink, and returns its target
 func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	// make sure the path is actually a link
 	callCtx, cancel := CallContext(context.Background())
 	defer cancel()
-	iStat, _, err := core.Stat(callCtx, path, transform.IPFSStatRequest{Type: true})
+	iStat, _, err := core.Stat(callCtx, path, filesystem.StatRequest{Type: true})
 	if err != nil {
 		return "", err
 	}
 
-	if iStat.FileType != coreiface.TSymlink {
+	if iStat.Type != coreiface.TSymlink {
 		return "", &Error{
 			Cause: fmt.Errorf("%q is not a symlink", path.String()),
-			Type:  transform.ErrorInvalidItem,
+			Type:  filesystem.ErrorInvalidItem,
 		}
 	}
 
@@ -84,7 +93,7 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	if err != nil {
 		return "", &Error{
 			Cause: err,
-			Type:  transform.ErrorIO,
+			Type:  filesystem.ErrorIO,
 		}
 	}
 
@@ -93,36 +102,36 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	return files.ToSymlink(linkNode).Target, nil
 }
 
-// implemented just for the error wrapping
+// ResolveNode wraps the core method, but uses our error type for the return
 func (core *CoreExtended) ResolveNode(ctx context.Context, path corepath.Path) (ipld.Node, error) {
 	n, err := core.CoreAPI.ResolveNode(ctx, path)
 	if err != nil {
 		// TODO: inspect error to disambiguate type
 		return nil, &Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist,
+			Type:  filesystem.ErrorNotExist,
 		}
 	}
 	return n, nil
 }
 
-// implemented just for the error wrapping
+// ResolvePath wraps the core method, but uses our error type for the return
 func (core *CoreExtended) ResolvePath(ctx context.Context, path corepath.Path) (corepath.Resolved, error) {
 	p, err := core.CoreAPI.ResolvePath(ctx, path)
 	if err != nil {
 		// TODO: inspect error to disambiguate type
 		return nil, &Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist,
+			Type:  filesystem.ErrorNotExist,
 		}
 	}
 	return p, nil
 }
 
-func genericAttr(genericNode ipld.Node, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
+func genericAttr(genericNode ipld.Node, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	var (
-		attr        = new(transform.IPFSStat)
-		filledAttrs transform.IPFSStatRequest
+		attr        = new(filesystem.Stat)
+		filledAttrs filesystem.StatRequest
 	)
 
 	if req.Type {
@@ -130,7 +139,7 @@ func genericAttr(genericNode ipld.Node, req transform.IPFSStatRequest) (*transfo
 		// cbor nodes are not currently supported via UnixFS so we assume them to contain only data
 		// TODO: review ^ is there some way we can implement this that won't blow up in the future?
 		// (if unixfs supports cbor and directories are implemented to use them )
-		attr.FileType, filledAttrs.Type = coreiface.TFile, true
+		attr.Type, filledAttrs.Type = coreiface.TFile, true
 	}
 
 	if req.Size || req.Blocks {
@@ -138,7 +147,7 @@ func genericAttr(genericNode ipld.Node, req transform.IPFSStatRequest) (*transfo
 		if err != nil {
 			return attr, filledAttrs, &Error{
 				Cause: err,
-				Type:  transform.ErrorIO,
+				Type:  filesystem.ErrorIO,
 			}
 		}
 
@@ -155,14 +164,14 @@ func genericAttr(genericNode ipld.Node, req transform.IPFSStatRequest) (*transfo
 }
 
 // returns attr, filled members, error
-func unixFSAttr(ufsNode *unixfs.FSNode, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
+func unixFSAttr(ufsNode *unixfs.FSNode, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	var (
-		attr        transform.IPFSStat
-		filledAttrs transform.IPFSStatRequest
+		attr        filesystem.Stat
+		filledAttrs filesystem.StatRequest
 	)
 
 	if req.Type {
-		attr.FileType, filledAttrs.Type = unixfsTypeToCoreType(ufsNode.Type()), true
+		attr.Type, filledAttrs.Type = unixfsTypeToCoreType(ufsNode.Type()), true
 	}
 
 	if req.Blocks {

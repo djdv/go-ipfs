@@ -3,20 +3,20 @@ package keyfs
 import (
 	"errors"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
 var (
-	rootStat   = &transform.IPFSStat{FileType: coreiface.TDirectory}
-	rootFilled = transform.IPFSStatRequest{Type: true}
+	rootStat   = &filesystem.Stat{Type: coreiface.TDirectory}
+	rootFilled = filesystem.StatRequest{Type: true}
 )
 
-func (ki *keyInterface) Info(path string, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
+func (ki *keyInterface) Info(path string, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	fs, key, fsPath, deferFunc, err := ki.selectFS(path)
 	if err != nil {
-		return nil, transform.IPFSStatRequest{}, &transcom.Error{Cause: err, Type: transform.ErrorOther}
+		return nil, filesystem.StatRequest{}, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
 	}
 	defer deferFunc()
 
@@ -24,7 +24,7 @@ func (ki *keyInterface) Info(path string, req transform.IPFSStatRequest) (*trans
 		if fsPath == "/" {
 			return rootStat, rootFilled, nil
 		}
-		callCtx, cancel := transcom.CallContext(ki.ctx)
+		callCtx, cancel := interfaceutils.CallContext(ki.ctx)
 		defer cancel()
 		return ki.core.Stat(callCtx, key.Path(), req)
 	}
@@ -33,12 +33,12 @@ func (ki *keyInterface) Info(path string, req transform.IPFSStatRequest) (*trans
 
 func (ki *keyInterface) ExtractLink(path string) (string, error) {
 	if path == "/" {
-		return "", &transcom.Error{Cause: errors.New("root is not a link"), Type: transform.ErrorInvalidItem}
+		return "", &interfaceutils.Error{Cause: errors.New("root is not a link"), Type: filesystem.ErrorInvalidItem}
 	}
 
 	fs, key, fsPath, deferFunc, err := ki.selectFS(path)
 	if err != nil {
-		return "", &transcom.Error{Cause: err, Type: transform.ErrorOther}
+		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
 	}
 	defer deferFunc()
 

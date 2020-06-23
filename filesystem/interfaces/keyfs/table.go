@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 )
 
 // NOTE: the closure type declarations `closer` and `refcount`
@@ -53,8 +53,8 @@ func newRefCounter(locker sync.Locker, onZero func() error) refcount {
 }
 
 type (
-	openFileFunc      func() (transform.File, error)
-	openInterfaceFunc func() (transform.Interface, error)
+	openFileFunc      func() (filesystem.File, error)
+	openInterfaceFunc func() (filesystem.Interface, error)
 
 	referenceTable interface {
 		// retrieves and existing reference and returns it, or opens a new one using provided function

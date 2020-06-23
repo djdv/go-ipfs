@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	tcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	gomfs "github.com/ipfs/go-mfs"
 )
@@ -17,7 +17,7 @@ type mfsDirectoryStream struct {
 }
 
 // OpenDirectory returns a Directory for the given path (as a stream of entries)
-func (mi *mfsInterface) OpenDirectory(path string) (transform.Directory, error) {
+func (mi *mfsInterface) OpenDirectory(path string) (filesystem.Directory, error) {
 	mfsStream := &mfsDirectoryStream{
 		path:  path,
 		mroot: mi.mroot,

@@ -4,13 +4,13 @@ import (
 	"errors"
 	"sync"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 )
 
 type (
 	handle = uint64
-	fMap   map[handle]transform.File
-	dMap   map[handle]transform.Directory
+	fMap   map[handle]filesystem.File
+	dMap   map[handle]filesystem.Directory
 )
 
 func newFileTable() *fileTableStruct           { return &fileTableStruct{files: make(fMap)} }
@@ -18,9 +18,9 @@ func newDirectoryTable() *directoryTableStruct { return &directoryTableStruct{di
 
 type (
 	fileTable interface {
-		Add(transform.File) (handle, error)
+		Add(filesystem.File) (handle, error)
 		Exists(handle) bool
-		Get(handle) (transform.File, error)
+		Get(handle) (filesystem.File, error)
 		Remove(handle) error
 		Length() int
 		// TODO: [lint]
@@ -34,7 +34,7 @@ type (
 	}
 )
 
-func (ft *fileTableStruct) Add(f transform.File) (handle, error) {
+func (ft *fileTableStruct) Add(f filesystem.File) (handle, error) {
 	ft.Lock()
 	defer ft.Unlock()
 
@@ -72,7 +72,7 @@ func (ft *fileTableStruct) Exists(fh handle) bool {
 	return exists
 }
 
-func (ft *fileTableStruct) Get(fh handle) (transform.File, error) {
+func (ft *fileTableStruct) Get(fh handle) (filesystem.File, error) {
 	ft.RLock()
 	defer ft.RUnlock()
 	f, exists := ft.files[fh]
@@ -100,9 +100,9 @@ func (ft *fileTableStruct) Length() int {
 
 type (
 	directoryTable interface {
-		Add(transform.Directory) (handle, error)
+		Add(filesystem.Directory) (handle, error)
 		Exists(handle) bool
-		Get(handle) (transform.Directory, error)
+		Get(handle) (filesystem.Directory, error)
 		Remove(handle) error
 		Length() int
 	}
@@ -110,11 +110,11 @@ type (
 		sync.RWMutex
 		index       uint64
 		wrapped     bool // if true; we start reclaiming dead index values
-		directories map[handle]transform.Directory
+		directories map[handle]filesystem.Directory
 	}
 )
 
-func (dt *directoryTableStruct) Add(f transform.Directory) (handle, error) {
+func (dt *directoryTableStruct) Add(f filesystem.Directory) (handle, error) {
 	dt.Lock()
 	defer dt.Unlock()
 
@@ -152,7 +152,7 @@ func (dt *directoryTableStruct) Exists(fh handle) bool {
 	return exists
 }
 
-func (dt *directoryTableStruct) Get(fh handle) (transform.Directory, error) {
+func (dt *directoryTableStruct) Get(fh handle) (filesystem.Directory, error) {
 	dt.RLock()
 	defer dt.RUnlock()
 	f, exists := dt.directories[fh]

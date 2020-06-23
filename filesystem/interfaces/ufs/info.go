@@ -1,17 +1,17 @@
 package ufs
 
 import (
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
 var (
-	rootStat   = &transform.IPFSStat{FileType: coreiface.TDirectory}
-	rootFilled = transform.IPFSStatRequest{Type: true}
+	rootStat   = &filesystem.Stat{Type: coreiface.TDirectory}
+	rootFilled = filesystem.StatRequest{Type: true}
 )
 
-func (ui *ufsInterface) Info(path string, req transform.IPFSStatRequest) (attr *transform.IPFSStat, filled transform.IPFSStatRequest, err error) {
+func (ui *ufsInterface) Info(path string, req filesystem.StatRequest) (attr *filesystem.Stat, filled filesystem.StatRequest, err error) {
 	if path == "/" {
 		return rootStat, rootFilled, nil
 	}

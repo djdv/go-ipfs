@@ -7,12 +7,12 @@ import (
 	"io"
 
 	files "github.com/ipfs/go-ipfs-files"
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	cbor "github.com/ipfs/go-ipld-cbor"
 )
 
-var _, _ transform.File = (*coreFile)(nil), (*cborFile)(nil)
+var _, _ filesystem.File = (*coreFile)(nil), (*cborFile)(nil)
 
 type coreFile struct{ f files.File }
 
@@ -42,23 +42,23 @@ func (cio *cborFile) Seek(offset int64, whence int) (int64, error) {
 	return cio.reader.Seek(offset, whence)
 }
 
-func (ci *coreInterface) Open(path string, flags transform.IOFlags) (transform.File, error) {
-	if flags != transform.IOReadOnly {
-		return nil, &transcom.Error{
+func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem.File, error) {
+	if flags != filesystem.IOReadOnly {
+		return nil, &interfaceutils.Error{
 			Cause: errors.New("read only FS"),
-			Type:  transform.ErrorReadOnly,
+			Type:  filesystem.ErrorReadOnly,
 		}
 	}
 
 	corePath := ci.joinRoot(path)
 
-	callCtx, callCancel := transcom.CallContext(ci.ctx)
+	callCtx, callCancel := interfaceutils.CallContext(ci.ctx)
 	defer callCancel()
 	ipldNode, err := ci.core.ResolveNode(callCtx, corePath)
 	if err != nil {
-		return nil, &transcom.Error{
+		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorPermission,
+			Type:  filesystem.ErrorPermission,
 		}
 	}
 
@@ -79,18 +79,18 @@ func (ci *coreInterface) Open(path string, flags transform.IOFlags) (transform.F
 
 	apiNode, err := ci.core.Unixfs().Get(ci.ctx, corePath)
 	if err != nil {
-		return nil, &transcom.Error{
+		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorPermission,
+			Type:  filesystem.ErrorPermission,
 		}
 	}
 
 	fileNode, ok := apiNode.(files.File)
 	if !ok {
 		err := fmt.Errorf("%q does not appear to be a file: %T", path, apiNode)
-		return nil, &transcom.Error{
+		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorIsDir,
+			Type:  filesystem.ErrorIsDir,
 		}
 	}
 

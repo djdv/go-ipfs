@@ -4,25 +4,25 @@ import (
 	"fmt"
 	"os"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	transcommon "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
-func (mi *mfsInterface) Info(path string, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
+func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	var (
-		attr   = new(transform.IPFSStat)
-		filled transform.IPFSStatRequest
+		attr   = new(filesystem.Stat)
+		filled filesystem.StatRequest
 	)
 
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
 		return attr, filled, &transcommon.Error{
 			Cause: err,
-			Type:  transform.ErrorNotExist,
+			Type:  filesystem.ErrorNotExist,
 		}
 	}
 
@@ -30,7 +30,7 @@ func (mi *mfsInterface) Info(path string, req transform.IPFSStatRequest) (*trans
 	if err != nil {
 		return nil, filled, &transcommon.Error{
 			Cause: err,
-			Type:  transform.ErrorOther,
+			Type:  filesystem.ErrorOther,
 		}
 	}
 
@@ -38,27 +38,27 @@ func (mi *mfsInterface) Info(path string, req transform.IPFSStatRequest) (*trans
 	if err != nil {
 		return attr, filled, &transcommon.Error{
 			Cause: err,
-			Type:  transform.ErrorOther,
+			Type:  filesystem.ErrorOther,
 		}
 	}
 
 	if req.Type {
 		switch mfsNode.Type() {
 		case gomfs.TFile:
-			attr.FileType, filled.Type = coreiface.TFile, true
+			attr.Type, filled.Type = coreiface.TFile, true
 		case gomfs.TDir:
-			attr.FileType, filled.Type = coreiface.TDirectory, true
+			attr.Type, filled.Type = coreiface.TDirectory, true
 		default:
 			// symlinks are not nativley supported by MFS / the Files API but we support them
 			nodeType := ufsNode.Type()
 			if nodeType == unixfs.TSymlink {
-				attr.FileType, filled.Type = coreiface.TSymlink, true
+				attr.Type, filled.Type = coreiface.TSymlink, true
 				break
 			}
 
 			return attr, filled, &transcommon.Error{
 				Cause: fmt.Errorf("unexpected node type %d", nodeType),
-				Type:  transform.ErrorOther,
+				Type:  filesystem.ErrorOther,
 			}
 		}
 	}
@@ -86,27 +86,27 @@ func (mi *mfsInterface) Info(path string, req transform.IPFSStatRequest) (*trans
 func (mi *mfsInterface) ExtractLink(path string) (string, error) {
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
-		rErr := &transcom.Error{Cause: err}
+		rErr := &interfaceutils.Error{Cause: err}
 		if err == os.ErrNotExist {
-			rErr.Type = transform.ErrorNotExist
+			rErr.Type = filesystem.ErrorNotExist
 			return "", rErr
 		}
-		rErr.Type = transform.ErrorPermission
+		rErr.Type = filesystem.ErrorPermission
 		return "", rErr
 	}
 
 	ipldNode, err := mfsNode.GetNode()
 	if err != nil {
-		return "", &transcom.Error{Cause: err, Type: transform.ErrorIO}
+		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
 	}
 
 	ufsNode, err := unixfs.ExtractFSNode(ipldNode)
 	if err != nil {
-		return "", &transcom.Error{Cause: err, Type: transform.ErrorIO}
+		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
 	}
 	if ufsNode.Type() != unixfs.TSymlink {
 		err := fmt.Errorf("%q is not a link", path)
-		return "", &transcommon.Error{Cause: err, Type: transform.ErrorInvalidItem}
+		return "", &transcommon.Error{Cause: err, Type: filesystem.ErrorInvalidItem}
 	}
 
 	return string(ufsNode.Data()), nil

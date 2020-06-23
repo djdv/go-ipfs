@@ -3,8 +3,8 @@ package mfs
 import (
 	"context"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
@@ -14,7 +14,7 @@ type mfsInterface struct {
 	mroot *gomfs.Root
 }
 
-var _ transform.Interface = (*mfsInterface)(nil)
+var _ filesystem.Interface = (*mfsInterface)(nil)
 
 func NewInterface(ctx context.Context, mroot *gomfs.Root) *mfsInterface {
 	return &mfsInterface{
@@ -29,7 +29,7 @@ func (mi *mfsInterface) Close() error {
 
 func (mi *mfsInterface) Rename(oldName, newName string) error {
 	if err := gomfs.Mv(mi.mroot, oldName, newName); err != nil {
-		return &transcom.Error{Cause: err, Type: transform.ErrorIO}
+		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
 	}
 	return nil
 }

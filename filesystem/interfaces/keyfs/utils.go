@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
@@ -17,7 +17,7 @@ func noop() {} // we want this statically assigned instead of constructed where 
 // returns the appropriate fs based on the path
 // along with the associated key (if any)
 // and the (potentially modified) operation argument (the path string for the selected/target `Interface`)
-func (ki *keyInterface) selectFS(path string) (fs transform.Interface, coreKey coreiface.Key, fsPath string, deferFunc func(), err error) {
+func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey coreiface.Key, fsPath string, deferFunc func(), err error) {
 	deferFunc = noop
 
 	if path == "/" {
@@ -29,7 +29,7 @@ func (ki *keyInterface) selectFS(path string) (fs transform.Interface, coreKey c
 	keyName, remainder := splitPath(path)
 
 	if coreKey, err = ki.checkKey(keyName); err != nil {
-		err = &transcom.Error{Cause: err, Type: transform.ErrorOther}
+		err = &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
 		return
 	}
 
@@ -41,17 +41,17 @@ func (ki *keyInterface) selectFS(path string) (fs transform.Interface, coreKey c
 			return
 		}
 
-		callCtx, cancel := transcom.CallContext(ki.ctx)
+		callCtx, cancel := interfaceutils.CallContext(ki.ctx)
 		defer cancel()
 		// if there is no subpath, we can't assume this requests destination
 		// so check its type to determine the FS for it (Files, Links: KeyFS, Directories: MFS)
-		var stat *transform.IPFSStat
-		if stat, _, err = ki.core.Stat(callCtx, coreKey.Path(), transform.IPFSStatRequest{Type: true}); err != nil {
-			err = &transcom.Error{Cause: err, Type: transform.ErrorIO}
+		var stat *filesystem.Stat
+		if stat, _, err = ki.core.Stat(callCtx, coreKey.Path(), filesystem.StatRequest{Type: true}); err != nil {
+			err = &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
 			return
 		}
 
-		switch t := stat.FileType; t {
+		switch t := stat.Type; t {
 		case coreiface.TFile, coreiface.TSymlink:
 			fs = ki
 			fsPath = path
@@ -60,7 +60,7 @@ func (ki *keyInterface) selectFS(path string) (fs transform.Interface, coreKey c
 			fsPath = remainder
 			deferFunc = func() { fs.Close() }
 		default:
-			err = &transcom.Error{Cause: fmt.Errorf("unexpected type: %v", t), Type: transform.ErrorOther}
+			err = &interfaceutils.Error{Cause: fmt.Errorf("unexpected type: %v", t), Type: filesystem.ErrorOther}
 		}
 
 		return
@@ -78,11 +78,11 @@ func (ki *keyInterface) selectFS(path string) (fs transform.Interface, coreKey c
 func localPublish(ctx context.Context, core coreiface.CoreAPI, keyName string, target corepath.Path) error {
 	oAPI, err := core.WithOptions(coreoptions.Api.Offline(true))
 	if err != nil {
-		return &transcom.Error{Cause: err, Type: transform.ErrorOther}
+		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
 	}
 
 	if _, err = oAPI.Name().Publish(ctx, target, coreoptions.Name.Key(keyName), coreoptions.Name.AllowOffline(true)); err != nil {
-		return &transcom.Error{Cause: err, Type: transform.ErrorOther}
+		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
 	}
 
 	return nil
@@ -103,7 +103,7 @@ func splitPath(path string) (key, remainder string) {
 
 // caller should expect key to be nil if not found, with err also being nil
 func (ki *keyInterface) checkKey(keyName string) (coreiface.Key, error) {
-	callContext, cancel := transcom.CallContext(ki.ctx)
+	callContext, cancel := interfaceutils.CallContext(ki.ctx)
 	defer cancel()
 
 	keys, err := ki.core.Key().List(callContext)

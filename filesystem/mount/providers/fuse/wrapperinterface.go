@@ -5,12 +5,12 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	config "github.com/ipfs/go-ipfs-config"
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
 )
 
 type fileSystem struct {
-	intf transform.Interface // interface between FUSE and the target API
+	intf filesystem.Interface // interface between FUSE and the target API
 
 	initChan InitSignal          // optional message channel to communicate with the caller
 	log      logging.EventLogger // general operations log
@@ -111,7 +111,7 @@ func (fs *fileSystem) Truncate(path string, size int64, fh uint64) int {
 	var didOpen bool
 	file, err := fs.files.Get(fh) // use the handle if it's valid
 	if err != nil {               // otherwise fallback to open
-		file, err = fs.intf.Open(path, transform.IOWriteOnly)
+		file, err = fs.intf.Open(path, filesystem.IOWriteOnly)
 		if err != nil {
 			fs.log.Error(err)
 			return interpretError(err)

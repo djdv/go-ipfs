@@ -2,7 +2,7 @@ package fuse
 
 import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 )
 
 func (fs *fileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int {
@@ -13,7 +13,7 @@ func (fs *fileSystem) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int 
 		return -fuselib.ENOENT
 	}
 
-	iStat, _, err := fs.intf.Info(path, transform.IPFSStatRequestAll)
+	iStat, _, err := fs.intf.Info(path, filesystem.StatRequestAll)
 	if err != nil {
 		errNo := interpretError(err)
 		if errNo != -fuselib.ENOENT { // don't flood the logs with "not found" errors

@@ -264,7 +264,8 @@ func combine(provider mountinter.ProviderType, namespaces []mountinter.Namespace
 		var providerParam string
 		switch provider {
 		case mountinter.ProviderPlan9Protocol:
-			providerParam = fmt.Sprintf("/unix/$IPFS_HOME/9p.%s.sock", namespaces[i].String())
+			// providerParam = fmt.Sprintf("/unix/$IPFS_HOME/9p.%s.sock", namespaces[i].String())
+			providerParam = "/ip4/127.0.0.1/tcp/564"
 		}
 
 		collections = append(collections,

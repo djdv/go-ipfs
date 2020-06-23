@@ -55,11 +55,7 @@ type p9pProvider struct {
 }
 
 func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, opts ...provcom.Option) (*p9pProvider, error) {
-	options := provcom.ParseOptions(opts...)
-
-	if options.ResourceLock == nil {
-		options.ResourceLock = provcom.NewResourceLocker()
-	}
+	settings := provcom.ParseOptions(opts...)
 
 	if strings.HasPrefix(addrString, "/unix") { // stabilize our addr string which could contain template keys and/or be relative in some way
 		var err error
@@ -80,8 +76,8 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString
 		maddr:        ma,
 		core:         api,
 		namespace:    namespace,
-		filesAPIRoot: options.FilesAPIRoot,
-		resLock:      options.ResourceLock,
+		filesAPIRoot: settings.FilesAPIRoot,
+		resLock:      settings.ResourceLock,
 		instances:    provcom.NewInstanceCollectionState(),
 	}, nil
 }

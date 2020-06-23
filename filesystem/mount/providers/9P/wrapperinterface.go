@@ -13,7 +13,7 @@ import (
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
 	ninelib "github.com/hugelgupf/p9/p9"
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -45,7 +45,7 @@ type fid struct {
 	templatefs.NoopFile // TODO remove
 	sync.RWMutex
 
-	intf transform.Interface // interface between 9P and the target API
+	intf filesystem.Interface // interface between 9P and the target API
 
 	log logging.EventLogger // general operations log
 
@@ -55,8 +55,8 @@ type fid struct {
 
 	ninelib.QID // 9P metadata about this file
 
-	transform.File      // when opened, this FID will assign to one of these slots
-	transform.Directory // depending on the QID type its path references
+	filesystem.File      // when opened, this FID will assign to one of these slots
+	filesystem.Directory // depending on the QID type its path references
 }
 
 func (f *fid) template() *fid {
@@ -110,13 +110,13 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 		subPath = append(subPath, component)
 		subString := subPath.String()
 
-		fidInfo, _, err := f.intf.Info(subString, transform.IPFSStatRequest{Type: true})
+		fidInfo, _, err := f.intf.Info(subString, filesystem.StatRequest{Type: true})
 		if err != nil {
 			return nil, nil, interpretError(err)
 		}
 
 		// only the last component may be a non-directory
-		if i != comLen && fidInfo.FileType != coreiface.TDirectory {
+		if i != comLen && fidInfo.Type != coreiface.TDirectory {
 			return qids, nil, errors.New("TODO error message: middle component is not a directory")
 		}
 
@@ -142,7 +142,7 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 		*/
 
 		subQid = ninelib.QID{
-			Type: coreTypeTo9PType(fidInfo.FileType).QIDType(),
+			Type: coreTypeTo9PType(fidInfo.Type).QIDType(),
 			Path: hasher.Sum64() + ver,
 			// TODO:
 			// we need some QID generation abstraction, provided in the constructor
@@ -264,7 +264,7 @@ func (f *fid) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 		entName := ent.Name()
 		entPath := f.path.Join(entName)
 
-		fidInfo, _, err := f.intf.Info(entPath, transform.IPFSStatRequest{Type: true})
+		fidInfo, _, err := f.intf.Info(entPath, filesystem.StatRequest{Type: true})
 		if err != nil {
 			return nineEnts, interpretError(err)
 		}
@@ -277,7 +277,7 @@ func (f *fid) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 			Name:   entName,
 			Offset: ent.Offset(),
 			QID: ninelib.QID{
-				Type: coreTypeTo9PType(fidInfo.FileType).QIDType(),
+				Type: coreTypeTo9PType(fidInfo.Type).QIDType(),
 				Path: hasher.Sum64() + ver,
 			}})
 		hasher.Reset()

@@ -3,20 +3,20 @@ package ipfscore
 import (
 	"context"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	tcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-var _ transform.Directory = (*emptyDir)(nil)
+var _ filesystem.Directory = (*emptyDir)(nil)
 
 type emptyDir struct{}
 
 func (*emptyDir) Close() error { return nil }
 func (*emptyDir) Reset() error { return nil }
-func (*emptyDir) List(_ context.Context, _ uint64) <-chan transform.DirectoryEntry {
-	ret := make(chan transform.DirectoryEntry)
+func (*emptyDir) List(_ context.Context, _ uint64) <-chan filesystem.DirectoryEntry {
+	ret := make(chan filesystem.DirectoryEntry)
 	close(ret) // it had a good run but it's over now
 	return ret
 }
@@ -27,7 +27,7 @@ type coreDirectoryStream struct {
 }
 
 // OpenDirectory returns a Directory for the given path (as a stream of entries)
-func (ci *coreInterface) OpenDirectory(path string) (transform.Directory, error) {
+func (ci *coreInterface) OpenDirectory(path string) (filesystem.Directory, error) {
 	if path == "/" {
 		return &emptyDir{}, nil
 	}

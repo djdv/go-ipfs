@@ -3,17 +3,17 @@ package ufs
 import (
 	"errors"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 )
 
-var errNotImplemented = &transcom.Error{
+var errNotImplemented = &interfaceutils.Error{
 	Cause: errors.New("operation not supported by this system"),
-	Type:  transform.ErrorInvalidOperation,
+	Type:  filesystem.ErrorInvalidOperation,
 }
 
 // TODO: we can implement directories, but currently have no use for them here
-func (*ufsInterface) OpenDirectory(_ string) (transform.Directory, error) {
+func (*ufsInterface) OpenDirectory(_ string) (filesystem.Directory, error) {
 	return nil, errNotImplemented
 }
 func (*ufsInterface) Make(_ string) error            { return errNotImplemented }

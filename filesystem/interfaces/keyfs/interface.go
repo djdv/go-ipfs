@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/ipfs/go-cid"
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	"github.com/ipfs/go-ipfs/filesystem/interfaces/ipfscore"
 	"github.com/ipfs/go-ipfs/filesystem/interfaces/ufs"
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
@@ -18,7 +18,7 @@ import (
 // TODO: docs
 type keyInterface struct {
 	ctx  context.Context
-	core transcom.CoreExtender
+	core interfaceutils.CoreExtender
 
 	ufs ufs.UFS // `File` constructor
 
@@ -34,14 +34,14 @@ type keyInterface struct {
 
 	references referenceTable
 
-	ipns transform.Interface // any requests to keys we don't own get proxied to ipns
+	ipns filesystem.Interface // any requests to keys we don't own get proxied to ipns
 }
 
 // TODO: docs
-func NewInterface(ctx context.Context, core coreiface.CoreAPI) transform.Interface {
+func NewInterface(ctx context.Context, core coreiface.CoreAPI) filesystem.Interface {
 	return &keyInterface{
 		ctx:        ctx,
-		core:       &transcom.CoreExtended{core},
+		core:       &interfaceutils.CoreExtended{core},
 		ufs:        ufs.NewInterface(ctx, core),
 		ipns:       ipfscore.NewInterface(ctx, core, mountinter.NamespaceIPNS),
 		references: newReferenceTable(),
@@ -72,13 +72,13 @@ func (ki *keyInterface) publisherGenMFS(keyName string) gomfs.PubFunc {
 func (ki *keyInterface) Rename(oldName, newName string) error {
 	keyName, remainder := splitPath(oldName)
 	if remainder == "" { // rename on key itself
-		callCtx, cancel := transcom.CallContext(ki.ctx)
+		callCtx, cancel := interfaceutils.CallContext(ki.ctx)
 		defer cancel()
 		_, _, err := ki.core.Key().Rename(callCtx, keyName, newName[1:])
 		if err != nil {
-			return &transcom.Error{
+			return &interfaceutils.Error{
 				Cause: err,
-				Type:  transform.ErrorIO,
+				Type:  filesystem.ErrorIO,
 			}
 		}
 		return nil

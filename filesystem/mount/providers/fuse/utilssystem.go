@@ -8,7 +8,7 @@ import (
 	"runtime"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -20,22 +20,22 @@ type (
 	// directoryPlus is used in `fillDir` to handle FUSE's readdir plus feature
 	// (via a type assertion of objects returned from `UpgradeDirectory`)
 	directoryPlus struct {
-		transform.Directory
+		filesystem.Directory
 		statFunc
 	}
 
 	statFunc       func(name string) *fuselib.Stat_t
-	readdirplusGen func(transform.Interface, string, *fuselib.Stat_t) statFunc
+	readdirplusGen func(filesystem.Interface, string, *fuselib.Stat_t) statFunc
 )
 
 // upgradeDirectory binds a Directory and a means to get attributes for its elements
 // this should be used to transform directories into readdir plus capable directories
 // before being sent to `fillDir`
-func upgradeDirectory(d transform.Directory, sf statFunc) transform.Directory {
+func upgradeDirectory(d filesystem.Directory, sf statFunc) filesystem.Directory {
 	return directoryPlus{Directory: d, statFunc: sf}
 }
 
-func fillDir(ctx context.Context, directory transform.Directory, fill fuseFillFunc, offset int64) (int, error) {
+func fillDir(ctx context.Context, directory filesystem.Directory, fill fuseFillFunc, offset int64) (int, error) {
 	// TODO: uint <-> int shenanigans
 
 	// Offset value 0 has a special meaning in FUSE (see: FUSE's `readdir` docs)
@@ -141,7 +141,7 @@ func releaseDir(table directoryTable, handle uint64) (errNo, error) {
 }
 
 // TODO: read+write; we're not accounting for scenarios where the offset is beyond the end of the file
-func readFile(file transform.File, buff []byte, ofst int64) (errNo, error) {
+func readFile(file filesystem.File, buff []byte, ofst int64) (errNo, error) {
 	if len(buff) == 0 {
 		return 0, nil
 	}
@@ -171,7 +171,7 @@ func readFile(file transform.File, buff []byte, ofst int64) (errNo, error) {
 	return readBytes, err // EOF will be returned if it was provided
 }
 
-func writeFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
+func writeFile(file filesystem.File, buff []byte, ofst int64) (error, errNo) {
 	if len(buff) == 0 {
 		return nil, 0
 	}
@@ -205,13 +205,13 @@ func writeFile(file transform.File, buff []byte, ofst int64) (error, errNo) {
 	return nil, wroteBytes
 }
 
-func applyIntermediateStat(fStat *fuselib.Stat_t, iStat *transform.IPFSStat) {
+func applyIntermediateStat(fStat *fuselib.Stat_t, iStat *filesystem.Stat) {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
 
 	// retain existing permissions (if any), but reset the type bits
-	fStat.Mode = (fStat.Mode &^ fuselib.S_IFMT) | coreTypeToFuseType(iStat.FileType)
+	fStat.Mode = (fStat.Mode &^ fuselib.S_IFMT) | coreTypeToFuseType(iStat.Type)
 
-	if runtime.GOOS == "windows" && iStat.FileType == coreiface.TSymlink {
+	if runtime.GOOS == "windows" && iStat.Type == coreiface.TSymlink {
 		// NOTE: for the sake of consistency with the native system
 		// we ignore fields which are not set when calling NT's `CreateSymbolicLink` on an NTFS3.1 system
 		fStat.Flags |= fuselib.UF_ARCHIVE // this is set by the system native, so we'll emulate that
@@ -239,21 +239,21 @@ func coreTypeToFuseType(ct coreiface.FileType) fuseFileType {
 	}
 }
 
-func ioFlagsFromFuse(fuseFlags int) transform.IOFlags {
+func ioFlagsFromFuse(fuseFlags int) filesystem.IOFlags {
 	switch fuseFlags & fuselib.O_ACCMODE {
 	case fuselib.O_RDONLY:
-		return transform.IOReadOnly
+		return filesystem.IOReadOnly
 	case fuselib.O_WRONLY:
-		return transform.IOWriteOnly
+		return filesystem.IOWriteOnly
 	case fuselib.O_RDWR:
-		return transform.IOReadWrite
+		return filesystem.IOReadWrite
 	default:
-		return transform.IOFlags(0)
+		return filesystem.IOFlags(0)
 	}
 }
 
-func getStat(r transform.Interface, path string, template *fuselib.Stat_t) *fuselib.Stat_t {
-	iStat, _, err := r.Info(path, transform.IPFSStatRequestAll)
+func getStat(r filesystem.Interface, path string, template *fuselib.Stat_t) *fuselib.Stat_t {
+	iStat, _, err := r.Info(path, filesystem.StatRequestAll)
 	if err != nil {
 		return nil
 	}
@@ -266,7 +266,7 @@ func getStat(r transform.Interface, path string, template *fuselib.Stat_t) *fuse
 
 // statticStat generates a statFunc
 // that fetches attributes for a requests, and caches the results for subsiquent requests
-func staticStat(r transform.Interface, basePath string, template *fuselib.Stat_t) statFunc {
+func staticStat(r filesystem.Interface, basePath string, template *fuselib.Stat_t) statFunc {
 	stats := make(map[string]*fuselib.Stat_t, 1)
 
 	return func(name string) *fuselib.Stat_t {
@@ -282,7 +282,7 @@ func staticStat(r transform.Interface, basePath string, template *fuselib.Stat_t
 
 // dynamicStat generates a statFunc
 // that always fetches attributes for a requests (assuming they may have changed since the last request)
-func dynamicStat(r transform.Interface, basePath string, template *fuselib.Stat_t) statFunc {
+func dynamicStat(r filesystem.Interface, basePath string, template *fuselib.Stat_t) statFunc {
 	return func(name string) *fuselib.Stat_t {
 		return getStat(r, gopath.Join(basePath, name), template)
 	}

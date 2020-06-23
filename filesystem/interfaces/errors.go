@@ -1,11 +1,14 @@
-package transformcommon
+package interfaceutils
 
-import transform "github.com/ipfs/go-ipfs/filesystem"
+import "github.com/ipfs/go-ipfs/filesystem"
 
+// Error implements the filesystem error interface
+// it is expected that all of our `filesystem.Interface` methods return these exclusively
+// rather than plain Go errors
 type Error struct {
 	Cause error
-	Type  transform.Kind
+	Type  filesystem.Kind
 }
 
-func (e *Error) Error() string        { return e.Cause.Error() }
-func (e *Error) Kind() transform.Kind { return e.Type }
+func (e *Error) Error() string         { return e.Cause.Error() }
+func (e *Error) Kind() filesystem.Kind { return e.Type }

@@ -5,8 +5,8 @@ import (
 	"io"
 
 	chunk "github.com/ipfs/go-ipfs-chunker"
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	ipld "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-unixfs/mod"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -15,7 +15,7 @@ import (
 
 type ufsInterface struct {
 	ctx              context.Context
-	core             transcom.CoreExtender
+	core             interfaceutils.CoreExtender
 	modifiedCallback ModifiedFunc
 }
 
@@ -26,7 +26,7 @@ type (
 	// and called during operations that modify said `File`
 	// it is valid to reset this value to `nil`
 	UFS interface {
-		transform.Interface
+		filesystem.Interface
 		SetModifier(ModifiedFunc)
 	}
 
@@ -36,7 +36,7 @@ type (
 func NewInterface(ctx context.Context, core coreiface.CoreAPI) UFS {
 	return &ufsInterface{
 		ctx:  ctx,
-		core: &transcom.CoreExtended{core},
+		core: &interfaceutils.CoreExtended{core},
 	}
 }
 
@@ -48,8 +48,8 @@ func (ui *ufsInterface) SetModifier(callback ModifiedFunc) { ui.modifiedCallback
 // handling reference count internally/automatically via keyFile's `Close` method
 // TODO: parse flags and limit functionality contextually (RO, WO, etc.)
 // for now we always give full access
-func (ui *ufsInterface) Open(path string, _ transform.IOFlags) (transform.File, error) {
-	callCtx, cancel := transcom.CallContext(ui.ctx)
+func (ui *ufsInterface) Open(path string, _ filesystem.IOFlags) (filesystem.File, error) {
+	callCtx, cancel := interfaceutils.CallContext(ui.ctx)
 	defer cancel()
 	ipldNode, err := ui.core.ResolveNode(callCtx, corepath.New(path))
 	if err != nil {
@@ -60,7 +60,7 @@ func (ui *ufsInterface) Open(path string, _ transform.IOFlags) (transform.File, 
 		return chunk.NewBuzhash(r) // TODO: maybe switch this back to the default later; buzhash should be faster so we're keeping it temporarily while testing
 	})
 	if err != nil {
-		return nil, &transcom.Error{Cause: err, Type: transform.ErrorOther}
+		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
 	}
 
 	return &dagRef{DagModifier: dmod, modifiedCallback: ui.modifiedCallback}, nil

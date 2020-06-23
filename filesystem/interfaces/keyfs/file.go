@@ -5,11 +5,11 @@ import (
 	"io"
 	"sync"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
-var _ transform.File = (*keyFile)(nil)
+var _ filesystem.File = (*keyFile)(nil)
 
 // TODO: rewrite this in English; split between fileRef too
 // keyFile implements the `File` interface by wrapping a (shared) ufs.`File`
@@ -20,11 +20,11 @@ var _ transform.File = (*keyFile)(nil)
 type keyFile struct {
 	fileRef
 	cursor int64
-	flags  transform.IOFlags // TODO: [cbcd58ed-86e1-4a2f-87ad-5598d4ea1de5]
+	flags  filesystem.IOFlags // TODO: [cbcd58ed-86e1-4a2f-87ad-5598d4ea1de5]
 }
 
 type fileRef struct {
-	transform.File
+	filesystem.File
 	*sync.Mutex
 	counter refCounter
 	io.Closer
@@ -33,7 +33,7 @@ type fileRef struct {
 // override `File.Close` with our own close method (which should in itself eventually call `File.Close`)
 func (fi fileRef) Close() error { return fi.Closer.Close() }
 
-func (ki *keyInterface) Open(path string, flags transform.IOFlags) (transform.File, error) {
+func (ki *keyInterface) Open(path string, flags filesystem.IOFlags) (filesystem.File, error) {
 	fs, key, fsPath, deferFunc, err := ki.selectFS(path)
 	if err != nil {
 		return nil, err
@@ -113,7 +113,7 @@ func (kio *keyFile) Truncate(size uint64) error {
 // or fetch an existing one from a table of shared references
 // (handling reference count internally/automatically via keyFile's `Close` method)
 
-func (ki *keyInterface) getFile(key coreiface.Key, flags transform.IOFlags) (transform.File, error) {
+func (ki *keyInterface) getFile(key coreiface.Key, flags filesystem.IOFlags) (filesystem.File, error) {
 	// TODO: [cbcd58ed-86e1-4a2f-87ad-5598d4ea1de5]
 	// the `File`s we `Open` should always have full access
 	// but `keyFile` references that are returned should store the provided flags
@@ -122,9 +122,9 @@ func (ki *keyInterface) getFile(key coreiface.Key, flags transform.IOFlags) (tra
 	// right now we don't do this, we just store them
 
 	keyName := key.Name()
-	opener := func() (transform.File, error) {
+	opener := func() (filesystem.File, error) {
 		ki.ufs.SetModifier(ki.publisherGenUFS(keyName))
-		return ki.ufs.Open(key.Path().String(), transform.IOReadWrite)
+		return ki.ufs.Open(key.Path().String(), filesystem.IOReadWrite)
 	}
 
 	fileRef, err := ki.references.getFileRef(key.Name(), opener)

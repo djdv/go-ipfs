@@ -52,7 +52,7 @@ The mount directory contains various packages to facilitate mounting various fil
     └───transform (wrap IPFS API constructs into intermediate formats)
         └───filesystems
             ├───empty
-            ├───ipfscore (translates core paths into `transform.File` and `transform.Directory`)
+            ├───ipfscore (translates core paths into `filesystem.File` and `filesystem.Directory`)
             ├───keyfs (etc...)
             ├───mfs
             └───pinfs
@@ -226,7 +226,7 @@ Mappings from the core api's get wrapped in an intermediate layer that then gets
 
 		fullPath := corepath.New(gopath.Join("/", strings.ToLower(fs.namespace.String()), path))
 
-		iStat, _, err := transform.GetAttr(fs.Ctx(), fullPath, fs.Core(), transform.IPFSStatRequestAll)
+		iStat, _, err := filesystem.GetAttr(fs.Ctx(), fullPath, fs.Core(), filesystem.IPFSStatRequestAll)
 		if err != nil {
 			fs.log.Error(err)
 			return -fuselib.ENOENT
@@ -242,7 +242,7 @@ and under 9P
 ```go
 	...
 
-	iStat, iFilled, err := transform.GetAttr(callCtx, id.CorePath(), id.Core, transform.RequestFrom9P(req))
+	iStat, iFilled, err := filesystem.GetAttr(callCtx, id.CorePath(), id.Core, filesystem.RequestFrom9P(req))
 	nineAttr, nineFilled := iStat.To9P(), iFilled.To9P()
 	if err != nil {
 		id.Logger.Error(err)
@@ -286,7 +286,7 @@ type DirectoryState interface {
 // Within FUSE:
 
 // OpenDir(){
-pinDir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+pinDir, err := filesystem.OpenDirPinfs(fs.Ctx(), fs.Core())
 // Readdir{
 entChan, err := pinDir.Readdir(offset, requestedEntryCount).ToFuse()
 for ent := range entChan {
@@ -297,7 +297,7 @@ return operationSuccess
 // Within 9P:
 
 // Open(){
-pinDir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+pinDir, err := filesystem.OpenDirPinfs(fs.Ctx(), fs.Core())
 // Readdir(offset, count) (p9.Dirents, error) {
 return pinDir.Readdir(offset, count).To9P()
 ```
@@ -323,7 +323,7 @@ type DirectoryState interface {
 }
 
 // OpenDir(){
-pinDir, err := transform.OpenDirPinfs(fs.Ctx(), fs.Core())
+pinDir, err := filesystem.OpenDirPinfs(fs.Ctx(), fs.Core())
 // Readdir{
 entChan, err := pinDir.Readdir(readDirCtx, offset).ToFuse()
 for ent := range entChan {

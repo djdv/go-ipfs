@@ -3,8 +3,8 @@ package keyfs
 import (
 	"fmt"
 
-	transform "github.com/ipfs/go-ipfs/filesystem"
-	transcom "github.com/ipfs/go-ipfs/filesystem/interfaces"
+	"github.com/ipfs/go-ipfs/filesystem"
+	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -48,38 +48,38 @@ func (ki *keyInterface) RemoveDirectory(path string) error {
 }
 
 func (ki *keyInterface) remove(path string, nodeType coreiface.FileType) error {
-	iStat, _, err := ki.Info(path, transform.IPFSStatRequest{Type: true})
+	iStat, _, err := ki.Info(path, filesystem.StatRequest{Type: true})
 	if err != nil {
 		return err
 	}
 
-	if iStat.FileType != nodeType {
+	if iStat.Type != nodeType {
 		switch nodeType {
 		case coreiface.TFile:
-			return &transcom.Error{
+			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a file", path),
-				Type:  transform.ErrorIsDir,
+				Type:  filesystem.ErrorIsDir,
 			}
 		case coreiface.TDirectory:
-			return &transcom.Error{
+			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a directory", path),
-				Type:  transform.ErrorNotDir,
+				Type:  filesystem.ErrorNotDir,
 			}
 		case coreiface.TSymlink:
-			return &transcom.Error{
+			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a link", path),
-				Type:  transform.ErrorNotExist, // TODO: [review] SUS doesn't distinguish between files and links in `unlink` so there's no real appropriate value for this
+				Type:  filesystem.ErrorNotExist, // TODO: [review] SUS doesn't distinguish between files and links in `unlink` so there's no real appropriate value for this
 			}
 		}
 	}
 
-	callCtx, cancel := transcom.CallContext(ki.ctx)
+	callCtx, cancel := interfaceutils.CallContext(ki.ctx)
 	defer cancel()
 	keyName := path[1:]
 	if _, err = ki.core.Key().Remove(callCtx, keyName); err != nil {
-		return &transcom.Error{
+		return &interfaceutils.Error{
 			Cause: err,
-			Type:  transform.ErrorIO,
+			Type:  filesystem.ErrorIO,
 		}
 	}
 	return nil

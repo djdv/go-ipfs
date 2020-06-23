@@ -1,16 +1,16 @@
 package pinfs
 
 import (
-	transform "github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
 var (
-	rootStat   = &transform.IPFSStat{FileType: coreiface.TDirectory}
-	rootFilled = transform.IPFSStatRequest{Type: true}
+	rootStat   = &filesystem.Stat{Type: coreiface.TDirectory}
+	rootFilled = filesystem.StatRequest{Type: true}
 )
 
-func (pi *pinInterface) Info(path string, req transform.IPFSStatRequest) (*transform.IPFSStat, transform.IPFSStatRequest, error) {
+func (pi *pinInterface) Info(path string, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	if path == "/" {
 		return rootStat, rootFilled, nil
 	}
