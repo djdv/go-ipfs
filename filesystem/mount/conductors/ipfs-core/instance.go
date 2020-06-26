@@ -8,14 +8,12 @@ import (
 
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	provcom "github.com/ipfs/go-ipfs/filesystem/mount/providers"
-	mount9p "github.com/ipfs/go-ipfs/filesystem/mount/providers/9P"
-	mountfuse "github.com/ipfs/go-ipfs/filesystem/mount/providers/fuse"
+	p9p "github.com/ipfs/go-ipfs/filesystem/mount/providers/9P"
+	"github.com/ipfs/go-ipfs/filesystem/mount/providers/fuse"
 	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
-
-var log = logging.Logger("mount/conductor")
 
 type (
 	namespaceMap       map[mountinter.Namespace]mountinter.Provider
@@ -27,6 +25,7 @@ type (
 type conductor struct {
 	sync.Mutex
 	ctx context.Context
+	log logging.EventLogger
 
 	// IPFS API
 	core coreiface.CoreAPI
@@ -47,6 +46,7 @@ func NewConductor(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *
 	return &conductor{
 		ctx:          ctx,
 		core:         core,
+		log:          logging.Logger("mount/conductor"), // TODO: option for this
 		resLock:      provcom.NewResourceLocker(),
 		instances:    provcom.NewInstanceCollection(),
 		foreground:   settings.foreground,
@@ -90,18 +90,18 @@ func (con *conductor) Graft(provider mountinter.ProviderType, targets []mountint
 		if len(instances) == 0 {
 			return
 		}
-		log.Errorf("failed to attach %q, detaching previous targets", failedTarget)
+		con.log.Errorf("failed to attach %q, detaching previous targets", failedTarget)
 		for _, instance := range instances {
 			whence, err := instance.Where()
 			if err != nil {
-				log.Errorf("failed to detach instance: %s", err)
+				con.log.Errorf("failed to detach instance: %s", err)
 				continue
 			}
 			switch instance.Detach() {
 			case nil:
-				log.Warnf("detached %s", whence)
+				con.log.Warnf("detached %s", whence)
 			default:
-				log.Errorf("failed to detach %q: %s", whence, err)
+				con.log.Errorf("failed to detach %q: %s", whence, err)
 			}
 			// NOTE: regardless of error, we still don't want to keep track of zombies
 			// it falls into the hands of the operator and the OS at this point
@@ -137,7 +137,7 @@ func (con *conductor) Detach(target string) error {
 
 	retErr := instance.Detach() // stop tracking regardless of detatch status; host's cleanup responsibility now
 	if err := con.instances.Remove(target); err != nil {
-		log.Error(err)
+		con.log.Error(err)
 	}
 	return retErr
 }
@@ -174,10 +174,10 @@ func (con *conductor) newProvider(prov mountinter.ProviderType, provParam string
 
 	switch prov {
 	case mountinter.ProviderPlan9Protocol:
-		return mount9p.NewProvider(con.ctx, namespace, provParam, con.core, pOps...)
+		return p9p.NewProvider(con.ctx, namespace, provParam, con.core, pOps...)
 
 	case mountinter.ProviderFuse:
-		return mountfuse.NewProvider(con.ctx, namespace, provParam, con.core, pOps...)
+		return fuse.NewProvider(con.ctx, namespace, provParam, con.core, pOps...)
 	}
 
 	return nil, fmt.Errorf("unknown provider %q", prov)

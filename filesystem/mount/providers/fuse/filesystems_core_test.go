@@ -1,3 +1,5 @@
+//+build !nofuse
+
 package fuse_test
 
 import (
@@ -5,7 +7,7 @@ import (
 	"testing"
 
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
-	fuse "github.com/ipfs/go-ipfs/filesystem/mount/providers/fuse"
+	"github.com/ipfs/go-ipfs/filesystem/mount/providers/fuse"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 

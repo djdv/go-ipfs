@@ -1,4 +1,4 @@
-// +build !windows,!darwin,!freebsd,!openbsd,!netbsd
+// +build !nofuse,!windows,!darwin,!freebsd,!openbsd,!netbsd
 
 package fuse
 

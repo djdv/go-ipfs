@@ -1,3 +1,5 @@
+//+build !nofuse
+
 package fuse_test
 
 import (

@@ -1,3 +1,5 @@
+//+build !nofuse
+
 package fuse
 
 import fuselib "github.com/billziss-gh/cgofuse/fuse"
