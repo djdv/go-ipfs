@@ -5,9 +5,6 @@ import (
 	"io"
 )
 
-// TODO: local errors -> common error package, maybe under mount interface/errors.go?
-const errSeekFmt = "offset %d extends beyond directory bound %d"
-
 type Directory interface {
 	// List attempts to return all entires starting from `offset`
 	// `offset` values must be either 0 or a value previously provided by `DirectoryEntry.Offset()`

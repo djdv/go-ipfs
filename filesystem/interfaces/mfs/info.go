@@ -49,7 +49,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 		case gomfs.TDir:
 			attr.Type, filled.Type = coreiface.TDirectory, true
 		default:
-			// symlinks are not nativley supported by MFS / the Files API but we support them
+			// symlinks are not natively supported by MFS / the Files API but we support them
 			nodeType := ufsNode.Type()
 			if nodeType == unixfs.TSymlink {
 				attr.Type, filled.Type = coreiface.TSymlink, true

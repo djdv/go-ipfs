@@ -146,12 +146,12 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 			Path: hasher.Sum64() + ver,
 			// TODO:
 			// we need some QID generation abstraction, provided in the constructor
-			// The only spec requirment is that `Path` be unique per file
+			// The only spec requirement is that `Path` be unique per file
 			// (not per `name`. if a file at `name` is deleted and recreated with the same `name`
 			// the new file will have a different `Path`)
 			// however, we have no long term storage
 			// so we can't store a file's path when it's created
-			// nor can we retreive it later
+			// nor can we retrieve it later
 		}
 
 		hasher.Reset()
@@ -237,7 +237,7 @@ func (f *fid) Close() error {
 }
 
 func (f *fid) ReadAt(p []byte, offset int64) (int, error) {
-	// TODO: saftey, and error translations
+	// TODO: safety, and error translations
 	f.File.Seek(offset, io.SeekStart)
 	return f.File.Read(p)
 }

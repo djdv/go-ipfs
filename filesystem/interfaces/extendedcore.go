@@ -31,9 +31,9 @@ type CoreExtender interface {
 	// Stat takes in a path and a list of desired attributes for the object residing at that path
 	// Along with the container of values,
 	// it returns a list of attributes which were populated
-	// Stat is not gauranteed to return the request exactly
+	// Stat is not guaranteed to return the request exactly
 	// it may contain more or less information than was requested
-	// Thus, it is the callers responsability to inspect the returned list
+	// Thus, it is the callers responsibility to inspect the returned list
 	// to see if values they require were in fact populated
 	// (this is due to the fact that the referenced objects
 	// may not implement the constructs requested)

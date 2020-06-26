@@ -1,8 +1,8 @@
 package mountinter
 
 /*
-Conductor is responsible for managing multiple Providers
-delegating requests to them while also managing grafted instances
+Conductor is responsible for managing `Provider`s
+delegating requests to them and managing their grafted instances.
 */
 type Conductor interface {
 	// Graft uses the selected provider to map groups of namespaces to their targets
@@ -14,7 +14,7 @@ type Conductor interface {
 }
 
 // Provider interacts with a namespace and the file system
-// grafting a file system implementation to a target
+// grafting a file system implementation to a target.
 type Provider interface {
 	// grafts the target to the file system, returning the interface to detach it
 	Graft(target string) (Instance, error)

@@ -265,7 +265,7 @@ func getStat(r filesystem.Interface, path string, template *fuselib.Stat_t) *fus
 }
 
 // statticStat generates a statFunc
-// that fetches attributes for a requests, and caches the results for subsiquent requests
+// that fetches attributes for a requests, and caches the results for subsequent requests
 func staticStat(r filesystem.Interface, basePath string, template *fuselib.Stat_t) statFunc {
 	stats := make(map[string]*fuselib.Stat_t, 1)
 

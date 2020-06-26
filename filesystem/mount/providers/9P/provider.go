@@ -182,7 +182,7 @@ func (pr *p9pProvider) mount(target string) error {
 		}
 		mArgs = "port=" + comp.Value()
 	default:
-		return fmt.Errorf("%q is not recongized as a supported address", pr.maddr)
+		return fmt.Errorf("%q is not recognized as a supported address", pr.maddr)
 	}
 
 	return mountinter.PlatformMount(mSource, target, mArgs)
