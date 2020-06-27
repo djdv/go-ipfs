@@ -7,8 +7,8 @@ import (
 
 func (pi *pinInterface) OpenDirectory(path string) (filesystem.Directory, error) {
 	if path == "/" {
-		return tcom.PartialEntryUpgrade(
-			tcom.NewStreamBase(pi.ctx, &pinDirectoryStream{pinAPI: pi.core.Pin()}))
+		return tcom.UpgradePartialStream(
+			tcom.NewPartialStream(pi.ctx, &pinDirectoryStream{pinAPI: pi.core.Pin()}))
 	}
 
 	return pi.ipfs.OpenDirectory(path)

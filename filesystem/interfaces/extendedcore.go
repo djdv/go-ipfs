@@ -25,7 +25,7 @@ func CallContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, callTimeout)
 }
 
-//TODO: docs
+// TODO: docs
 type CoreExtender interface {
 	coreiface.CoreAPI
 	// Stat takes in a path and a list of desired attributes for the object residing at that path
@@ -42,10 +42,10 @@ type CoreExtender interface {
 	ExtractLink(corepath.Path) (string, error)
 }
 
-//TODO: docs
+// TODO: docs
 type CoreExtended struct{ coreiface.CoreAPI }
 
-//TODO: docs
+// TODO: docs
 func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	ipldNode, err := core.ResolveNode(ctx, path)
 	if err != nil {

@@ -1,10 +1,8 @@
 package filesystem
 
-//TODO: reconsider the name of this interface
-// Interface? FileSystem? Index? GoodiesAndTreatsBag?
-// TODO: considerations around non-prefixed methods
-// it should be implied that the default action of the filing system is to operate on files, and anything else needs specification. Right?
-// arity of these may change; creation specifically will likely need more context
+// Interface contains the methods to interact with a file system.
+// TODO: name considerations, right now this is `filesystem.Interface` rather than `filesystem.FileSystem`
+// not sure which makes more sense
 type Interface interface {
 	// index
 	Open(path string, flags IOFlags) (File, error)

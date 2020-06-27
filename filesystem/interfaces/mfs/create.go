@@ -63,7 +63,7 @@ func (mi *mfsInterface) MakeDirectory(path string) error {
 	return nil
 }
 
-func (mi *mfsInterface) MakeLink(path string, linkTarget string) error {
+func (mi *mfsInterface) MakeLink(path, linkTarget string) error {
 	parentPath, linkName := gopath.Split(path)
 
 	parentNode, err := gomfs.Lookup(mi.mroot, parentPath)

@@ -14,7 +14,7 @@ var (
 	ErrNotInitialized = errors.New("directory not initialized")
 )
 
-// PartialEntry implements part of `filesystem.DirectoryEntry`
+// PartialEntry is intended to be extended into a full `filesystem.DirectoryEntry`
 type PartialEntry interface {
 	Name() string
 	Error() error
@@ -47,7 +47,7 @@ type streamBase struct {
 	streamGenerator PartialStreamGenerator
 }
 
-func NewStreamBase(ctx context.Context, sg PartialStreamGenerator) *streamBase {
+func NewPartialStream(ctx context.Context, sg PartialStreamGenerator) PartialStream {
 	return &streamBase{
 		parentCtx:       ctx,
 		streamGenerator: sg,
@@ -91,6 +91,20 @@ type partialStreamWrapper struct {
 	err           error // errors persist across calls; cleared on Reset
 }
 
+// UpgradePartialStream adds seeking/offset support to a `PartialStream`
+// upgrading it into a full `filesystem.Directory`
+func UpgradePartialStream(streamSource PartialStream) (filesystem.Directory, error) {
+	stream, err := streamSource.Open()
+	if err != nil {
+		return nil, err
+	}
+
+	return &partialStreamWrapper{
+		PartialStream: streamSource,
+		EntryStorage:  NewEntryStorage(stream),
+	}, nil
+}
+
 func (ps *partialStreamWrapper) Reset() error {
 	if err := ps.PartialStream.Close(); err != nil { // invalidate the old stream
 		ps.err = err
@@ -121,17 +135,4 @@ func (ps *partialStreamWrapper) List(ctx context.Context, offset uint64) <-chan 
 	}
 
 	return ps.EntryStorage.List(ctx, offset)
-}
-
-// PartialEntryUpgrade wraps a PartialStreamSource and adds in data to transform it into a full Directory
-func PartialEntryUpgrade(streamSource PartialStream) (filesystem.Directory, error) {
-	stream, err := streamSource.Open()
-	if err != nil {
-		return nil, err
-	}
-
-	return &partialStreamWrapper{
-		PartialStream: streamSource,
-		EntryStorage:  NewEntryStorage(stream),
-	}, nil
 }

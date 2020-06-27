@@ -72,7 +72,7 @@ func (ki *keyInterface) MakeDirectory(path string) error {
 	return remote.MakeDirectory(fsPath)
 }
 
-func (ki *keyInterface) MakeLink(path string, linkTarget string) error {
+func (ki *keyInterface) MakeLink(path, linkTarget string) error {
 	self, remote, fsPath, err := ki.createSplit(path)
 	if err != nil {
 		return err
@@ -168,10 +168,10 @@ func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarge
 		}
 	}
 
+	dagNode := dag.NodeWithData(dagData)
 	// TODO: use raw node with raw codec and tiny blake hash (after testing the standard)
 	// symlinks shouldn't be big enough to warrant anything else
-	// dagNode := dag.NewRawNodeWPrefix(dagData, cid.V1Builder{Codec: cid.Raw, MhType: mh.BLAKE2S_MIN})
-	dagNode := dag.NodeWithData(dagData)
+	//dagNode := dag.NewRawNodeWPrefix(dagData, cid.V1Builder{Codec: cid.Raw, MhType: mh.BLAKE2S_MIN})
 	//dagNode.SetCidBuilder(cid.V1Builder{Codec: cid.DagCBOR, MhType: mh.SHA2_256})
 
 	// push it to the datastore

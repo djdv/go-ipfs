@@ -125,7 +125,7 @@ baz
 			// FIXME: for some reason EmitOnce isn't emitting the proper value
 			// it just returns `{}` on the cli...
 			fmt.Println(err)
-			//HACK^
+			// HACK^
 			cmds.EmitOnce(res, err)
 			return err
 		}

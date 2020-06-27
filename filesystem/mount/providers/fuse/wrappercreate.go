@@ -37,7 +37,7 @@ func (fs *fileSystem) Mkdir(path string, mode uint32) int {
 	return operationSuccess
 }
 
-func (fs *fileSystem) Symlink(target string, newpath string) int {
+func (fs *fileSystem) Symlink(target, newpath string) int {
 	fs.log.Debugf("Symlink - Request %q->%q", newpath, target)
 
 	if err := fs.intf.MakeLink(target, newpath); err != nil {

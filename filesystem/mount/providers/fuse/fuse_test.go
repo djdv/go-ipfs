@@ -8,8 +8,10 @@ import (
 	"testing"
 )
 
-type fileHandle = uint64
-type errNo = int
+type (
+	fileHandle = uint64
+	errNo      = int
+)
 
 // implementation detail: this value is what the fuse library passes to us for anonymous requests (like Getattr)
 // we use this same value as the erronious handle value

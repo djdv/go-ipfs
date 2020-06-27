@@ -17,7 +17,6 @@ import (
 type rootRef struct {
 	filesystem.Interface
 	counter refCounter
-	//io.Closer
 }
 
 // root references must be closed when no longer used

@@ -6,7 +6,6 @@ import (
 
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interfaces"
-	transcommon "github.com/ipfs/go-ipfs/filesystem/interfaces"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -20,7 +19,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
-		return attr, filled, &transcommon.Error{
+		return attr, filled, &interfaceutils.Error{
 			Cause: err,
 			Type:  filesystem.ErrorNotExist,
 		}
@@ -28,7 +27,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 
 	ipldNode, err := mfsNode.GetNode()
 	if err != nil {
-		return nil, filled, &transcommon.Error{
+		return nil, filled, &interfaceutils.Error{
 			Cause: err,
 			Type:  filesystem.ErrorOther,
 		}
@@ -36,7 +35,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 
 	ufsNode, err := unixfs.ExtractFSNode(ipldNode)
 	if err != nil {
-		return attr, filled, &transcommon.Error{
+		return attr, filled, &interfaceutils.Error{
 			Cause: err,
 			Type:  filesystem.ErrorOther,
 		}
@@ -56,7 +55,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 				break
 			}
 
-			return attr, filled, &transcommon.Error{
+			return attr, filled, &interfaceutils.Error{
 				Cause: fmt.Errorf("unexpected node type %d", nodeType),
 				Type:  filesystem.ErrorOther,
 			}
@@ -106,7 +105,7 @@ func (mi *mfsInterface) ExtractLink(path string) (string, error) {
 	}
 	if ufsNode.Type() != unixfs.TSymlink {
 		err := fmt.Errorf("%q is not a link", path)
-		return "", &transcommon.Error{Cause: err, Type: filesystem.ErrorInvalidItem}
+		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorInvalidItem}
 	}
 
 	return string(ufsNode.Data()), nil

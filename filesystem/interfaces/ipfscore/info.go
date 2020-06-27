@@ -23,6 +23,7 @@ func (ci *coreInterface) Info(path string, req filesystem.StatRequest) (*filesys
 	defer cancel()
 	return ci.core.Stat(callCtx, ci.joinRoot(path), req)
 }
+
 func (ci *coreInterface) ExtractLink(path string) (string, error) {
 	// make sure the path is actually a link
 	iStat, _, err := ci.Info(path, filesystem.StatRequest{Type: true})

@@ -81,9 +81,9 @@ func (fs *fileSystem) Write(path string, buff []byte, ofst int64, fh uint64) int
 		return -fuselib.EBADF
 	}
 
-	err, retVal := writeFile(file, buff, ofst)
+	errNo, err := writeFile(file, buff, ofst)
 	if err != nil && err != io.EOF {
 		fs.log.Error(err)
 	}
-	return retVal
+	return errNo
 }

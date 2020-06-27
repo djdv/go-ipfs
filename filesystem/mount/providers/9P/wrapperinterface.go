@@ -237,9 +237,15 @@ func (f *fid) Close() error {
 }
 
 func (f *fid) ReadAt(p []byte, offset int64) (int, error) {
-	// TODO: safety, and error translations
-	f.File.Seek(offset, io.SeekStart)
-	return f.File.Read(p)
+	if _, err := f.File.Seek(offset, io.SeekStart); err != nil {
+		return 0, interpretError(err)
+	}
+
+	readBytes, err := f.File.Read(p)
+	if err != nil {
+		err = interpretError(err)
+	}
+	return readBytes, err
 }
 
 func (f *fid) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
@@ -279,7 +285,8 @@ func (f *fid) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 			QID: ninelib.QID{
 				Type: coreTypeTo9PType(fidInfo.Type).QIDType(),
 				Path: hasher.Sum64() + ver,
-			}})
+			},
+		})
 		hasher.Reset()
 
 		if uint32(len(nineEnts)) == count {

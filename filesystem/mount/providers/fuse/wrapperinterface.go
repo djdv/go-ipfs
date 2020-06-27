@@ -92,7 +92,7 @@ func (fs *fileSystem) Readlink(path string) (int, string) {
 	return operationSuccess, filepath.ToSlash(linkString)
 }
 
-func (fs *fileSystem) Rename(oldpath string, newpath string) int {
+func (fs *fileSystem) Rename(oldpath, newpath string) int {
 	fs.log.Warnf("Rename - Request %q->%q", oldpath, newpath)
 
 	if err := fs.intf.Rename(oldpath, newpath); err != nil {

@@ -13,17 +13,17 @@ func (fs *fileSystem) Access(path string, mask uint32) int {
 	return -fuselib.ENOSYS
 }
 
-func (fs *fileSystem) Setxattr(path string, name string, value []byte, flags int) int {
+func (fs *fileSystem) Setxattr(path, name string, value []byte, flags int) int {
 	fs.log.Warnf("Setxattr - Request {%X|%s|%d}%q", flags, name, len(value), path)
 	return -fuselib.ENOSYS
 }
 
-func (fs *fileSystem) Getxattr(path string, name string) (int, []byte) {
+func (fs *fileSystem) Getxattr(path, name string) (int, []byte) {
 	fs.log.Warnf("Getxattr - Request {%s}%q", name, path)
 	return -fuselib.ENOSYS, nil
 }
 
-func (fs *fileSystem) Removexattr(path string, name string) int {
+func (fs *fileSystem) Removexattr(path, name string) int {
 	fs.log.Warnf("Removexattr - Request {%s}%q", name, path)
 	return -fuselib.ENOSYS
 }
@@ -40,7 +40,7 @@ func (fs *fileSystem) Chmod(path string, mode uint32) int {
 	return -fuselib.ENOSYS
 }
 
-func (fs *fileSystem) Chown(path string, uid uint32, gid uint32) int {
+func (fs *fileSystem) Chown(path string, uid, gid uint32) int {
 	fs.log.Warnf("Chown - Request {%d|%d}%q", uid, gid, path)
 	return -fuselib.ENOSYS
 }
@@ -51,7 +51,7 @@ func (fs *fileSystem) Utimens(path string, tmsp []fuselib.Timespec) int {
 }
 
 // no hard links
-func (fs *fileSystem) Link(oldpath string, newpath string) int {
+func (fs *fileSystem) Link(oldpath, newpath string) int {
 	fs.log.Warnf("Link - Request %q<->%q", oldpath, newpath)
 	return -fuselib.ENOSYS
 }

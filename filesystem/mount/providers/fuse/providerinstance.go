@@ -21,7 +21,7 @@ type mountInstance struct {
 
 func (mi *mountInstance) Detach() error {
 	if !mi.host.Unmount() {
-		//TODO: see if we can get better info from the host or something
+		// TODO: see if we can get better info from the host or something
 		return errors.New("failed to unmount")
 	}
 

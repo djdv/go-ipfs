@@ -11,7 +11,7 @@ type attachSettings struct {
 	log logging.EventLogger
 
 	// non-nilable
-	//TODO:
+	// TODO:
 	provcom.ResourceLock // if provided, will replace the default lock used for operation
 }
 

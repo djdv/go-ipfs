@@ -22,17 +22,17 @@ import (
 	manet "github.com/multiformats/go-multiaddr-net"
 )
 
-//TODO: var tmplRoot = `/` || ${CurDrive}:\ || ...
-var provlog = logging.Logger("mount/9p/provider")
 var errObjectNotInitialized = errors.New("method called on uninitialized object")
 
 const (
-	tmplHome     = "IPFS_HOME"
+	// TODO: templateRoot = (*nix) `/` || (NT) ${CurDrive}:\ || (any others)...
+	templateHome = "IPFS_HOME"
 	sun_path_len = 108
 )
 
 type p9pProvider struct {
 	sync.Mutex
+	log logging.EventLogger
 
 	// 9P transport
 	maddr    multiaddr.Multiaddr
@@ -54,8 +54,10 @@ type p9pProvider struct {
 	resLock   provcom.ResourceLock
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, opts ...provcom.Option) (*p9pProvider, error) {
+func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString string, api coreiface.CoreAPI, opts ...provcom.Option) (mountinter.Provider, error) {
 	settings := provcom.ParseOptions(opts...)
+
+	// TODO: log option
 
 	if strings.HasPrefix(addrString, "/unix") { // stabilize our addr string which could contain template keys and/or be relative in some way
 		var err error
@@ -71,6 +73,7 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, addrString
 
 	fsCtx, cancel := context.WithCancel(ctx)
 	return &p9pProvider{
+		log:          logging.Logger("mount/9p/provider"), // TODO: we need a constant prefix that's shared (i.e. 9logPrefix+"provider")
 		ctx:          fsCtx,
 		cancel:       cancel,
 		maddr:        ma,
@@ -273,11 +276,11 @@ func (pr *p9pProvider) Close() error {
 		if pr.instances.Length() != 0 {
 			instances := pr.instances.List()
 			// provider conductor is responsible for instance management
-			provlog.Warnf("Close called with active instances: %v", instances)
+			pr.log.Warnf("Close called with active instances: %v", instances)
 			for _, target := range instances {
 				// we don't want to track these regardless
 				if err := pr.instances.Remove(target); err != nil {
-					provlog.Error(err)
+					pr.log.Error(err)
 				}
 			}
 		}
@@ -402,7 +405,7 @@ func stabilizeUnixPath(maString string) (string, error) {
 	// only expand documented template keys, not everything
 	return os.Expand(maString, func(key string) string {
 		return (map[string]string{
-			tmplHome: templateValueRepoPath,
+			templateHome: templateValueRepoPath,
 		})[key]
 	}), nil
 }

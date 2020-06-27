@@ -3,16 +3,15 @@ package p9fsp
 import (
 	"time"
 
-	"github.com/hugelgupf/p9/p9"
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/filesystem"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
 const ( // pedantic POSIX stuff
-	S_IROTH p9.FileMode = p9.Read
-	S_IWOTH             = p9.Write
-	S_IXOTH             = p9.Exec
+	S_IROTH ninelib.FileMode = ninelib.Read
+	S_IWOTH                  = ninelib.Write
+	S_IXOTH                  = ninelib.Exec
 
 	S_IRGRP = S_IROTH << 3
 	S_IWGRP = S_IWOTH << 3
@@ -39,16 +38,16 @@ type idGroup struct {
 	gid ninelib.GID
 }
 
-func coreTypeTo9PType(ct coreiface.FileType) p9.FileMode {
+func coreTypeTo9PType(ct coreiface.FileType) ninelib.FileMode {
 	switch ct {
 	case coreiface.TDirectory:
-		return p9.ModeDirectory
+		return ninelib.ModeDirectory
 	case coreiface.TSymlink:
-		return p9.ModeSymlink
+		return ninelib.ModeSymlink
 	case coreiface.TFile:
-		return p9.ModeRegular
+		return ninelib.ModeRegular
 	default:
-		return p9.FileMode(0)
+		return ninelib.FileMode(0)
 	}
 }
 
@@ -65,7 +64,7 @@ func ioFlagsFrom9P(nineFlagsAmusementPark ninelib.OpenFlags) filesystem.IOFlags 
 	}
 }
 
-func requestFrom9P(req p9.AttrMask) filesystem.StatRequest {
+func requestFrom9P(req ninelib.AttrMask) filesystem.StatRequest {
 	var iReq filesystem.StatRequest
 	if req.Mode {
 		iReq.Type = true
@@ -79,16 +78,16 @@ func requestFrom9P(req p9.AttrMask) filesystem.StatRequest {
 	return iReq
 }
 
-func filledFromCore(coreFilled filesystem.StatRequest) (nineFilled p9.AttrMask) {
+func filledFromCore(coreFilled filesystem.StatRequest) (nineFilled ninelib.AttrMask) {
 	nineFilled.Mode = coreFilled.Type
 	nineFilled.Size = coreFilled.Size
 	nineFilled.Blocks = coreFilled.Blocks
 	return
 }
 
-func attrFromCore(cs *filesystem.Stat) p9.Attr {
+func attrFromCore(cs *filesystem.Stat) ninelib.Attr {
 	// TODO [safety] we should probably panic if the uint64 source values exceed int64 positive range
-	return p9.Attr{
+	return ninelib.Attr{
 		Mode:      coreTypeTo9PType(cs.Type),
 		Size:      cs.Size,
 		BlockSize: cs.BlockSize,

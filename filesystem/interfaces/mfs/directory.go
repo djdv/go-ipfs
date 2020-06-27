@@ -23,8 +23,8 @@ func (mi *mfsInterface) OpenDirectory(path string) (filesystem.Directory, error)
 		mroot: mi.mroot,
 	}
 
-	return tcom.PartialEntryUpgrade(
-		tcom.NewStreamBase(mi.ctx, mfsStream))
+	return tcom.UpgradePartialStream(
+		tcom.NewPartialStream(mi.ctx, mfsStream))
 }
 
 // SendTo receives a channel with which we will send entries to, until the context is caneled, or the end of stream is reached

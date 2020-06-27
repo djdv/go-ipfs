@@ -13,8 +13,8 @@ func (ki *keyInterface) OpenDirectory(path string) (filesystem.Directory, error)
 	defer deferFunc()
 
 	if fs == ki {
-		return tcom.PartialEntryUpgrade(
-			tcom.NewStreamBase(ki.ctx, &keyDirectoryStream{keyAPI: ki.core.Key()}))
+		return tcom.UpgradePartialStream(
+			tcom.NewPartialStream(ki.ctx, &keyDirectoryStream{keyAPI: ki.core.Key()}))
 	}
 
 	return fs.OpenDirectory(fsPath)

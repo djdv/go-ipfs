@@ -37,8 +37,8 @@ func (ci *coreInterface) OpenDirectory(path string) (filesystem.Directory, error
 		path: ci.joinRoot(path),
 	}
 
-	return tcom.PartialEntryUpgrade(
-		tcom.NewStreamBase(ci.ctx, coreStream))
+	return tcom.UpgradePartialStream(
+		tcom.NewPartialStream(ci.ctx, coreStream))
 }
 
 // SendTo receives a channel with which we will send entries to, until the context is caneled, or the end of stream is reached

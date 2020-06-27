@@ -65,29 +65,6 @@ var (
 	allInOnePath = func() string { return "/mnt/ipfs" }
 )
 
-// TODO: I still don't like this name;
-// History: NamePair -> NameTriplet -> TargetCollection
-type TargetCollection struct {
-	Namespace
-	Target, Parameter string
-}
-
-type TargetCollections []TargetCollection
-
-func (pairs TargetCollections) String() string {
-	var prettyPaths strings.Builder
-	tEnd := len(pairs) - 1
-	for i, pair := range pairs {
-		prettyPaths.WriteRune('"')
-		prettyPaths.WriteString(pair.Target)
-		prettyPaths.WriteRune('"')
-		if i != tEnd {
-			prettyPaths.WriteString(", ")
-		}
-	}
-	return prettyPaths.String()
-}
-
 func ParseNamespace(in string) (Namespace, error) {
 	ns, ok := map[string]Namespace{
 		strings.ToLower(NamespaceIPFS.String()):     NamespaceIPFS,

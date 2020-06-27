@@ -37,7 +37,9 @@ type fuseProvider struct {
 	//initSignal chan error
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, opts ...provcom.Option) (*fuseProvider, error) {
+// TODO: docs
+// TODO: fuseargs name conflict + unused, we need to prepend these to `fuselib.Mount` args (if provided)
+func NewProvider(ctx context.Context, namespace mountinter.Namespace, fuseargs string, api coreiface.CoreAPI, opts ...provcom.Option) (mountinter.Provider, error) {
 	settings := provcom.ParseOptions(opts...)
 
 	fsCtx, cancel := context.WithCancel(ctx)
@@ -109,6 +111,7 @@ func (pr *fuseProvider) Graft(target string) (mountinter.Instance, error) {
 
 	return mi, nil
 }
+
 func (pr *fuseProvider) Grafted(target string) bool {
 	return pr.instances.Exists(target)
 }

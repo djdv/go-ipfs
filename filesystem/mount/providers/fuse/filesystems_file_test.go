@@ -14,7 +14,6 @@ import (
 )
 
 func testFiles(t *testing.T, testEnv envData, core coreiface.CoreAPI, fs fuselib.FileSystemInterface) {
-
 	// we're specifically interested in semi-static data such as the UID, time, blocksize, permissions, etc.
 	statTemplate := testGetattr(t, "/", nil, anonymousRequestHandle, fs)
 	statTemplate.Mode &^= fuselib.S_IFMT

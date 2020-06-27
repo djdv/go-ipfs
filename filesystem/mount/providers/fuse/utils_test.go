@@ -36,6 +36,7 @@ const (
 	rootDirectoryEmpty
 	rootDirectoryTestSetBasic
 )
+
 const (
 	directoryRoot = iota
 	directoryEmpty
@@ -263,7 +264,7 @@ func generateTestGarbage(t *testing.T, tempDir string, core coreiface.CoreAPI) [
 }
 
 func dumpAndStat(path string, buf []byte) (os.FileInfo, error) {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil, err
 	}

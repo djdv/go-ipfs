@@ -19,6 +19,7 @@ func (mi *mfsInterface) Remove(path string) error {
 func (mi *mfsInterface) RemoveLink(path string) error {
 	return mi.remove(path, gomfs.TFile) // TODO: this is a gross hack; change the parameter to be a core type and switch on it properly inside remove
 }
+
 func (mi *mfsInterface) RemoveDirectory(path string) error {
 	return mi.remove(path, gomfs.TDir)
 }
@@ -39,7 +40,6 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 	switch nodeType {
 	case gomfs.TFile:
 		if !gomfs.IsFile(childNode) {
-
 			// make sure it's not a (UFS) symlink
 			ipldNode, err := childNode.GetNode()
 			if err != nil {
@@ -52,7 +52,8 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 			if t := ufsNode.Type(); t != unixpb.Data_Symlink {
 				return &interfaceutils.Error{
 					Cause: fmt.Errorf("%q is not a file or symlink (%q)", path, t),
-					Type:  filesystem.ErrorPermission}
+					Type:  filesystem.ErrorPermission,
+				}
 			}
 		}
 
@@ -61,7 +62,8 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 		if !ok {
 			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a directory (%T)", path, childNode),
-				Type:  filesystem.ErrorNotDir}
+				Type:  filesystem.ErrorNotDir,
+			}
 		}
 
 		ents, err := childDir.ListNames(context.TODO())
@@ -72,13 +74,15 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 		if len(ents) != 0 {
 			return &interfaceutils.Error{
 				Cause: fmt.Errorf("directory %q is not empty", path),
-				Type:  filesystem.ErrorNotEmpty}
+				Type:  filesystem.ErrorNotEmpty,
+			}
 		}
 
 	default:
 		return &interfaceutils.Error{
 			Cause: fmt.Errorf("unexpected node type %v", nodeType),
-			Type:  filesystem.ErrorPermission}
+			Type:  filesystem.ErrorPermission,
+		}
 	}
 
 	// unlink parent and child actually

@@ -137,18 +137,17 @@ func (rt *rootTable) getRootRef(keyName string, opener openInterfaceFunc) (rootR
 		return rootRef{}, err
 	}
 
-	// … so that it removes itself from the table when its counter reaches 0 …
+	// … so that it removes itself from the table when its counter reaches 0
 	whenZeroRefs := func() error { // rt will be locked during this
 		delete(rt.refs, keyName)
 		return root.Close()
 	}
 
-	// … and decrements its counter on `Close`
+	// NOTE: the counter starts at 1 and is decremented on `rootRef.Close`
 	rootRef := rootRef{
 		Interface: root,
 		counter:   newRefCounter(&rt.Mutex, whenZeroRefs),
 	}
-	//rootRef.Closer = (closer)(rootRef.counter.decrement) // self referential
 
 	rt.refs[keyName] = rootRef
 	return rootRef, nil

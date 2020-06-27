@@ -10,6 +10,7 @@ type (
 	foregroundOpt bool
 	mfsOpt        gomfs.Root
 )
+
 type settings struct {
 	foreground   bool        // should the provider block in the foreground until it exits or run in a background routine
 	filesAPIRoot *gomfs.Root // required when mounting the FilesAPI namespace, otherwise nil-able
@@ -29,6 +30,7 @@ func parseOptions(opts ...Option) *settings {
 func WithFilesAPIRoot(mroot gomfs.Root) Option {
 	return mfsOpt(mroot)
 }
+
 func (r mfsOpt) apply(opts *settings) {
 	opts.filesAPIRoot = (*gomfs.Root)(&r)
 }
@@ -37,6 +39,7 @@ func (r mfsOpt) apply(opts *settings) {
 func InForeground(b bool) Option {
 	return foregroundOpt(b)
 }
+
 func (b foregroundOpt) apply(opts *settings) {
 	opts.foreground = bool(b)
 }

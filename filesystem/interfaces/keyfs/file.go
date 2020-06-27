@@ -54,6 +54,7 @@ func (kio *keyFile) Size() (int64, error) {
 	defer kio.fileRef.Unlock()
 	return kio.fileRef.Size()
 }
+
 func (kio *keyFile) Read(buff []byte) (int, error) {
 	kio.fileRef.Lock()
 	defer kio.fileRef.Unlock()
@@ -66,6 +67,7 @@ func (kio *keyFile) Read(buff []byte) (int, error) {
 
 	return readBytes, err
 }
+
 func (kio *keyFile) Write(buff []byte) (int, error) {
 	kio.fileRef.Lock()
 	defer kio.fileRef.Unlock()
@@ -79,6 +81,7 @@ func (kio *keyFile) Write(buff []byte) (int, error) {
 
 	return wroteBytes, err
 }
+
 func (kio *keyFile) Seek(offset int64, whence int) (int64, error) {
 	kio.fileRef.Lock() // NOTE: same note as in Size(); and because of call to dag.Size()
 	defer kio.fileRef.Unlock()

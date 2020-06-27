@@ -38,7 +38,7 @@ type conductor struct {
 	filesAPIRoot *gomfs.Root
 }
 
-func NewConductor(ctx context.Context, core coreiface.CoreAPI, opts ...Option) *conductor {
+func NewConductor(ctx context.Context, core coreiface.CoreAPI, opts ...Option) mountinter.Conductor {
 	// TODO: reconsider default; we probably want to switch InForeGround
 	// to InBackground(true) and default to foreground `Graft`ing
 	settings := parseOptions(opts...)
@@ -223,6 +223,7 @@ func (l *resLocker) Request(namespace, resource string) error {
 	// FIXME: not implemented yet
 	return nil
 }
+
 func (l *resLocker) Release(namespace, resource string) {
 	// FIXME: not implemented yet
 }

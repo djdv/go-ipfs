@@ -173,13 +173,13 @@ func readFile(file filesystem.File, buff []byte, ofst int64) (errNo, error) {
 	return readBytes, err // EOF will be returned if it was provided
 }
 
-func writeFile(file filesystem.File, buff []byte, ofst int64) (error, errNo) {
+func writeFile(file filesystem.File, buff []byte, ofst int64) (errNo, error) {
 	if len(buff) == 0 {
-		return nil, 0
+		return 0, nil
 	}
 
 	if ofst < 0 {
-		return fmt.Errorf("invalid offset %d", ofst), -fuselib.EINVAL
+		return -fuselib.EINVAL, fmt.Errorf("invalid offset %d", ofst)
 	}
 
 	/* TODO: test this; it should be handled internally by seek()+write()
@@ -196,15 +196,15 @@ func writeFile(file filesystem.File, buff []byte, ofst int64) (error, errNo) {
 	*/
 
 	if _, err := file.Seek(ofst, io.SeekStart); err != nil {
-		return fmt.Errorf("offset seek error: %s", err), -fuselib.EIO
+		return -fuselib.EIO, fmt.Errorf("offset seek error: %s", err)
 	}
 
 	wroteBytes, err := file.Write(buff)
 	if err != nil {
-		return err, -fuselib.EIO
+		return -fuselib.EIO, err
 	}
 
-	return nil, wroteBytes
+	return wroteBytes, nil
 }
 
 func applyIntermediateStat(fStat *fuselib.Stat_t, iStat *filesystem.Stat) {

@@ -107,7 +107,6 @@ func parseRequest(daemonRequest requestType, req *cmds.Request, nodeConf *config
 	targetCollections, err := combine(provider, namespaces, targets)
 	if err != nil {
 		return provider, nil, err
-
 	}
 
 	return provider, targetCollections, nil
