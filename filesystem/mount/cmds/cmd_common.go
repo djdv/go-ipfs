@@ -12,6 +12,7 @@ import (
 	config "github.com/ipfs/go-ipfs-config"
 	"github.com/ipfs/go-ipfs/core"
 	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
+	"github.com/multiformats/go-multiaddr"
 )
 
 /*
@@ -263,8 +264,10 @@ func combine(provider mountinter.ProviderType, namespaces []mountinter.Namespace
 		var providerParam string
 		switch provider {
 		case mountinter.ProviderPlan9Protocol:
-			// providerParam = fmt.Sprintf("/unix/$IPFS_HOME/9p.%s.sock", namespaces[i].String())
-			providerParam = "/ip4/127.0.0.1/tcp/564"
+			if _, err := multiaddr.NewMultiaddr(t); err != nil {
+				// provide a listening address for targets that are themselves, not-listeners
+				providerParam = fmt.Sprintf("/unix/$IPFS_HOME/9p.%s.sock", namespaces[i].String())
+			}
 		}
 
 		collections = append(collections,
