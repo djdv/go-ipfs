@@ -85,6 +85,16 @@ baz
 			return err
 		}
 
+		if listArg, ok := req.Options[cmdListInstances].(bool); ok && listArg {
+			if daemon.Mount == nil {
+				return nil
+			}
+
+			// FIXME: broken
+			cmds.EmitOnce(res, prettifyWhere(daemon.Mount.List()))
+			return nil
+		}
+
 		if daemon.Mount == nil { // NOTE: this may be instantiated via `mount` or `daemon --mount`
 			coreAPI, err := coreapi.NewCoreAPI(daemon)
 			if err != nil {
@@ -104,11 +114,6 @@ baz
 			daemon.Mount = mountcon.NewConductor(daemon.Context(), coreAPI, conOps...)
 		}
 
-		if listArg, ok := req.Options[cmdListInstances].(bool); ok && listArg {
-			cmds.EmitOnce(res, prettifyWhere(daemon.Mount.Where()))
-			return nil
-		}
-
 		nodeConf, err := cmdenv.GetConfig(env)
 		if err != nil {
 			cmds.EmitOnce(res, err)
@@ -121,7 +126,7 @@ baz
 			return err
 		}
 
-		if err := MountNode(res, daemon, provider, targets); err != nil {
+		if err := MountNode(res, daemon, provider, targets...); err != nil {
 			// FIXME: for some reason EmitOnce isn't emitting the proper value
 			// it just returns `{}` on the cli...
 			fmt.Println(err)
@@ -133,15 +138,15 @@ baz
 	},
 }
 
-func prettifyWhere(m map[mountinter.ProviderType][]string) string {
+func prettifyWhere(m map[mountinter.ProviderType][]mountinter.Request) string {
 	var s strings.Builder
 	provEnd := len(m) - 1
 	var pIndex int
-	for prov, targets := range m {
+	for prov, requests := range m {
 		s.WriteString(prov.String() + ": [")
-		tEnd := len(targets) - 1
-		for i, targ := range targets {
-			s.WriteString(targ)
+		tEnd := len(requests) - 1
+		for i, req := range requests {
+			s.WriteString(req.Target)
 			if i < tEnd {
 				s.WriteString(", ")
 			}

@@ -1,4 +1,4 @@
-package mountinter
+package mount
 
 func init() {
 	suggestedProvider = func() ProviderType { return ProviderFuse }

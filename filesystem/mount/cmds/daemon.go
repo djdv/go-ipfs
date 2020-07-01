@@ -3,7 +3,7 @@ package mountcmds
 import (
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	config "github.com/ipfs/go-ipfs-config"
-	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
+	"github.com/ipfs/go-ipfs/filesystem/mount"
 )
 
 var DaemonOpts = []cmds.Option{
@@ -13,6 +13,6 @@ var DaemonOpts = []cmds.Option{
 	cmds.StringOption(daemonCmdTargetKwd, cmdDaemonDescPrefix+cmdPathDesc),
 }
 
-func ParseDaemonRequest(req *cmds.Request, nodeConf *config.Config) (mountinter.ProviderType, mountinter.TargetCollections, error) {
+func ParseDaemonRequest(req *cmds.Request, nodeConf *config.Config) (mount.ProviderType, []mount.Request, error) {
 	return parseRequest(daemonCmd, req, nodeConf)
 }

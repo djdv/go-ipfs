@@ -31,7 +31,7 @@ var _ filesystem.Interface = (*coreInterface)(nil)
 func NewInterface(ctx context.Context, core coreiface.CoreAPI, namespace mountinter.Namespace) filesystem.Interface {
 	return &coreInterface{
 		ctx:       ctx,
-		core:      &interfaceutils.CoreExtended{core},
+		core:      &interfaceutils.CoreExtended{CoreAPI: core},
 		namespace: namespace,
 	}
 }

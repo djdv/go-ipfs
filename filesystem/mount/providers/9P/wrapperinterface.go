@@ -70,6 +70,11 @@ func (f *fid) template() *fid {
 
 func (f *fid) name() string { return f.path[len(f.path)-1] }
 
+// TODO: split up fid types
+// root: has attach
+// file, dir: has common base with  relevant storage and methods for particulars only
+// dispatch would be in the base Walk method
+// (file? name) => file{base:parent.template()}; (dir? name) => directory{base:parent.template()}
 func (f *fid) Attach() (p9.File, error) {
 	f.log.Debugf("Attach")
 

@@ -15,6 +15,6 @@ import (
 // (specifically our tests)
 var ErrNoFuse = errors.New(`binary was built without fuse support ("nofuse" tag provided during build)`)
 
-func NewProvider(context.Context, mountinter.Namespace, string, coreiface.CoreAPI, ...provcom.Option) (mountinter.Provider, error) {
+func NewProvider(context.Context, mountinter.Namespace, coreiface.CoreAPI, ...provcom.Option) (mountinter.Provider, error) {
 	return nil, ErrNoFuse
 }

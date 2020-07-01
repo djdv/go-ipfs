@@ -1,9 +1,12 @@
 package fuse
 
 import (
+	"github.com/ipfs/go-ipfs/filesystem/mount"
 	provcom "github.com/ipfs/go-ipfs/filesystem/mount/providers"
 	logging "github.com/ipfs/go-log"
 )
+
+const LogGroup = mount.LogGroup + "/fuse"
 
 type (
 	InitSignal   chan error
@@ -31,7 +34,7 @@ func parseSystemOptions(options ...SystemOption) *systemSettings {
 	}
 
 	if settings.log == nil {
-		settings.log = logging.Logger("fuse")
+		settings.log = logging.Logger(LogGroup)
 	}
 	return settings
 }

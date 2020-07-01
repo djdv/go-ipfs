@@ -1,4 +1,4 @@
-package mountinter
+package mount
 
 import (
 	"errors"

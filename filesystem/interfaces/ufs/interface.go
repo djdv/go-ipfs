@@ -36,7 +36,7 @@ type (
 func NewInterface(ctx context.Context, core coreiface.CoreAPI) UFS {
 	return &ufsInterface{
 		ctx:  ctx,
-		core: &interfaceutils.CoreExtended{core},
+		core: &interfaceutils.CoreExtended{CoreAPI: core},
 	}
 }
 

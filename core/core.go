@@ -64,7 +64,7 @@ type IpfsNode struct {
 
 	// Local node
 	Pinning         pin.Pinner             // the pinning manager
-	Mount           mountinter.Conductor   `optional:"true"` // current mount state, if any.
+	Mount           mountinter.Interface   `optional:"true"` // current mount state, if any.
 	PrivateKey      ic.PrivKey             `optional:"true"` // the local node's private Key
 	PNetFingerprint libp2p.PNetFingerprint `optional:"true"` // fingerprint of private network
 

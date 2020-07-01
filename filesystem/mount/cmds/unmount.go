@@ -2,8 +2,6 @@ package mountcmds
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
@@ -50,40 +48,36 @@ var UnmountCmd = &cmds.Command{
 			return detachAll(res, env)
 		}
 
-		_, targets, err := parseRequest(mountCmd, req, nodeConf)
+		provider, requests, err := parseRequest(mountCmd, req, nodeConf)
 		if err != nil {
 			cmds.EmitOnce(res, err)
 			return err
 		}
 
-		var (
-			retErrString strings.Builder
-			failed       bool
-		)
-
-		retErrString.WriteString("failed to detach: ")
-
-		tEnd := len(targets) - 1
-		for i, pair := range targets {
-			if err := daemon.Mount.Detach(pair.Target); err != nil {
-				failed = true
-				retErrString.WriteString(fmt.Sprintf("{\"%s\", error: %s}", pair.Target, err.Error()))
-				if i < tEnd {
-					retErrString.WriteRune(' ')
-				}
-			}
-		}
-		if failed {
-			err := errors.New(retErrString.String())
-			cmds.EmitOnce(res, err)
-			return err
-		}
-
 		// TODO: print response if nothing is mounted, but don't error
-		return nil
+
+		err = daemon.Mount.Detach(provider, requests...)
+		if err != nil {
+			cmds.EmitOnce(res, err)
+		}
+		return err
 	},
 }
 
+//FIXME: quick and lazy port, we should do this properly; old method below
+func detachAll(res cmds.ResponseEmitter, env cmds.Environment) error {
+	daemon, err := cmdenv.GetNode(env)
+	if err != nil {
+		cmds.EmitOnce(res, err)
+		return err
+	}
+	if daemon.Mount == nil {
+		return errors.New("no instances")
+	}
+	return daemon.Mount.Close()
+}
+
+/*
 func detachAll(res cmds.ResponseEmitter, env cmds.Environment) error {
 	daemon, err := cmdenv.GetNode(env)
 	if err != nil {
@@ -94,11 +88,11 @@ func detachAll(res cmds.ResponseEmitter, env cmds.Environment) error {
 		return errors.New("no instances")
 	}
 
-	whence := daemon.Mount.Where()
+	whence := daemon.Mount.List()
 	var lastErr error
 	for _, targets := range whence {
 		for _, target := range targets {
-			if lastErr = daemon.Mount.Detach(target); lastErr != nil {
+			if lastErr = daemon.Mount.Detach(target.Target); lastErr != nil {
 				res.Emit(fmt.Sprintf("could not detach \"%s\": %s", target, lastErr))
 			}
 			res.Emit(fmt.Sprintf("detached \"%s\"", target))
@@ -109,3 +103,4 @@ func detachAll(res cmds.ResponseEmitter, env cmds.Environment) error {
 	cmds.EmitOnce(res, fmt.Sprintf("unmounted: %v", prettifyWhere(whence)))
 	return lastErr
 }
+*/

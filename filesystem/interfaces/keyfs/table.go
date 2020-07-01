@@ -7,11 +7,7 @@ import (
 	"github.com/ipfs/go-ipfs/filesystem"
 )
 
-// NOTE: the closure type declarations `closer` and `refcount`
-// exist just to satisfy interfaces, by assigning method names to otherwise anonymous functions
-
-type closer func() error
-
+type closer func() error      // io.Closure closure wrapper
 func (f closer) Close() error { return f() }
 
 type refcount func(increment bool) error
@@ -43,7 +39,7 @@ func newRefCounter(locker sync.Locker, onZero func() error) refcount {
 		if atomic.AddUintptr(&count, ^uintptr(0)) == 0 {
 			// TODO: references should be timebombed
 			// it's very typical for the APIs like FUSE to make a sequence of single requests
-			// which means a sequenece of create;reap;create;reap...
+			// which means a sequence of create;reap;create;reap...
 			// references should stay alive and in the table for a few ms at least after the final decrement
 			// and a ticker here should be canceled on increment if one is called before the ticker is done
 			return onZero()

@@ -3,6 +3,7 @@ package providercommon
 import (
 	"runtime"
 
+	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
@@ -15,6 +16,7 @@ const CanReaddirPlus bool = runtime.GOOS == "windows"
 type Settings struct {
 	ResourceLock ResourceLock // if provided, will replace the default lock used for operations
 	FilesAPIRoot *gomfs.Root  // required when mounting the FilesAPI namespace, otherwise nil-able
+	Log          logging.EventLogger
 }
 
 func ParseOptions(opts ...Option) *Settings {
@@ -24,6 +26,11 @@ func ParseOptions(opts ...Option) *Settings {
 	}
 
 	return options
+}
+
+// WithLog replaces the default logger
+func WithLog(l logging.EventLogger) Option {
+	return logOpt(logOptContainer{l})
 }
 
 // WithFilesRoot provides an MFS root node to use for the FilesAPI namespace
@@ -39,16 +46,36 @@ func WithResourceLock(rl ResourceLock) Option {
 type Option interface{ apply(*Settings) }
 
 type (
+	logOpt                   logOptContainer
+	logOptContainer          struct{ logging.EventLogger }
 	resourceLockOpt          resourceLockOptContainer
 	resourceLockOptContainer struct{ ResourceLock }
 	mfsOpt                   mfsOptContainer
 	mfsOptContainer          struct{ *gomfs.Root }
 )
 
-func (rc resourceLockOpt) apply(opts *Settings) {
-	opts.ResourceLock = ResourceLock(rc.ResourceLock)
+func (lc logOpt) apply(settings *Settings) {
+	settings.Log = logging.EventLogger(lc.EventLogger)
 }
 
-func (rc mfsOpt) apply(opts *Settings) {
-	opts.FilesAPIRoot = (*gomfs.Root)(rc.Root)
+func (rc resourceLockOpt) apply(settings *Settings) {
+	settings.ResourceLock = ResourceLock(rc.ResourceLock)
+}
+
+func (rc mfsOpt) apply(settings *Settings) {
+	settings.FilesAPIRoot = (*gomfs.Root)(rc.Root)
+}
+
+func MaybeAppendLog(baseOpts []Option, logName string) []Option {
+	var logWasProvided bool
+	for _, opt := range baseOpts {
+		if _, logWasProvided = opt.(logOpt); logWasProvided {
+			break
+		}
+	}
+
+	if !logWasProvided {
+		baseOpts = append(baseOpts, WithLog(logging.Logger(logName)))
+	}
+	return baseOpts
 }

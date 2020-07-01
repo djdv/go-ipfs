@@ -25,13 +25,13 @@ func NewCoreFileSystem(ctx context.Context, core coreiface.CoreAPI, namespace mo
 	var logName string // if a log was not provided, we'll provide a more specific default
 	switch namespace {
 	case mountinter.NamespaceIPFS:
-		logName = "fuse/ipfs"
+		logName = "/ipfs"
 	case mountinter.NamespaceIPNS:
-		logName = "fuse/ipns"
+		logName = "/ipns"
 	default:
-		logName = "fuse/ipld"
+		logName = "/ipld"
 	}
-	opts = maybeAppendLog(opts, logName)
+	opts = maybeAppendLog(opts, LogGroup+logName)
 
 	settings := parseSystemOptions(opts...)
 

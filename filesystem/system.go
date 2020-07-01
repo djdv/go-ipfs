@@ -1,8 +1,9 @@
 package filesystem
 
 // Interface contains the methods to interact with a file system.
-// TODO: name considerations, right now this is `filesystem.Interface` rather than `filesystem.FileSystem`
-// not sure which makes more sense
+// TODO: [bb846ad6-69aa-4f5c-991c-626a7ce92b38] name considerations
+// right now this is `filesystem.Interface` rather than `filesystem.FileSystem`
+// avoids stuttering and makes sense in long form, but may be too generic in short form `Interface`
 type Interface interface {
 	// index
 	Open(path string, flags IOFlags) (File, error)

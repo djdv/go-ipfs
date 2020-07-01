@@ -1,9 +1,12 @@
 package p9fsp
 
 import (
+	"github.com/ipfs/go-ipfs/filesystem/mount"
 	provcom "github.com/ipfs/go-ipfs/filesystem/mount/providers"
 	logging "github.com/ipfs/go-log"
 )
+
+const LogGroup = mount.LogGroup + "/9P"
 
 type AttachOption interface{ apply(*attachSettings) }
 
@@ -27,8 +30,9 @@ func parseAttachOptions(options ...AttachOption) *attachSettings {
 	}
 
 	if settings.log == nil {
-		settings.log = logging.Logger("fuse")
+		settings.log = logging.Logger(LogGroup)
 	}
+
 	return settings
 }
 

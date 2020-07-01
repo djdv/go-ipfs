@@ -1,26 +1,33 @@
 package ipfsconductor
 
 import (
+	"github.com/ipfs/go-ipfs/filesystem/mount"
+	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
 type (
-	Option interface{ apply(*settings) }
+	Option interface{ apply(*conductorSettings) }
 
 	foregroundOpt bool
 	mfsOpt        gomfs.Root
 )
 
-type settings struct {
+type conductorSettings struct {
 	foreground   bool        // should the provider block in the foreground until it exits or run in a background routine
 	filesAPIRoot *gomfs.Root // required when mounting the FilesAPI namespace, otherwise nil-able
+	log          logging.EventLogger
 }
 
-func parseOptions(opts ...Option) *settings {
-	settings := new(settings)
+func parseConductorOptions(options ...Option) *conductorSettings {
+	settings := new(conductorSettings)
 
-	for _, opt := range opts {
+	for _, opt := range options {
 		opt.apply(settings)
+	}
+
+	if settings.log == nil {
+		settings.log = logging.Logger(mount.LogGroup + "/conductor")
 	}
 
 	return settings
@@ -31,7 +38,7 @@ func WithFilesAPIRoot(mroot gomfs.Root) Option {
 	return mfsOpt(mroot)
 }
 
-func (r mfsOpt) apply(opts *settings) {
+func (r mfsOpt) apply(opts *conductorSettings) {
 	opts.filesAPIRoot = (*gomfs.Root)(&r)
 }
 
@@ -40,6 +47,6 @@ func InForeground(b bool) Option {
 	return foregroundOpt(b)
 }
 
-func (b foregroundOpt) apply(opts *settings) {
+func (b foregroundOpt) apply(opts *conductorSettings) {
 	opts.foreground = bool(b)
 }

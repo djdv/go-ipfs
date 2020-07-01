@@ -20,28 +20,16 @@ type keyInterface struct {
 	ctx  context.Context
 	core interfaceutils.CoreExtender
 
-	ufs ufs.UFS // `File` constructor
-
-	// keys as files
-	/*
-		fileTable   fileTable  // the table which holds (shared) `File` references
-		fileTableMu sync.Mutex // guards table access
-
-		// keys as file systems
-		fileSystemTable   fileSystemTable // the table which holds (shared) `Interface` references
-		fileSystemTableMu sync.Mutex      // guards table access
-	*/
-
-	references referenceTable
-
-	ipns filesystem.Interface // any requests to keys we don't own get proxied to ipns
+	ufs        ufs.UFS              // key `File` constructor
+	references referenceTable       // the table which manages (shared) key `File` and `Interface` references
+	ipns       filesystem.Interface // any requests to keys we don't own get proxied to ipns
 }
 
 // TODO: docs
 func NewInterface(ctx context.Context, core coreiface.CoreAPI) filesystem.Interface {
 	return &keyInterface{
 		ctx:        ctx,
-		core:       &interfaceutils.CoreExtended{core},
+		core:       &interfaceutils.CoreExtended{CoreAPI: core},
 		ufs:        ufs.NewInterface(ctx, core),
 		ipns:       ipfscore.NewInterface(ctx, core, mountinter.NamespaceIPNS),
 		references: newReferenceTable(),

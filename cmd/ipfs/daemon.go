@@ -413,7 +413,7 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 			return fmt.Errorf("GetConfig() failed: %s", err)
 		}
 
-		provider, targets, err := mountcmds.ParseDaemonRequest(req, nodeConf)
+		provider, requests, err := mountcmds.ParseDaemonRequest(req, nodeConf)
 		if err != nil {
 			return err
 		}
@@ -424,11 +424,12 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 			node.Mount = mountcon.NewConductor(node.Context(), coreAPI)
 		}
 
-		if err := mountcmds.MountNode(re, node, provider, targets); err != nil {
+		if err := mountcmds.MountNode(re, node, provider, requests...); err != nil {
 			return err
 		}
 
-		fmt.Printf("mounted: %s\n", targets.String())
+		// FIXME: pretty print lost in port, needs new format anyway
+		//fmt.Printf("mounted: %s\n", requests.String())
 	}
 
 	// repo blockstore GC - if --enable-gc flag is present
