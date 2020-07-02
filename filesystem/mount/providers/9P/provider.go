@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
-	"unsafe"
 
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/filesystem/mount"
@@ -121,42 +119,45 @@ func listen(ctx context.Context, maddr string, server *ninelib.Server) (serverRe
 	}
 
 	// construct the actual reference
+	// NOTE: [async]
+	// `srvErr` will be set only once
+	// The `err` function checks a "was set" boolean to assure the `error` is fully assigned, before trying to return it
+	// This is because `ref.err` will be called without synchronization, and could cause a read/write collision on an `error` type
+	// We don't have to care about a bool's value being fully written or not, but a partially written `error` is an interface with an arbitrary value
+	// `decRef` has synchronization, so it may use `srvErr` directly (after synching)
+	// The counter however, will only ever be manipulated while the reference table is in a locked state
+	// (if this changes, the counter should be made atomic)
 	var (
-		// NOTE: [d66d1ed3-e9fc-4319-9a53-e44bd0eb9af9]
-		// we use an atomic error value
-		// because the server may write a value to it, irrelevant of the reference table's mutex state
-		// (concern is partially writing err's interface address while implicitly dereferencing it elsewhere)
-		// the counter is assumed synchronous
-		// since it should only ever be manipulated while the reference table is in a locked state
-		// (if this fact changes, the counter should become atomic as well)
-		srvErr    error                     // for allocation and initilization only, do not use directly
-		srvErrPtr = unsafe.Pointer(&srvErr) // ironically, this is for async safety guarantees
-		srvWg     sync.WaitGroup            // done when the server has stopped serving
-		count     uint
+		srvErr       error
+		srvErrWasSet bool
+		srvWg        sync.WaitGroup // done when the server has stopped serving
+		count        uint
 	)
 
 	serverRef := serverRef{
 		Listener: mListener,
 		incRef:   func() { count++ },
-		err:      func() error { return *(*error)(atomic.LoadPointer(&srvErrPtr)) },
+		err: func() error {
+			if srvErrWasSet {
+				return srvErr
+			}
+			return nil
+		},
 		decRef: func() error {
 			count--
 			if count == 0 {
-				lErr := mListener.Close()                        // will trigger the server to stop
-				srvWg.Wait()                                     // wait for the server to assign an error
-				err := *(*error)(atomic.LoadPointer(&srvErrPtr)) // fetch that error
+				lstErr := mListener.Close() // will trigger the server to stop
+				srvWg.Wait()                // wait for the server to assign its error
 
-				if err != nil || lErr != nil {
-					if err == nil { // server didn't fail, but the listener did
-						return lErr
-					}
-					// the server failed in an unexpected way
-					// wrap  the listener error if there is one
-					if lErr != nil {
-						err = fmt.Errorf("%w; additionally the listener encountered an error on `Close`: %s", err, lErr)
-					}
-					return err
+				if srvErr == nil && lstErr != nil { // server didn't encounter an error, but the listener did
+					return lstErr
 				}
+
+				err := srvErr      // server encountered an error
+				if lstErr != nil { // append the listener error if it encountered one too
+					err = fmt.Errorf("%w; additionally the listener encountered an error on `Close`: %s", err, lstErr)
+				}
+				return err
 			}
 			return nil
 		},
@@ -173,10 +174,11 @@ func listen(ctx context.Context, maddr string, server *ninelib.Server) (serverRe
 				if errors.As(err, &opErr) && opErr.Op != "accept" {
 					err = nil // drop this since it's expected in this case
 				}
-				// note that accept errors when the context has not been canceled
-				// are still considered actual errors that are not expected to happen
+				// note that we don't filter "accept" errors when the context has not been canceled
+				// as that is not expected to happen
 			}
-			atomic.StorePointer(&srvErrPtr, unsafe.Pointer(&err))
+			srvErr = err
+			srvErrWasSet = true // async shenanigans; see note on declaration
 		}
 	}()
 
@@ -229,9 +231,9 @@ func (pr *p9pProvider) Bind(requests ...mount.Request) error {
 			}
 			pr.servers[req.Parameter] = server
 		}
-		server.incRef() // NOTE: see [d66d1ed3-e9fc-4319-9a53-e44bd0eb9af9] for async concerns around references
+		server.incRef()
 		if !systemBind {
-			instanceStack.Push(req, closer(func() error { return server.decRef() }))
+			instanceStack.Push(req, closer(server.decRef))
 			requests = requests[1:] // shift successful requests out of the slice
 			continue                // request was for a listener only, we're done
 		}
