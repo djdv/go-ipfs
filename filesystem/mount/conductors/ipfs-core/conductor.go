@@ -153,7 +153,6 @@ func (con *conductor) Detach(provider mount.ProviderType, requests ...mount.Requ
 	}
 
 	return err
-
 }
 
 func (con *conductor) List() map[mount.ProviderType][]mount.Request {

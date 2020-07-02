@@ -12,7 +12,6 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/filesystem/mount"
-	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	provcom "github.com/ipfs/go-ipfs/filesystem/mount/providers"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -21,7 +20,7 @@ import (
 // FIXME: cgofuse has its own signal/interrupt handler
 // we need to fork it to remove it and handle forcing cleanup ourselves
 
-const fuseOptSeperator = string(0x1F) // ASCII unit seperator
+const fuseOptSeperator = string(0x1F) // ASCII unit separator
 
 type closer func() error      // io.Closer closure wrapper
 func (f closer) Close() error { return f() }
@@ -42,7 +41,7 @@ type fuseProvider struct {
 	instances  provcom.InstanceCollection  // active instances we've provided
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, core coreiface.CoreAPI, opts ...provcom.Option) (mountinter.Provider, error) {
+func NewProvider(ctx context.Context, namespace mount.Namespace, core coreiface.CoreAPI, opts ...provcom.Option) (mount.Provider, error) {
 	opts = provcom.MaybeAppendLog(opts, LogGroup)
 	settings := provcom.ParseOptions(opts...)
 
@@ -60,21 +59,21 @@ func NewProvider(ctx context.Context, namespace mountinter.Namespace, core corei
 	// construct the system we're expected to provide
 	var fs fuselib.FileSystemInterface
 	switch namespace {
-	case mountinter.NamespacePinFS:
+	case mount.NamespacePinFS:
 		fs = NewPinFileSystem(ctx, core, systemOpts...)
-	case mountinter.NamespaceKeyFS:
+	case mount.NamespaceKeyFS:
 		fs = NewKeyFileSystem(ctx, core, systemOpts...)
-	case mountinter.NamespaceIPFS, mountinter.NamespaceIPNS:
+	case mount.NamespaceIPFS, mount.NamespaceIPNS:
 		fs = NewCoreFileSystem(ctx, core, namespace, systemOpts...)
-	case mountinter.NamespaceFiles:
+	case mount.NamespaceFiles:
 		if settings.FilesAPIRoot == nil {
-			// TODO: decide who's responsability this check is
+			// TODO: decide who's responsibility this check is
 			// it might be better to make New return an error, or even panic up front
 			// right now[09ef2b4a1] it will panic on operation if the constructor receives nil
 			return nil, fmt.Errorf("MFS root was not provided")
 		}
 		fs = NewMutableFileSystem(ctx, settings.FilesAPIRoot, systemOpts...)
-	case mountinter.NamespaceCombined:
+	case mount.NamespaceCombined:
 		/* TODO
 		oOps := []overlay.Option{overlay.WithCommon(commonOpts...)}
 		if mroot != nil {

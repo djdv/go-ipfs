@@ -9,17 +9,12 @@ import (
 
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/filesystem/mount"
-	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	provcom "github.com/ipfs/go-ipfs/filesystem/mount/providers"
 	logging "github.com/ipfs/go-log"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr-net"
 )
-
-var errObjectNotInitialized = errors.New("method called on uninitialized object")
-
-const defaultPort = "564"
 
 // the file system instance provider itself
 type p9pProvider struct {
@@ -35,31 +30,27 @@ type p9pProvider struct {
 	srv       *ninelib.Server            // the actual system we provide, as a network service
 	instances provcom.InstanceCollection // active instances we've provided
 
-	// TODO: [lint]
-	serverClosed chan struct{} // [async] should block until server is closed
-	serverErr    error         // [async] should be guarded by serverClosed
-
 	// 9P transport(s)
 	servers map[string]serverRef
 }
 
-func NewProvider(ctx context.Context, namespace mountinter.Namespace, core coreiface.CoreAPI, opts ...provcom.Option) (mountinter.Provider, error) {
+func NewProvider(ctx context.Context, namespace mount.Namespace, core coreiface.CoreAPI, opts ...provcom.Option) (mount.Provider, error) {
 	opts = provcom.MaybeAppendLog(opts, LogGroup)
 	settings := provcom.ParseOptions(opts...)
 
 	// construct the system we're expected to provide
 	var attacher ninelib.Attacher
 	switch namespace {
-	case mountinter.NamespaceIPFS, mountinter.NamespaceIPNS:
+	case mount.NamespaceIPFS, mount.NamespaceIPNS:
 		attacher = CoreAttacher(ctx, core, namespace)
-	case mountinter.NamespacePinFS:
+	case mount.NamespacePinFS:
 		attacher = PinAttacher(ctx, core)
-	case mountinter.NamespaceKeyFS:
+	case mount.NamespaceKeyFS:
 		attacher = KeyAttacher(ctx, core)
-	case mountinter.NamespaceFiles:
+	case mount.NamespaceFiles:
 		attacher = MutableAttacher(ctx, settings.FilesAPIRoot)
 	// TODO:
-	//case mountinter.NamespaceCombined:
+	//case mount.NamespaceCombined:
 	default:
 		return nil, fmt.Errorf("unknown namespace: %v", namespace)
 	}

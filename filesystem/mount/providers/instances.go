@@ -99,7 +99,7 @@ func NewInstanceCollection() InstanceCollection {
 // we want providers to have Close/CloseSpecific access on demand
 // but adds must go through a stack instance; so that `Bind` calls are transactional
 // they either all succeed and get added, or on error the caller calls the stack Unwind
-// also note that duplicate checking is the responsability of the caller
+// also note that duplicate checking is the responsibility of the caller
 // (we'll overwrite instances of the same target here, so they should call Exists themselves)
 // we also implement `List` so the caller doesn't have to
 func (im instanceMap) Add(stack InstanceStack) {

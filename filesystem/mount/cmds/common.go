@@ -65,7 +65,7 @@ var (
 	errConfigNotProviding = errors.New("config does not provide requested value")
 )
 
-const fuseOptSeperator = string(0x1F) // ASCII unit seperator
+const fuseOptSeperator = string(0x1F) // ASCII unit separator
 
 // keep this as is in case we want to extend this later
 // if we switch to an int enum nobody has to change anything except the parseRequest logic
@@ -320,7 +320,7 @@ func nineArgs(target *string, namespace mount.Namespace) (string, error) {
 
 // modifies the request target (if necessary for the platform/request)
 // and may return a platform local, FUSE library specific, parameter array
-// the array is joined and delimited by the ASCII unit seperator before being returned
+// the array is joined and delimited by the ASCII unit separator before being returned
 // and should be expanded back into a string array for use with `fuselib.Mount`'s `opts` parameter
 func fuseArgs(target *string, namespace mount.Namespace) string {
 	var (

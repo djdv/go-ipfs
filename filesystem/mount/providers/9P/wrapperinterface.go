@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
-	"github.com/hugelgupf/p9/p9"
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
@@ -75,7 +74,7 @@ func (f *fid) name() string { return f.path[len(f.path)-1] }
 // file, dir: has common base with  relevant storage and methods for particulars only
 // dispatch would be in the base Walk method
 // (file? name) => file{base:parent.template()}; (dir? name) => directory{base:parent.template()}
-func (f *fid) Attach() (p9.File, error) {
+func (f *fid) Attach() (ninelib.File, error) {
 	f.log.Debugf("Attach")
 
 	if len(f.path) != 0 {
@@ -200,7 +199,7 @@ func (f *fid) Create(name string, flags ninelib.OpenFlags, permissions ninelib.F
 	return newFid, newFid.QID, 0, nil // TODO: we need to get IOUnit from the constructor
 }
 
-func (f *fid) Open(mode p9.OpenFlags) (p9.QID, uint32, error) {
+func (f *fid) Open(mode ninelib.OpenFlags) (ninelib.QID, uint32, error) {
 	f.log.Debugf("Open: %s", f.path.String())
 
 	switch f.QID.Type {
@@ -253,7 +252,7 @@ func (f *fid) ReadAt(p []byte, offset int64) (int, error) {
 	return readBytes, err
 }
 
-func (f *fid) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
+func (f *fid) Readdir(offset uint64, count uint32) (ninelib.Dirents, error) {
 	f.log.Debugf("Readdir: {%d|%d} %s", offset, count, f.path.String())
 	if f.Directory == nil {
 		return nil, errors.New("file is not open") // TODO: 9Error
@@ -302,7 +301,7 @@ func (f *fid) Readdir(offset uint64, count uint32) (p9.Dirents, error) {
 	return nineEnts, nil
 }
 
-func (f *fid) GetAttr(req p9.AttrMask) (p9.QID, p9.AttrMask, p9.Attr, error) {
+func (f *fid) GetAttr(req ninelib.AttrMask) (ninelib.QID, ninelib.AttrMask, ninelib.Attr, error) {
 	f.log.Debugf("GetAttr: %s", f.path.String())
 
 	fidInfo, infoFilled, err := f.intf.Info(f.path.String(), requestFrom9P(req))

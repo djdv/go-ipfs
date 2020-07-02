@@ -33,7 +33,7 @@ var UnmountCmd = &cmds.Command{
 		}
 
 		if daemon.Mount == nil { // NOTE: this may be instantiated via `mount` or `daemon --mount`
-			err := errors.New("No mount instances exist")
+			err := errors.New("no mount instances exist")
 			cmds.EmitOnce(res, err)
 			return err
 		}
