@@ -13,42 +13,31 @@ import (
 	"sync"
 
 	multierror "github.com/hashicorp/go-multierror"
-
 	version "github.com/ipfs/go-ipfs"
+	cmds "github.com/ipfs/go-ipfs-cmds"
+	"github.com/ipfs/go-ipfs-cmds/cli"
 	config "github.com/ipfs/go-ipfs-config"
 	cserial "github.com/ipfs/go-ipfs-config/serialize"
 	utilmain "github.com/ipfs/go-ipfs/cmd/ipfs/util"
 	oldcmds "github.com/ipfs/go-ipfs/commands"
 	"github.com/ipfs/go-ipfs/core"
 	commands "github.com/ipfs/go-ipfs/core/commands"
-	"github.com/ipfs/go-ipfs/core/coreapi"
+	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
+	fscmds "github.com/ipfs/go-ipfs/core/commands/filesystem"
 	corehttp "github.com/ipfs/go-ipfs/core/corehttp"
 	corerepo "github.com/ipfs/go-ipfs/core/corerepo"
 	libp2p "github.com/ipfs/go-ipfs/core/node/libp2p"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 	migrate "github.com/ipfs/go-ipfs/repo/fsrepo/migrations"
-	sockets "github.com/libp2p/go-socket-activation"
-
-	cmds "github.com/ipfs/go-ipfs-cmds"
 	mprome "github.com/ipfs/go-metrics-prometheus"
 	options "github.com/ipfs/interface-go-ipfs-core/options"
 	goprocess "github.com/jbenet/goprocess"
+	sockets "github.com/libp2p/go-socket-activation"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	prometheus "github.com/prometheus/client_golang/prometheus"
 	promauto "github.com/prometheus/client_golang/prometheus/promauto"
-
-	mountcmds "github.com/ipfs/go-ipfs/filesystem/mount/cmds"
-	mountcon "github.com/ipfs/go-ipfs/filesystem/mount/conductors/ipfs-core"
 )
-
-func init() {
-	// TODO: I don't think this is gonna fly; people hate init()
-	// we could also make the initial decleration be append(hugeLiteral, mountcmds.DaemonOpts...)
-	// or specify them line by line in the huge literal
-	// (I think this is a better pattern myself though; define the opts for your command in your pkg and let people import them rather than jumping between packages)
-	daemonCmd.Options = append(daemonCmd.Options, mountcmds.DaemonOpts...)
-}
 
 const (
 	adjustFDLimitKwd          = "manage-fdlimit"
@@ -57,7 +46,6 @@ const (
 	initConfigOptionKwd       = "init-config"
 	initProfileOptionKwd      = "init-profile"
 	migrateKwd                = "migrate"
-	mountKwd                  = "mount"
 	offlineKwd                = "offline" // global option
 	routingOptionKwd          = "routing"
 	routingOptionSupernodeKwd = "supernode"
@@ -168,7 +156,7 @@ Headers.
 `,
 	},
 
-	Options: []cmds.Option{
+	Options: append([]cmds.Option{
 		cmds.BoolOption(initOptionKwd, "Initialize ipfs with default settings if not already initialized"),
 		cmds.StringOption(initConfigOptionKwd, "Path to existing configuration file to be loaded during --init"),
 		cmds.StringOption(initProfileOptionKwd, "Configuration profiles to apply for --init. See ipfs init --help for more"),
@@ -182,11 +170,11 @@ Headers.
 		cmds.BoolOption(enablePubSubKwd, "Instantiate the ipfs daemon with the experimental pubsub feature enabled."),
 		cmds.BoolOption(enableIPNSPubSubKwd, "Enable IPNS record distribution through pubsub; enables pubsub."),
 		cmds.BoolOption(enableMultiplexKwd, "DEPRECATED"),
-
 		// TODO: add way to override addresses. tricky part: updating the config if also --init.
 		// cmds.StringOption(apiAddrKwd, "Address for the daemon rpc API (overrides config)"),
 		// cmds.StringOption(swarmAddrKwd, "Address for the swarm socket (overrides config)"),
-	},
+	}, fscmds.DaemonOpts...),
+
 	Subcommands: map[string]*cmds.Command{},
 	NoRemote:    true,
 	Extra:       commands.CreateCmdExtras(commands.SetDoesNotUseConfigAsInput(true)),
@@ -401,39 +389,14 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		return err
 	}
 
-	// bind mountpoints - if the user provided the --mount flag
-	mountRequest, _ := req.Options[mountKwd].(bool)
-	if mountRequest {
-		coreAPI, err := coreapi.NewCoreAPI(node)
-		if err != nil {
-			return err
-		}
-		nodeConf, err := cctx.GetConfig()
-		if err != nil {
-			return fmt.Errorf("GetConfig() failed: %s", err)
-		}
-
-		provider, requests, err := mountcmds.ParseDaemonRequest(req, nodeConf)
-		if err != nil {
-			return err
-		}
-
-		if mroot := node.FilesRoot; mroot != nil {
-			node.Mount = mountcon.NewConductor(node.Context(), coreAPI, mountcon.WithFilesAPIRoot(*mroot))
-		} else {
-			node.Mount = mountcon.NewConductor(node.Context(), coreAPI)
-		}
-
-		if err := mountcmds.MountNode(re, node, provider, requests...); err != nil {
-			return err
-		}
-
-		// FIXME: pretty print lost in port, needs new format anyway
-		//fmt.Printf("mounted: %s\n", requests.String())
-	}
-
 	// repo blockstore GC - if --enable-gc flag is present
 	gcErrc, err := maybeRunGC(req, node)
+	if err != nil {
+		return err
+	}
+
+	// bind to the host filesystem - if --mount flag is present
+	fsErrc, err := maybeBindFileSystem(req, env)
 	if err != nil {
 		return err
 	}
@@ -472,9 +435,8 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	}()
 
 	// collect long-running errors and block for shutdown
-	// TODO(cryptix): our fuse currently doesn't follow this pattern for graceful shutdown
 	var errs error
-	for err := range merge(apiErrc, gwErrc, gcErrc) {
+	for err := range merge(apiErrc, gwErrc, gcErrc, fsErrc) {
 		if err != nil {
 			errs = multierror.Append(errs, err)
 		}
@@ -728,6 +690,87 @@ func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {
 		close(errc)
 	}()
 	return errc, nil
+}
+
+func maybeBindFileSystem(req *cmds.Request, env cmds.Environment) (<-chan error, error) {
+	node, err := cmdenv.GetNode(env)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: English
+	// [async]
+	// if `mount` is run after the daemon command returns
+	// it will use this error channel to coordinate with the node
+	// if the node has requested to shut down before the operator has called `unmount`
+	// we always try to wait for that instance to close on daemon shutdown
+	closeChan := node.FileSystem.ErrorChannel
+	if closeChan == nil {
+		closeChan = make(chan error, 1)
+		go func() {
+			<-req.Context.Done() // wait for the daemon to say it's done
+			defer close(closeChan)
+
+			// [async]
+			// `unmount` may be called before the node is instructed to close
+			// which will remove the manager from the node
+			// we'll check and wait for the manager to close if it's still on the node
+			if node.FileSystem.Dispatcher != nil {
+				const (
+					targErrPair        = "%q:%s"
+					targErrPairWrapped = "%w;\n" + targErrPair
+				)
+
+				errWrap := func(target string, base, appended error) error {
+					if base == nil {
+						base = fmt.Errorf(targErrPair, target, appended)
+					} else {
+						base = fmt.Errorf(targErrPairWrapped, base, target, appended)
+					}
+					return base
+				}
+
+				var err error
+				for resp := range fscmds.CloseFileSystem(node.FileSystem.Dispatcher) {
+					if resp.Info != "" {
+						fmt.Println(resp.Info)
+						continue
+					}
+					if resp.Error != "" {
+						fmt.Println("error:", resp.Error)
+						err = errWrap(resp.String(), err, errors.New(resp.Error))
+						continue
+					}
+					fmt.Println("detached:", resp.String())
+				}
+			}
+
+			closeChan <- err
+		}()
+
+		node.FileSystem.ErrorChannel = closeChan
+	}
+
+	// our responsibility is to set up the file node error channel
+	// and maybe make a bind request
+	// if bind requests parameters are not present, we can return
+	// otherwise we'll translate the request from a `daemon` command
+	// to a `mount` command request
+	mountRequest, forwardRequest := fscmds.TranslateToMountRequest(fscmds.DaemonCmdPrefix, req)
+	if !forwardRequest {
+		return closeChan, nil
+	}
+
+	// otherwise, the request above was translated `daemon` => `mount
+	// so we can forward it to the `mount` command with the user provided flags
+	// TODO: we need to print these raw not use the emitter here
+
+	emitter, err := cli.NewResponseEmitter(os.Stdout, os.Stderr, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return closeChan, fscmds.Mount.Run(mountRequest, emitter, env)
 }
 
 // merge does fan-in of multiple read-only error channels

@@ -42,9 +42,9 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/ipfs/go-ipfs/core/bootstrap"
+	fsm "github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
 	"github.com/ipfs/go-ipfs/core/node"
 	"github.com/ipfs/go-ipfs/core/node/libp2p"
-	mountinter "github.com/ipfs/go-ipfs/filesystem/mount"
 	"github.com/ipfs/go-ipfs/namesys"
 	ipnsrp "github.com/ipfs/go-ipfs/namesys/republisher"
 	"github.com/ipfs/go-ipfs/p2p"
@@ -64,7 +64,7 @@ type IpfsNode struct {
 
 	// Local node
 	Pinning         pin.Pinner             // the pinning manager
-	Mount           mountinter.Interface   `optional:"true"` // current mount state, if any.
+	FileSystem      fsm.Manager            `optional:"true"` // the node's fs interface, attach/detach to host targets
 	PrivateKey      ic.PrivKey             `optional:"true"` // the local node's private Key
 	PNetFingerprint libp2p.PNetFingerprint `optional:"true"` // fingerprint of private network
 

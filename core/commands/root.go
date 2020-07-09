@@ -5,10 +5,10 @@ import (
 
 	cmdenv "github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	dag "github.com/ipfs/go-ipfs/core/commands/dag"
+	fscmds "github.com/ipfs/go-ipfs/core/commands/filesystem"
 	name "github.com/ipfs/go-ipfs/core/commands/name"
 	ocmd "github.com/ipfs/go-ipfs/core/commands/object"
 	unixfs "github.com/ipfs/go-ipfs/core/commands/unixfs"
-	mountcmds "github.com/ipfs/go-ipfs/filesystem/mount/cmds"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	logging "github.com/ipfs/go-log"
@@ -134,8 +134,8 @@ var rootSubcommands = map[string]*cmds.Command{
 	"key":       KeyCmd,
 	"log":       LogCmd,
 	"ls":        LsCmd,
-	"mount":     mountcmds.MountCmd,
-	"unmount":   mountcmds.UnmountCmd,
+	"mount":     fscmds.Mount,
+	"unmount":   fscmds.Unmount,
 	"name":      name.NameCmd,
 	"object":    ocmd.ObjectCmd,
 	"pin":       PinCmd,

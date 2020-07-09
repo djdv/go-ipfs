@@ -10,6 +10,8 @@ type (
 	}
 )
 
+//TODO: this should be a sub-pkg of filesystem; <fs/errors>
+
 // TODO: put a remark about this somewhere; probably in /transform/filesystems/???.go docs
 // the intermediate operations that uses these errors aren't exactly the most truthful
 // Kind biases towards POSIX errors in intermediate operations
