@@ -4,30 +4,55 @@ package fuse
 
 import (
 	"context"
+	gopath "path"
 	"runtime"
-	"strings"
+	"sync"
 
+	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
 	"github.com/ipfs/go-ipfs/filesystem"
+	logging "github.com/ipfs/go-log"
 )
+
+// TODO: how do we do this; without a dependency loop? [6c751cf6-1fb1-4893-8a31-8f9d20b4c38c]
+// (regardless of type `manager.const string` or `manager.Stringer`)
+//const logGroup = manager.Fuse
+const logGroup = "FUSE"
+
+// fuseMounter mounts requests in the host FS via the FUSE API
+type fuseMounter struct {
+	ctx context.Context // TODO: needs to trigger close on cancel
+	sync.Mutex
+	log logging.EventLogger
+
+	// FS provider
+	fuseInterface fuselib.FileSystemInterface // the actual interface with the host
+}
 
 // NOTE: [b7952c54-1614-45ea-a042-7cfae90c5361] cgofuse only supports ReaddirPlus on Windows
 // if this ever changes (bumps libfuse from 2.8 -> 3.X+), add platform support here (and to any other tags with this UUID)
 // TODO: this would be best in the fuselib itself; make a patch upstream
 const canReaddirPlus bool = runtime.GOOS == "windows"
 
-func newFuseHost(fs filesystem.Interface, opts ...Option) *fuseInterface {
-	logName := strings.ToLower(fs.ID().String())
-	settings := parseOptions(maybeAppendLog(opts, logName)...)
+func NewHostInterface(fs filesystem.Interface, opts ...host.Option) fuselib.FileSystemInterface {
+	settings := host.ParseOptions(opts...)
 
-	// TODO: read-only option
-	// always use cached items if available - otherwise assume data may change between calls
-
-	fuseInterface := &fuseInterface{
+	fuseInterface := &nodeBinding{
 		nodeInterface: fs,
-		log:           settings.log,
-		//initSignal:    make(InitSignal),
+		log: logging.Logger(gopath.Join(
+			settings.LogPrefix, // fmt: `filesystem`
+			logGroup,           // fmt: `FUSE`
+			fs.ID().String()),  // fmt: `IPFS`
+		),
+		//initSignal: settings.InitSignal,
 	}
+
+	// TODO: should we switch on the ID per API or have a node.Option for
+	// swapping out methods like Stat(name), Permission(name), etc.
+	// so that plexed attachers are possible
+	// e.g. `permission("/x")` => not writable;
+	// `permission("/x/y")` => writable
+	// always use cached items if available - otherwise assume data may change between calls
 
 	switch fs.ID() {
 	case filesystem.PinFS, filesystem.IPFS:
@@ -42,28 +67,15 @@ func newFuseHost(fs filesystem.Interface, opts ...Option) *fuseInterface {
 	return fuseInterface
 }
 
-// TODO: options
-func HostAttacher(ctx context.Context, fs filesystem.Interface) host.Attacher {
-	// TODO opts: settings := parseOptions(maybeAppendLog(nil, LogGroup+strings.ToLower(fuseInterface.ID().String())...)
-	settings := parseOptions(maybeAppendLog(nil, LogGroup)...)
+func HostMounter(ctx context.Context, fs filesystem.Interface, opts ...host.Option) (Mounter, error) {
+	settings := host.ParseOptions(opts...)
 
-	return &fuseAttacher{
-		log:           settings.log,
-		ctx:           ctx,
-		fuseInterface: newFuseHost(fs),
-		//initSignal:    initSignal,
-	}
-
-	// TODO: InitSignal needs to become a pair and names need to be changed
-	// the option should provide 2 channels, 1 for init/open, and 1 for destroy/close
-	// so that the FS can signal when it's done starting and stopping, as well as provide the context of those ops
-	// line semantics:
-	// init line should be restricted to (m)exclusive access, half-duplex
-	// e.g. 1 instantiation means there will be 1 expected reader/writer of a single message at a time
-	// no possibility of cross talk should be allowed
-	//initSignal := make(InitSignal)
-	//	systemOpts := []Option{WithInitSignal(initSignal)}
-	// TODO: WithResourceLock(options.resourceLock) when that's implemented
-
-	//fsCtx, cancel := context.WithCancel(ctx)
+	return &fuseMounter{
+		ctx: ctx,
+		log: logging.Logger(gopath.Join(
+			settings.LogPrefix,
+			fs.ID().String(), // fmt: `IPFS`|`IPNS`|...
+		)),
+		fuseInterface: NewHostInterface(fs, opts...),
+	}, nil
 }

@@ -7,29 +7,12 @@ import (
 	"net"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
-
 	ninelib "github.com/hugelgupf/p9/p9"
-	logging "github.com/ipfs/go-log"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p/sys"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr-net"
 )
-
-// manages host bindings with the 9P protocol
-type nineAttacher struct {
-	sync.Mutex
-	log logging.EventLogger
-	ctx context.Context // TODO: `Close` when canceled
-
-	// 9P transport(s)
-	srv     *ninelib.Server      // the actual file instance server that requests are bound to
-	servers map[string]serverRef // target <-> server index
-
-	// host node
-	//host.PathInstanceIndex // target <-> binding index
-}
-
-//func (nb *nineAttacher) Close() error { return nb.PathInstanceIndex.Close() }
 
 func mountListener(target string, addr net.Addr) error {
 	var (
@@ -52,7 +35,7 @@ func mountListener(target string, addr net.Addr) error {
 		return fmt.Errorf("%q is not a supported protocol", network)
 	}
 
-	return PlatformAttach(mSource, target, mArgs)
+	return sys.Attach(mSource, target, mArgs)
 }
 
 func listen(ctx context.Context, maddr string, server *ninelib.Server) (serverRef, error) {
@@ -138,7 +121,7 @@ func listen(ctx context.Context, maddr string, server *ninelib.Server) (serverRe
 type closer func() error      // io.Closer closure wrapper
 func (f closer) Close() error { return f() }
 
-func (pr *nineAttacher) Attach(requests ...host.Request) <-chan host.Response {
+func (pr *nineAttacher) Attach(requests ...Request) <-chan host.Response {
 	responses := make(chan host.Response)
 	if len(requests) == 0 {
 		close(responses)
@@ -153,9 +136,9 @@ func (pr *nineAttacher) Attach(requests ...host.Request) <-chan host.Response {
 	go func() {
 		defer pr.Unlock()
 		defer close(responses)
-		for _, request := range requests { // for each request
-			resp := host.Response{Binding: host.Binding{Request: request}}
-			bind, err := pr.bind(request) // try to bind
+		for _, Request := range requests { // for each Request
+			resp := host.Response{Binding: host.Binding{HostRequest: Request}}
+			bind, err := pr.bind(Request) // try to bind
 			if err != nil {               // if we can't
 				resp.Err = err // alert the caller
 				responses <- resp
@@ -172,7 +155,7 @@ func (pr *nineAttacher) Attach(requests ...host.Request) <-chan host.Response {
 	*/
 	go func() {
 		defer close(responses)
-		for _, request := range requests { // for each request
+		for _, request := range requests { // for each Request
 			resp := host.Response{Binding: host.Binding{Request: request}}
 			resp.Binding, resp.Error = pr.bind(request)
 			responses <- resp
@@ -185,16 +168,10 @@ func (pr *nineAttacher) Attach(requests ...host.Request) <-chan host.Response {
 	return responses
 }
 
-func (pr *nineAttacher) bind(request host.Request) (host.Binding, error) {
+func (pr *nineAttacher) bind(request Request) (host.Binding, error) {
 	binding := host.Binding{Request: request}
 
-	instanceTarget, listenAddr, socketOnly, err := ParseRequest(request)
-	if err != nil {
-		return binding, err
-	}
-
-	bindCtx, bindCancel := context.WithCancel(pr.ctx)
-	server, err := pr.getServer(bindCtx, listenAddr)
+	server, err := pr.getServer(request.ListenAddr)
 	if err != nil {
 		return binding, err
 	}
@@ -202,14 +179,13 @@ func (pr *nineAttacher) bind(request host.Request) (host.Binding, error) {
 	server.incRef()
 	binding.Closer = closer(server.decRef)
 
-	if socketOnly {
+	if request.HostPath == "" {
 		return binding, nil
 	}
 
 	// otherwise, try to mount the target via a client connection to the server
-	err = mountListener(instanceTarget, server.Listener.Addr())
+	err = mountListener(request.HostPath, server.Listener.Addr())
 	if err != nil {
-		bindCancel()
 		if sErr := server.decRef(); sErr != nil {
 			err = fmt.Errorf("%w; additionally the server encountered an error on `Close`: %s", err, sErr)
 		}
@@ -217,37 +193,17 @@ func (pr *nineAttacher) bind(request host.Request) (host.Binding, error) {
 	return binding, err
 }
 
-func (pr *nineAttacher) getServer(ctx context.Context, listenAddr string) (server serverRef, err error) {
+func (pr *nineAttacher) getServer(listenAddr string) (server serverRef, err error) {
 	var ok bool
 	if server, ok = pr.servers[listenAddr]; ok {
 		return
 	}
 
-	server, err = listen(ctx, listenAddr, pr.srv)
+	server, err = listen(pr.srvCtx, listenAddr, pr.srv)
 	if err != nil {
 		return
 	}
 	pr.servers[listenAddr] = server
-	return
-}
-
-func ParseRequest(req host.Request) (instanceTarget, listenAddr string, socketOnly bool, err error) {
-	// each 9p instance has a listener address
-	// if the listeners address is not provided as a request argument
-	// we consider the request invalid
-	if len(req.Arguments) != 1 {
-		err = fmt.Errorf("invalid request parameters (expecting listen address) got: %v", req.Arguments)
-		return
-	}
-
-	listenAddr = req.Arguments[0]
-	if req.Target != "" { // if the request target was provided, try to bind it to the host instance
-		instanceTarget = req.Target
-	} else { // otherwise just spawn the listener exclusively
-		socketOnly = true
-		instanceTarget = listenAddr
-	}
-
 	return
 }
 

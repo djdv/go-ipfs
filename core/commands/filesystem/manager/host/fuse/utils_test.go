@@ -333,7 +333,7 @@ func generateTestEnv(t *testing.T) (string, envData, *core.IpfsNode, coreiface.C
 		}
 	}
 
-	repoDir, err := ioutil.TempDir("", "ipfs-fuseInterface")
+	repoDir, err := ioutil.TempDir("", "ipfs-nodeBinding")
 	if err != nil {
 		t.Errorf("Failed to create repo directory: %s\n", err)
 	}

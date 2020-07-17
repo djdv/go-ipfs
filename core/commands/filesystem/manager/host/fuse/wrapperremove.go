@@ -2,10 +2,12 @@
 
 package fuse
 
-import fuselib "github.com/billziss-gh/cgofuse/fuse"
+import (
+	fuselib "github.com/billziss-gh/cgofuse/fuse"
+)
 
-func (fs *fuseInterface) Unlink(path string) int {
-	fs.log.Debugf("Unlink - Request %q", path)
+func (fs *nodeBinding) Unlink(path string) int {
+	fs.log.Debugf("Unlink - HostRequest %q", path)
 
 	if path == "/" {
 		fs.log.Error(fuselib.Error(-fuselib.EPERM))
@@ -20,8 +22,8 @@ func (fs *fuseInterface) Unlink(path string) int {
 	return operationSuccess
 }
 
-func (fs *fuseInterface) Rmdir(path string) int {
-	fs.log.Debugf("Rmdir - Request %q", path)
+func (fs *nodeBinding) Rmdir(path string) int {
+	fs.log.Debugf("Rmdir - HostRequest %q", path)
 
 	if err := fs.nodeInterface.RemoveDirectory(path); err != nil {
 		fs.log.Error(err)

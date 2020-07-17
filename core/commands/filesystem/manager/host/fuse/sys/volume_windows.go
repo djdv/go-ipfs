@@ -1,6 +1,4 @@
-//+build !nofuse
-
-package fuse
+package sys
 
 import (
 	"path/filepath"
@@ -9,8 +7,6 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	"golang.org/x/sys/windows"
 )
-
-func init() { statfs = statfsWin }
 
 const LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800
 
@@ -24,7 +20,7 @@ func loadSystemDLL(name string) (*windows.DLL, error) {
 	return &windows.DLL{Name: name, Handle: modHandle}, nil
 }
 
-func statfsWin(path string, fStatfs *fuselib.Statfs_t) (int, error) {
+func Statfs(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	mod, err := loadSystemDLL("kernel32.dll")
 	if err != nil {
 		return -fuselib.ENOMEM, err // kind of true, probably better than EIO
@@ -97,7 +93,7 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	fStatfs.Files = ^uint64(0)
 
 	// TODO: these have to come from our own file table
-	// fStatfs.Ffree = fuseInterface.AvailableHandles()
+	// fStatfs.Ffree = nodeBinding.AvailableHandles()
 	// fStatfs.Favail = fStatfs.Ffree
 
 	fStatfs.Namemax = uint64(*componentLimit)
@@ -106,5 +102,5 @@ func statfsWin(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	fStatfs.Flag = uint64(*volumeFlags)
 	fStatfs.Fsid = uint64(*volumeSerial)
 
-	return operationSuccess, nil
+	return exitSuccess, nil
 }

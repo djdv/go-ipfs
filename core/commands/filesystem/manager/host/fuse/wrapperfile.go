@@ -8,7 +8,7 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 )
 
-func (fs *fuseInterface) Open(path string, flags int) (int, uint64) {
+func (fs *nodeBinding) Open(path string, flags int) (int, uint64) {
 	fs.log.Debugf("Open - {%X}%q", flags, path)
 
 	switch path {
@@ -35,7 +35,7 @@ func (fs *fuseInterface) Open(path string, flags int) (int, uint64) {
 	return operationSuccess, handle
 }
 
-func (fs *fuseInterface) Release(path string, fh uint64) int {
+func (fs *nodeBinding) Release(path string, fh uint64) int {
 	fs.log.Debugf("Release - {%X}%q", fh, path)
 
 	errNo, err := releaseFile(fs.files, fh)
@@ -46,8 +46,8 @@ func (fs *fuseInterface) Release(path string, fh uint64) int {
 	return errNo
 }
 
-func (fs *fuseInterface) Read(path string, buff []byte, ofst int64, fh uint64) int {
-	fs.log.Debugf("Read - Request {%X|%d}%q", fh, ofst, path)
+func (fs *nodeBinding) Read(path string, buff []byte, ofst int64, fh uint64) int {
+	fs.log.Debugf("Read - HostRequest {%X|%d}%q", fh, ofst, path)
 
 	// TODO: [review] we need to do things on failure
 	// the OS typically triggers a close, but we shouldn't expect it to invalidate this record for us
@@ -67,10 +67,10 @@ func (fs *fuseInterface) Read(path string, buff []byte, ofst int64, fh uint64) i
 	return retVal
 }
 
-func (fs *fuseInterface) Write(path string, buff []byte, ofst int64, fh uint64) int {
-	fs.log.Debugf("Write - Request {%X|%d|%d}%q", fh, len(buff), ofst, path)
+func (fs *nodeBinding) Write(path string, buff []byte, ofst int64, fh uint64) int {
+	fs.log.Debugf("Write - HostRequest {%X|%d|%d}%q", fh, len(buff), ofst, path)
 
-	if path == "/" { // root request; we're never a file
+	if path == "/" { // root Request; we're never a file
 		fs.log.Error(fuselib.Error(-fuselib.EBADF))
 		return -fuselib.EBADF
 	}

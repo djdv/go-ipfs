@@ -9,7 +9,7 @@ import (
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 )
 
-func (fs *fuseInterface) Opendir(path string) (int, uint64) {
+func (fs *nodeBinding) Opendir(path string) (int, uint64) {
 	fs.log.Debugf("Opendir - %q", path)
 
 	if path == "" { // invalid requests
@@ -55,7 +55,7 @@ func (fs *fuseInterface) Opendir(path string) (int, uint64) {
 	return operationSuccess, handle
 }
 
-func (fs *fuseInterface) Releasedir(path string, fh uint64) int {
+func (fs *nodeBinding) Releasedir(path string, fh uint64) int {
 	fs.log.Debugf("Releasedir - {%X}%q", fh, path)
 
 	errNo, err := releaseDir(fs.directories, fh)
@@ -66,7 +66,7 @@ func (fs *fuseInterface) Releasedir(path string, fh uint64) int {
 	return errNo
 }
 
-func (fs *fuseInterface) Readdir(path string,
+func (fs *nodeBinding) Readdir(path string,
 	fill func(name string, stat *fuselib.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) int {

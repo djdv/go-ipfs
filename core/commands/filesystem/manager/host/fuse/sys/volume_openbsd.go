@@ -1,6 +1,4 @@
-//+build !nofuse
-
-package fuse
+package sys
 
 import (
 	"syscall"
@@ -9,9 +7,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() { statfs = statfsOpenBSD }
-
-func statfsOpenBSD(path string, fStatfs *fuselib.Statfs_t) (int, error) {
+func Statfs(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	sysStat := &unix.Statfs_t{}
 	if err := unix.Statfs(path, sysStat); err != nil {
 		if errno, ok := err.(syscall.Errno); ok {
@@ -33,5 +29,5 @@ func statfsOpenBSD(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	fStatfs.Ffree = uint64(sysStat.F_ffree)
 	fStatfs.Frsize = uint64(sysStat.F_bsize)
 	fStatfs.Namemax = uint64(sysStat.F_namemax)
-	return operationSuccess, nil
+	return exitSuccess, nil
 }

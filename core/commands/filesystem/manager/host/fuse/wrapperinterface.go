@@ -7,15 +7,15 @@ import (
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
 	config "github.com/ipfs/go-ipfs-config"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse/sys"
 	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
 )
 
-type fuseInterface struct {
+type nodeBinding struct {
 	nodeInterface filesystem.Interface // interface between FUSE and the target API
 
-	initSignal InitSignal          // optional message channel to communicate with the caller
-	log        logging.EventLogger // general operations log
+	log logging.EventLogger // general operations log
 
 	readdirplusGen      // if set, we'll use this function to equip directories with a means to stat their elements
 	filesWritable  bool // switch for metadata fields and operation availability
@@ -26,14 +26,16 @@ type fuseInterface struct {
 	mountTimeGroup statTimeGroup // artificial file time signatures
 }
 
-func (fs *fuseInterface) Init() {
+func (fs *nodeBinding) Init() {
 	fs.log.Debug("init")
-	defer func() {
-		if fs.initSignal != nil {
-			close(fs.initSignal)
-		}
-		fs.log.Debugf("init finished")
-	}()
+	/*
+		defer func() {
+			if fs.initSignal != nil {
+				close(fs.initSignal)
+			}
+			fs.log.Debugf("init finished")
+		}()
+	*/
 
 	fs.files = newFileTable()
 	fs.directories = newDirectoryTable()
@@ -48,12 +50,12 @@ func (fs *fuseInterface) Init() {
 	}
 }
 
-func (fs *fuseInterface) Destroy() {
+func (fs *nodeBinding) Destroy() {
 	fs.log.Debugf("Destroy - Requested")
 }
 
-func (fs *fuseInterface) Statfs(path string, stat *fuselib.Statfs_t) int {
-	fs.log.Debugf("Statfs - Request %q", path)
+func (fs *nodeBinding) Statfs(path string, stat *fuselib.Statfs_t) int {
+	fs.log.Debugf("Statfs - HostRequest %q", path)
 
 	target, err := config.DataStorePath("")
 	if err != nil {
@@ -61,23 +63,23 @@ func (fs *fuseInterface) Statfs(path string, stat *fuselib.Statfs_t) int {
 		return -fuselib.ENOENT
 	}
 
-	errNo, err := statfs(target, stat)
+	errNo, err := sys.Statfs(target, stat)
 	if err != nil {
 		fs.log.Errorf("Statfs - err %q: %v", target, err)
 	}
 	return errNo
 }
 
-func (fs *fuseInterface) Readlink(path string) (int, string) {
+func (fs *nodeBinding) Readlink(path string) (int, string) {
 	fs.log.Debugf("Readlink - %q", path)
 
 	switch path {
 	case "/":
-		fs.log.Warnf("Readlink - root path is an invalid request")
+		fs.log.Warnf("Readlink - root path is an invalid Request")
 		return -fuselib.EINVAL, ""
 
 	case "":
-		fs.log.Error("Readlink - empty request")
+		fs.log.Error("Readlink - empty Request")
 		return -fuselib.ENOENT, ""
 	}
 
@@ -92,8 +94,8 @@ func (fs *fuseInterface) Readlink(path string) (int, string) {
 	return operationSuccess, filepath.ToSlash(linkString)
 }
 
-func (fs *fuseInterface) Rename(oldpath, newpath string) int {
-	fs.log.Warnf("Rename - Request %q->%q", oldpath, newpath)
+func (fs *nodeBinding) Rename(oldpath, newpath string) int {
+	fs.log.Warnf("Rename - HostRequest %q->%q", oldpath, newpath)
 
 	if err := fs.nodeInterface.Rename(oldpath, newpath); err != nil {
 		fs.log.Error(err)
@@ -103,8 +105,8 @@ func (fs *fuseInterface) Rename(oldpath, newpath string) int {
 	return operationSuccess
 }
 
-func (fs *fuseInterface) Truncate(path string, size int64, fh uint64) int {
-	fs.log.Debugf("Truncate - Request {%X|%d}%q", fh, size, path)
+func (fs *nodeBinding) Truncate(path string, size int64, fh uint64) int {
+	fs.log.Debugf("Truncate - HostRequest {%X|%d}%q", fh, size, path)
 
 	if size < 0 {
 		return -fuselib.EINVAL

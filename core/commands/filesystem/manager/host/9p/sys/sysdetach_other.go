@@ -1,5 +1,5 @@
 //+build !solaris,!freebsd,!dragonfly,!openbsd,!netbsd,!darwin,!linux,!plan9
 
-package p9fsp
+package sys
 
-func PlatformDetach(string) error { return errNotImplemented }
+func Detach(string) error { return errNotImplemented }

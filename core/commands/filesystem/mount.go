@@ -5,7 +5,6 @@ import (
 
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	fsm "github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
-	fsn "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/node"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 )
@@ -105,7 +104,7 @@ func listCommand(_ *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter)
 	responses := make(chan interface{}, 1) // NOTE: value must match `cmd.Command.Type`
 	// ^ responses := make(chan Response, 1) // cmds lib needs it to be interface{}
 
-	dispatcher := node.FileSystem.Dispatcher
+	dispatcher := node.FileSystem
 
 	// if the file instance dispatcher doesn't exist, we have nothing to list
 	// so just relay that notice to the rpc client
@@ -122,19 +121,15 @@ func listCommand(_ *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter)
 	go func() {
 		for system := range dispatcher.List() {
 			for hostResp := range system.FromHost {
-				var errStr string
-				if hostResp.Error != nil {
-					errStr = hostResp.Error.Error()
-				}
-
-				responses <- Response{Request: fsm.Request{
-					Header: fsm.Header{
-						API: system.API,
-						ID:  system.ID,
+				responses <- Response{
+					Error: hostResp.Error,
+					Request: fsm.Request{
+						Header: fsm.Header{
+							API: system.API,
+							ID:  system.ID,
+						},
+						HostRequest: hostResp.Request,
 					},
-					Request: hostResp.Request,
-				},
-					Error: errStr,
 				}
 			}
 		}
@@ -164,33 +159,29 @@ func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) e
 		return fmt.Errorf("failed to get file instance node from request: %w", err)
 	}
 
-	dispatcher := node.FileSystem.Dispatcher
+	dispatcher := node.FileSystem
 	if dispatcher == nil {
 		core, err := cmdenv.GetApi(env, req)
 		if err != nil {
 			return fmt.Errorf("failed to interface with the node: %w", err)
 		}
 
-		dispatcher, err = fsn.NewDispatcher(node.Context(), core, fsn.WithFilesAPIRoot(node.FilesRoot))
+		dispatcher, err = fsm.NewDispatcher(node.Context(), core, node.FilesRoot)
 		if err != nil {
 			return fmt.Errorf("failed to construct file system interface: %w", err)
 		}
-		node.FileSystem.Dispatcher = dispatcher
+		node.FileSystem = dispatcher
 	}
 
 	go func() {
 		for host := range dispatcher.Attach(requests...) {
 			for hostResp := range host.FromHost {
-				var errStr string
-				if hostResp.Error != nil {
-					errStr = hostResp.Error.Error()
-				}
 				responses <- Response{ // emit a copy without the closer
+					Error: hostResp.Error,
 					Request: fsm.Request{
-						Header:  host.Header,
-						Request: hostResp.Request,
+						Header:      host.Header,
+						HostRequest: hostResp.Request,
 					},
-					Error: errStr,
 				}
 			}
 		}
@@ -201,7 +192,7 @@ func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) e
 }
 
 /*
-func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) error {
+func bindCmd(req *cmds.HostRequest, env cmds.Environment, re cmds.ResponseEmitter) error {
 	// TODO: string emissions should all move to the emit handler
 	// Emit{Err:infoError("Binding")
 	// handleEmit(){ if infoError, print(err.Err()); return nil}

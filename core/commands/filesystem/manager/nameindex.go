@@ -4,24 +4,22 @@ import (
 	"sync"
 
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
-	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 	"github.com/ipfs/go-ipfs/filesystem"
 )
 
-type IndexValue struct {
+type indexValue struct {
 	Header
 	host.Binding
 }
 
 type NameIndex interface {
 	Exist(Request) bool
-	Push(IndexValue)
+	Push(indexValue)
 	Commit()
 
 	Detach(...Request) <-chan Response
 	List() <-chan Response
-	//Yield() []host.Request
+	//Yield() []host.HostRequest
 }
 
 // TODO: better tree structure
@@ -37,7 +35,7 @@ type nameIndex struct {
 	// to attempt to undo the request transaction
 	// if the entire operation succeeds
 	// we can commit the results to an index
-	stack     []IndexValue
+	stack     []indexValue
 	instances instanceIndex
 }
 
@@ -55,19 +53,19 @@ func NewNameIndex() NameIndex {
 //
 // commit flushes the stack into the index
 
-func (ni *nameIndex) Push(result IndexValue) {
+func (ni *nameIndex) Push(result indexValue) {
 	ni.Lock()
 	defer ni.Unlock()
 	ni.stack = append(ni.stack, result)
 }
 
 /*
-func (ni *nameIndex) Yield() []host.Request {
+func (ni *nameIndex) Yield() []host.HostRequest {
 	ni.Lock()
 	defer ni.Unlock()
-	reqs := make([]host.Request, 0, len(ni.stack))
+	reqs := make([]host.HostRequest, 0, len(ni.stack))
 	for i := len(ni.stack) - 1; i != -1; i-- { // return in reverse order
-		reqs = append(reqs, ni.stack[i].Request)
+		reqs = append(reqs, ni.stack[i].HostRequest)
 	}
 	ni.stack = ni.stack[:0]
 	return reqs
@@ -90,58 +88,72 @@ func (ni *nameIndex) Unwind(detach DetachFunc) <-chan instance.outStream {
 }
 */
 
+type closer func() error      // io.Closure closure wrapper
+func (f closer) Close() error { return f() }
+
 func (ni *nameIndex) Commit() {
 	ni.Lock()
 	defer ni.Unlock()
 
-	for _, binding := range ni.stack {
-		sysIndex, ok := ni.instances[binding.API]
+	for _, index := range ni.stack { // flush the stack to the target index
+		// walk the index, creating as needed
+		api := index.API
+		systems, ok := ni.instances[api]
 		if !ok {
-			sysIndex = make(systemIndex)
-			ni.instances[binding.API] = sysIndex
+			systems = make(systemIndex)
+			ni.instances[api] = systems
 		}
 
-		binder, ok := sysIndex[binding.ID]
+		sysID := index.ID
+		targets, ok := systems[sysID]
 		if !ok {
-			binder = make(targetIndex)
-			sysIndex[binding.ID] = binder
+			targets = make(targetIndex)
+			systems[sysID] = targets
 		}
 
-		var indexName string
-		switch binding.API {
-		case Plan9Protocol:
-			var err error
-			indexName, _, _, err = p9fsp.ParseRequest(binding.Request)
-			if err != nil {
-				panic(err) // the request dispatcher pushed a bad response
+		// insert into index and remove self when closed
+		indexName := index.Binding.String()
+
+		bindCloser := index.Binding.Closer.Close
+		index.Binding.Closer = closer(func() error {
+			ni.Lock()
+			defer ni.Unlock()
+			delete(targets, indexName)
+			if len(targets) == 0 {
+				delete(systems, sysID)
 			}
-		case Fuse:
-			_, indexName = fuse.ParseRequest(binding.Request)
-		default:
-			indexName = binding.Target
-		}
+			if len(systems) == 0 {
+				delete(ni.instances, api)
+			}
 
-		binder[indexName] = binding.Binding
+			return bindCloser()
+		})
+
+		targets[indexName] = index.Binding
 	}
 
-	ni.stack = ni.stack[:0]
+	ni.stack = ni.stack[:0] // clear the stack
 }
 
 func (ni *nameIndex) Exist(request Request) bool {
 	ni.Lock()
 	defer ni.Unlock()
 
+	return ni.unpackRequestTarget(request) != ""
+}
+
+func (ni *nameIndex) unpackRequestTarget(request Request) (indexName string) {
 	for api, systems := range ni.instances {
 		if api == request.API && systems != nil {
 			if system, fsInUse := systems[request.ID]; fsInUse {
-				index := RequestIndex(request)
-				_, targetInUse := system[index]
-				return targetInUse
+				if binding, indexInUse := system[request.String()]; indexInUse {
+					indexName = binding.String()
+					return
+				}
 			}
 		}
 	}
-
-	return false
+	return
 }
 
 func (ni *nameIndex) List() <-chan Response {
@@ -152,7 +164,7 @@ func (ni *nameIndex) List() <-chan Response {
 
 	go func() {
 		for api, systems := range ni.instances {
-			for sysID, targetIndex := range systems {
+			for sysID, targets := range systems {
 				header := Header{API: api, ID: sysID}
 
 				binderChan := make(chan host.Response)
@@ -162,12 +174,12 @@ func (ni *nameIndex) List() <-chan Response {
 					FromHost: binderChan,
 				}
 
-				go func() {
-					for _, binding := range targetIndex {
+				go func(targets targetIndex) {
+					for _, binding := range targets {
 						binderChan <- host.Response{Binding: binding}
 					}
 					close(binderChan)
-				}()
+				}(targets)
 
 				resp <- hostResp
 			}
@@ -178,6 +190,10 @@ func (ni *nameIndex) List() <-chan Response {
 	return resp
 }
 
+// TODO: in addition to removing the elements from the index
+// the manager needs some way to know that the last element was closed
+// so that it can remove itself from the node
+// when len(APIs) == 0; node.filesystem = nil
 func (ni *nameIndex) Detach(requests ...Request) <-chan Response {
 	ni.Lock()
 	defer ni.Unlock()
@@ -190,24 +206,22 @@ func (ni *nameIndex) Detach(requests ...Request) <-chan Response {
 	go func() {
 		for api, systems := range ni.instances {
 			for sysID, targets := range systems {
-				for _, request := range requests {
-					if request.API == api &&
-						request.ID == sysID {
-						index := RequestIndex(request)
-						if binding, ok := targets[index]; ok {
-							hostChan, ok := hostMap[request.Header]
+				for _, index := range requests {
+					if index.API == api &&
+						index.ID == sysID {
+						if binding, ok := targets[index.HostRequest.String()]; ok {
+							hostChan, ok := hostMap[index.Header]
 							if !ok {
 								hostChan = make(chan host.Response)
 								defer close(hostChan)
 
-								hostMap[request.Header] = hostChan
+								hostMap[index.Header] = hostChan
 								responses <- Response{
-									Header:   request.Header,
+									Header:   index.Header,
 									FromHost: hostChan,
 								}
 							}
 
-							delete(targets, request.Target)
 							hostChan <- host.Response{
 								Binding: binding,
 								Error:   binding.Close(),

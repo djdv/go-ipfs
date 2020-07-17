@@ -1,6 +1,4 @@
-//+build !nofuse
-
-package fuse
+package sys
 
 import (
 	"syscall"
@@ -9,9 +7,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() { statfs = statfsUnix }
-
-func statfsUnix(path string, fStatfs *fuselib.Statfs_t) (int, error) {
+func Statfs(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	sysStat := &unix.Statfs_t{}
 	if err := unix.Statfs(path, sysStat); err != nil {
 		if errno, ok := err.(syscall.Errno); ok {
@@ -25,11 +21,13 @@ func statfsUnix(path string, fStatfs *fuselib.Statfs_t) (int, error) {
 	fStatfs.Fsid = uint64(sysStat.Fsid.Val[0])<<32 | uint64(sysStat.Fsid.Val[1])
 	fStatfs.Flag = uint64(sysStat.Flags)
 
-	fStatfs.Bsize = uint64(sysStat.Bsize)
+	fStatfs.Bsize = sysStat.Bsize
 	fStatfs.Blocks = sysStat.Blocks
 	fStatfs.Bfree = sysStat.Bfree
-	fStatfs.Bavail = sysStat.Bavail
+	fStatfs.Bavail = uint64(sysStat.Bavail)
 	fStatfs.Files = sysStat.Files
-	fStatfs.Ffree = sysStat.Ffree
-	return operationSuccess, nil
+	fStatfs.Ffree = uint64(sysStat.Ffree)
+	fStatfs.Frsize = uint64(sysStat.Bsize)
+	fStatfs.Namemax = uint64(sysStat.Namemax)
+	return exitSuccess, nil
 }

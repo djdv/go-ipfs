@@ -1,6 +1,8 @@
 package fscmds
 
 import (
+	"errors"
+
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	fsm "github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
@@ -35,11 +37,11 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	responses := make(chan interface{}, 1) // NOTE: value must match `cmd.Command.Type`
 	// ^ responses := make(chan Response, 1) // cmds lib needs it to be interface{}
 
-	dispatcher := node.FileSystem.Dispatcher
+	dispatcher := node.FileSystem
 
 	// if the file instance dispatcher doesn't exist, we have nothing to detach
 	if dispatcher == nil {
-		responses <- Response{Error: "No file system manager initialized"}
+		responses <- Response{Error: errors.New("no file system manager initialized")}
 		close(responses)
 		return re.Emit(responses)
 	}
@@ -47,6 +49,7 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	if detachArg, ok := req.Options[unmountAllKwd].(bool); ok && detachArg {
 		go func() {
 			for resp := range CloseFileSystem(dispatcher) {
+				// FIXME: needs processing; this is sending the wrong type
 				responses <- resp
 			}
 			close(responses)
@@ -62,16 +65,12 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	go func() {
 		for host := range dispatcher.Detach(requests...) {
 			for hostResp := range host.FromHost {
-				var errStr string
-				if hostResp.Error != nil {
-					errStr = hostResp.Error.Error()
-				}
 				responses <- Response{ // emit a copy without the closer
+					Error: hostResp.Error,
 					Request: fsm.Request{
-						Header:  host.Header,
-						Request: hostResp.Request,
+						Header:      host.Header,
+						HostRequest: hostResp.Request,
 					},
-					Error: errStr,
 				}
 			}
 		}

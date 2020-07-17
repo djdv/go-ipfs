@@ -265,7 +265,7 @@ func (f *fid) Readdir(offset uint64, count uint32) (ninelib.Dirents, error) {
 	ver := uint64(atomic.LoadUint32(&f.QID.Version))
 	hasher := fnv.New64a()
 
-	// TODO: const timeout and maybe embed a ctx on fid
+	// TODO: const timeout and maybe embed a srvCtx on fid
 	callCtx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 

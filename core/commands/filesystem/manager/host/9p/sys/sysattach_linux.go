@@ -1,9 +1,9 @@
-package p9fsp
+package sys
 
 import (
 	"golang.org/x/sys/unix"
 )
 
-func PlatformAttach(source, target, args string) error {
+func Attach(source, target, args string) error {
 	return unix.Mount(source, target, "9p", 0, args)
 }

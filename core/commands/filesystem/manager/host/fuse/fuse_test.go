@@ -30,7 +30,7 @@ func TestAll(t *testing.T) {
 
 	ctx := context.TODO()
 
-	t.Run("IPFS", func(t *testing.T) { testIPFS(ctx, t, testEnv, core) })
+	t.Run("IPFS", func(t *testing.T) { testIPFS(ctx, t, testEnv, core, node.FilesRoot) })
 	/* TODO
 	t.Run("IPNS", func(t *testing.T) { testIPNS(ctx, t, env, iEnv, core) })
 	t.Run("FilesAPI", func(t *testing.T) { testMFS(ctx, t, env, iEnv, core) })

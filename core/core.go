@@ -64,7 +64,7 @@ type IpfsNode struct {
 
 	// Local node
 	Pinning         pin.Pinner             // the pinning manager
-	FileSystem      fsm.Manager            `optional:"true"` // the node's fs interface, attach/detach to host targets
+	FileSystem      fsm.Dispatcher         `optional:"true"` // the node's fs interface, attach/detach to host targets
 	PrivateKey      ic.PrivKey             `optional:"true"` // the local node's private Key
 	PNetFingerprint libp2p.PNetFingerprint `optional:"true"` // fingerprint of private network
 

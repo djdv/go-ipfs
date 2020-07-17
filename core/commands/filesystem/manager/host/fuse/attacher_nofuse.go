@@ -17,10 +17,6 @@ import (
 // (specifically our tests)
 var ErrNoFuse = errors.New(`binary was built without fuse support ("nofuse" tag provided during build)`)
 
-func HostAttacher(context.Context, filesystem.Interface) host.Attacher {
-	panic(ErrNoFuse)
-}
-
-func ParseRequest(host.Request) (string, string) {
-	panic(ErrNoFuse)
+func HostMounter(context.Context, filesystem.Interface, ...host.Option) (Mounter, error) {
+	return nil, ErrNoFuse
 }

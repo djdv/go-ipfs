@@ -1,14 +1,21 @@
 package fscmds
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"os"
+	"strings"
+
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
+
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
+
+	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
-	fsm "github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
 )
 
 // TODO: rework this into some proper response structure
@@ -17,61 +24,152 @@ import (
 // (the concrete type of the value set on `cmd.Command.Type`)
 // responders always receive a pointer to concreteTypeOf(`.Type`)
 type Response struct {
-	fsm.Request
+	manager.Request
 	Info  string
-	Error string
+	Error error
+}
+
+type responseEnc struct {
+	Target    string
+	Arguments []string
+}
+
+func (resp Response) MarshalJSON() ([]byte, error) {
+	if resp.Error != nil {
+		return json.Marshal(struct {
+			Error string
+		}{
+			Error: resp.Error.Error(),
+		})
+	}
+
+	if resp.Info != "" {
+		return json.Marshal(struct {
+			Info string
+		}{
+			Info: resp.Info,
+		})
+	}
+
+	return json.Marshal(responseEnc{
+		Target:    resp.String(),
+		Arguments: resp.HostRequest.Arguments(),
+	})
 }
 
 /* TODO: [lint]
-type ResponseError struct{ Err error }
-func (re *ResponseError) MarshalJSON() ([]byte, error) { return json.Marshal(re.Err.Error()) }
-func (re *ResponseError) UnMarshalJSON(v []byte) error {
-	if len(v) > 0 {
-		if bytes.Compare(v, []byte("null")) == 0 {
-			return nil
-		}
-
-		re.Err = errors.New(string(v))
+func (resp Response) MarshalText() ([]byte, error) {
+	var b bytes.Buffer
+	if resp.Error != nil {
+		b.WriteString("Error: ")
+		b.WriteString(resp.Error.Error())
+		return b.Bytes(), nil
 	}
 
-	return nil
+	if resp.Info != "" {
+		b.WriteString(resp.Info)
+		return b.Bytes(), nil
+	}
+
+	b.WriteString(resp.String())
+	return b.Bytes(), nil
 }
 */
 
-func processResponse(res cmds.Response, re cmds.ResponseEmitter) error {
-	//fmt.Fprintln(os.Stdout, "postrun", res.Length(), res.requests().Options["encoding"])
-	//defer fmt.Fprintln(os.Stdout, "postrun exit")
-	//os.Stdout.Sync()
+func (resp *Response) UnmarshalJSON(b []byte) (err error) {
+	if bytes.Equal(b, []byte("{}")) {
+		return
+	}
 
-	for {
-		v, err := res.Next()
-		if err != nil {
-			if err == io.EOF {
-				//fmt.Fprintln(os.Stdout, "eof")
-				return nil
-			}
-			fmt.Fprintln(os.Stdout, "other:", err)
-			return err
-		}
+	var bigError = struct{ Error error }{}
+	if err = json.Unmarshal(b, &bigError); err == nil && bigError.Error != nil {
+		resp.Error = bigError.Error
+		return
+	}
 
-		switch v.(type) {
-		case Response:
-			fmt.Println("procResp 0")
-		case *Response:
-			fmt.Println("procResp 1")
-			// parse here
-			fmt.Fprintf(os.Stdout, "procResp: emission value:%#v\n", v)
-		// do something
-		case string:
-			fmt.Println("procResp 2")
-			outType := res.Request().Options[cmds.EncLong]
-			if outType == cmds.Text {
-			}
-		default:
-			fmt.Fprintf(os.Stdout, "procResp 3: value:%#v\n", v)
-			return cmds.ErrIncorrectType
+	var bigInfo = struct{ Info string }{}
+	if err = json.Unmarshal(b, &bigInfo); err == nil && bigInfo.Info != "" {
+		resp.Info = bigInfo.Info
+		return
+	}
+
+	var hostReq responseEnc
+	if err = json.Unmarshal(b, &hostReq); err != nil {
+		return
+	}
+
+	resp.Request, err = decodeTarget(hostReq.Target, hostReq.Arguments)
+	return
+}
+
+func decodeTarget(targetLine string, arguments []string) (manager.Request, error) {
+	var mReq manager.Request
+
+	// input should look like:
+	// `/api/fsid/socket/ip4/.../host/n/ipfs`
+	if len(targetLine) == 0 || targetLine[0] != '/' {
+		return mReq, errors.New("malformed response 1") // TODO real error
+	}
+	// skip initial slash
+	targetLine = targetLine[1:] // `api/fsid/socket/ip4/.../host/n/ipfs`
+
+	slashBound := strings.IndexRune(targetLine, '/') // find the next boundary
+	if slashBound == 0 {
+		return mReq, errors.New("malformed response 2") // TODO real error
+	}
+
+	api, err := typeCastAPIArg(targetLine[:slashBound]) // evaluate
+	if err != nil {
+		return mReq, err
+	}
+	// move ahead
+	targetLine = targetLine[slashBound+1:] // `fsid/socket/ip4/.../host/n/ipfs`
+
+	slashBound = strings.IndexRune(targetLine, '/') // find the next boundary
+	if slashBound == 0 {
+		return mReq, errors.New("malformed response 3") // TODO real error
+	}
+
+	sysID, err := typeCastSystemArg(targetLine[:slashBound]) // evaluate
+	if err != nil {
+		return mReq, err
+	}
+	// move ahead
+	targetLine = targetLine[slashBound+1:] // `socket/ip4/.../host/n/ipfs`
+
+	// assign header
+	mReq.Header = manager.Header{API: api, ID: sysID}
+
+	// copy the host value from (beyond) the host namespace (if it exists)
+	var hostValue string
+	if slashBound = strings.Index(targetLine, host.PathNamespace); slashBound != -1 {
+		hostValue = targetLine[slashBound+len(host.PathNamespace):]
+
+		// remove the host porting from the line if it contains a prefix
+		if slashBound != 0 {
+			targetLine = targetLine[:slashBound-1] // `socket/ip4/...`
 		}
 	}
+
+	switch api {
+	default:
+		return mReq, fmt.Errorf("unexpected host API: %v", api)
+	case manager.Fuse:
+		mReq.HostRequest = fuse.Request{HostPath: hostValue, FuseArgs: arguments}
+	case manager.Plan9Protocol:
+		// copy socket component from the socket namespace (if it exists)
+		var socketValue string
+		if slashBound = strings.Index(targetLine, host.SocketNamespace); slashBound != -1 {
+			socketValue = targetLine[slashBound+len(host.SocketNamespace):]
+		}
+
+		mReq.HostRequest = p9fsp.Request{
+			ListenAddr: socketValue,
+			HostPath:   hostValue,
+		}
+	}
+
+	return mReq, nil
 }
 
 func encodeText(req *cmds.Request, w io.Writer, v interface{}) error {
@@ -82,12 +180,14 @@ func encodeText(req *cmds.Request, w io.Writer, v interface{}) error {
 
 	var res string
 	switch {
-	case val.Error != "":
-		res = val.Error
+	case val.Error != nil:
+		res = val.Error.Error()
 	case val.Info != "":
 		res = val.Info
-	default:
+	case val.HostRequest != nil:
 		res = val.String()
+	default: // empty response
+		return nil
 	}
 	res += "\n"
 
@@ -99,11 +199,11 @@ func encodeJson(req *cmds.Request, w io.Writer, v interface{}) error {
 	return json.NewEncoder(w).Encode(v)
 }
 
-func CloseFileSystem(dispatcher fsm.Dispatcher) <-chan Response {
+// TODO: put on dispatcher unexported
+// export Close which calls this, merged
+func CloseFileSystem(dispatcher manager.Dispatcher) <-chan Response {
 	responses := make(chan Response, 1)
-	responses <- Response{Info: "detaching all file systems from the host..."}
-
-	// FIXME: closes instances but doesn't remove them from the index
+	responses <- Response{Info: "detaching all host bindings..."}
 
 	go func() {
 		for index := range dispatcher.List() {
@@ -111,14 +211,14 @@ func CloseFileSystem(dispatcher fsm.Dispatcher) <-chan Response {
 				binding := hostResp.Binding
 				resp := Response{
 					Request: manager.Request{
-						Header:  index.Header,
-						Request: binding.Request,
+						Header:      index.Header,
+						HostRequest: binding.Request,
 					},
 				}
 
 				responses <- Response{Info: fmt.Sprintf(`closing: %s`, resp.String())}
 				if err := binding.Close(); err != nil {
-					resp.Error = err.Error()
+					resp.Error = err
 				}
 				responses <- resp
 			}

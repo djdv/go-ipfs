@@ -65,34 +65,31 @@ const (
 	// all daemon descriptions should include this message
 	// in addition to the parameters normal description
 	daemonDescInfo = "(if using --mount) "
-
-	// TODO: templateRoot = (*nix) `/` || (NT) ${CurDrive}:\ || (any others)...
-	templateHome = "IPFS_HOME"
 )
 
-func typeCastSystemArg(in string) (filesystem.ID, error) {
-	systemTarget, ok := map[string]filesystem.ID{
+func typeCastSystemArg(systemName string) (sysID filesystem.ID, err error) {
+	var ok bool
+	sysID, ok = map[string]filesystem.ID{
 		strings.ToLower(filesystem.IPFS.String()):  filesystem.IPFS,
 		strings.ToLower(filesystem.IPNS.String()):  filesystem.IPNS,
 		strings.ToLower(filesystem.Files.String()): filesystem.Files,
 		strings.ToLower(filesystem.PinFS.String()): filesystem.PinFS,
 		strings.ToLower(filesystem.KeyFS.String()): filesystem.KeyFS,
-	}[strings.ToLower(in)]
+	}[strings.ToLower(systemName)]
 	if !ok {
-		var none filesystem.ID
-		return none, fmt.Errorf("%w:%s", ErrInvalidSystem, in)
+		err = fmt.Errorf("%w:%s", ErrInvalidSystem, systemName)
 	}
-	return systemTarget, nil
+	return
 }
 
-func typeCastAPIArg(in string) (manager.API, error) {
-	apiTarget, ok := map[string]manager.API{
+func typeCastAPIArg(apiName string) (api manager.API, err error) {
+	var ok bool
+	api, ok = map[string]manager.API{
 		strings.ToLower(manager.Plan9Protocol.String()): manager.Plan9Protocol,
 		strings.ToLower(manager.Fuse.String()):          manager.Fuse,
-	}[strings.ToLower(in)]
+	}[strings.ToLower(apiName)]
 	if !ok {
-		var none manager.API
-		return none, fmt.Errorf("%w:%s", ErrInvalidAPI, in)
+		err = fmt.Errorf("%w:%s", ErrInvalidAPI, apiName)
 	}
-	return apiTarget, nil
+	return
 }

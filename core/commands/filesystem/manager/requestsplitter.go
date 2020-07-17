@@ -1,42 +1,33 @@
-package node
+package manager
 
 import (
 	"fmt"
 	"sort"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
 	"github.com/ipfs/go-ipfs/filesystem"
 )
 
-type byTarget []manager.Request
+type byTarget []Request
 
 func (r byTarget) Len() int      { return len(r) }
 func (r byTarget) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 func (r byTarget) Less(i, j int) bool {
-	return r[i].Target < r[j].Target
+	return r[i].HostRequest.String() < r[j].HostRequest.String()
 }
 
-type byAPI []manager.Request
+type byAPI []Request
 
 func (r byAPI) Len() int      { return len(r) }
 func (r byAPI) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 func (r byAPI) Less(i, j int) bool {
 	return r[i].API < r[j].API &&
 		r[i].ID < r[j].ID &&
-		r[i].Target < r[j].Target
+		r[i].HostRequest.String() < r[j].HostRequest.String()
 }
 
-func sideBySide(left, right manager.Request) error {
-	leftIndex := manager.RequestIndex(left)
-	if leftIndex == manager.RequestIndex(right) {
-		return fmt.Errorf("duplicate target requested: %q", leftIndex)
-	}
-	return nil
-}
-
-func check(ni manager.NameIndex, requests ...manager.Request) error {
+func check(ni NameIndex, requests ...Request) error {
 	// basic dupe check
 	// sort by target string
 	if len(requests) < 2 {
@@ -47,37 +38,37 @@ func check(ni manager.NameIndex, requests ...manager.Request) error {
 
 	rightShifted := requests[1:]
 	for i, rightRequest := range rightShifted {
-		if err := sideBySide(requests[i], rightRequest); err != nil {
-			return err
+		if requests[i].String() == rightRequest.String() {
+			return fmt.Errorf("duplicate target requested: %q", rightRequest.String())
 		}
 
 		// if already in the index, deny request
 		if ni.Exist(rightRequest) {
-			return fmt.Errorf("%q is already bound", rightRequest.Target)
+			return fmt.Errorf("%q is already bound", rightRequest.String())
 		}
 	}
 
 	return nil
 }
 
-type hostMethod func(api manager.API, sysID filesystem.ID, requests ...host.Request) <-chan host.Response
+type hostMethod func(api API, id filesystem.ID, requests ...host.Request) <-chan host.Response
 
-func dispatch(hostMethod hostMethod, requests ...manager.Request) <-chan manager.Response {
+func dispatch(hostMethod hostMethod, requests ...Request) <-chan Response {
 	sort.Sort(byAPI(requests))
 
-	merged := make(chan manager.Response)
+	merged := make(chan Response)
 
-	dispatchToMethod := func(wg *sync.WaitGroup, header manager.Header, hostRequests ...host.Request) {
+	dispatchToMethod := func(wg *sync.WaitGroup, header Header, hostRequests ...host.Request) {
 		if len(hostRequests) == 0 {
 			return
 		}
-
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
 			// TODO: inspect error
 			// if present, call an "unwind" closure
-			merged <- manager.Response{
+			merged <- Response{
 				Header:   header,
 				FromHost: hostMethod(header.API, header.ID, hostRequests...),
 			}
@@ -85,7 +76,7 @@ func dispatch(hostMethod hostMethod, requests ...manager.Request) <-chan manager
 	}
 
 	var hostTasks sync.WaitGroup
-	var hostHeader manager.Header
+	var hostHeader Header
 	var requestBatch []host.Request
 
 	// build a unique list for each pair of {API:FS} requests
@@ -106,7 +97,7 @@ func dispatch(hostMethod hostMethod, requests ...manager.Request) <-chan manager
 			hostHeader = req.Header         // move batch marker forward
 		}
 
-		requestBatch = append(requestBatch, req.Request)
+		requestBatch = append(requestBatch, req.HostRequest)
 
 		if i == rEnd {
 			dispatchToMethod(&hostTasks, hostHeader, requestBatch...)
@@ -121,14 +112,14 @@ func dispatch(hostMethod hostMethod, requests ...manager.Request) <-chan manager
 	return merged
 }
 
-func (am *apiMux) splitRequests(hostMethod hostMethod, requests ...manager.Request) <-chan manager.Response {
+func (am *apiMux) splitRequests(hostMethod hostMethod, requests ...Request) <-chan Response {
 	if err := check(am.NameIndex, requests...); err != nil {
 		hostResp := make(chan host.Response, 1)
 		hostResp <- host.Response{Error: err}
 		close(hostResp)
 
-		resp := make(chan manager.Response, 1)
-		resp <- manager.Response{FromHost: hostResp}
+		resp := make(chan Response, 1)
+		resp <- Response{FromHost: hostResp}
 		close(resp)
 
 		return resp

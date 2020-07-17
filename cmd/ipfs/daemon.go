@@ -693,72 +693,56 @@ func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {
 }
 
 func maybeBindFileSystem(req *cmds.Request, env cmds.Environment) (<-chan error, error) {
+	// regardless of if we bind during node init (now)
+	// or some time after the node is initialized
+	// we always set up an error channel for the node
+
+	// if targets are bound to the host (either now or later)
+	// we make sure to release them on node shutdown
+	// (if they were not already released by the operator)
+
 	node, err := cmdenv.GetNode(env)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: English
-	// [async]
-	// if `mount` is run after the daemon command returns
-	// it will use this error channel to coordinate with the node
-	// if the node has requested to shut down before the operator has called `unmount`
-	// we always try to wait for that instance to close on daemon shutdown
-	closeChan := node.FileSystem.ErrorChannel
-	if closeChan == nil {
-		closeChan = make(chan error, 1)
-		go func() {
-			<-req.Context.Done() // wait for the daemon to say it's done
-			defer close(closeChan)
+	daemonShutdownChan := make(chan error)
+	go func() {
+		defer close(daemonShutdownChan)
+		<-node.Context().Done() // wait for the node to say it's done
 
-			// [async]
-			// `unmount` may be called before the node is instructed to close
-			// which will remove the manager from the node
-			// we'll check and wait for the manager to close if it's still on the node
-			if node.FileSystem.Dispatcher != nil {
-				const (
-					targErrPair        = "%q:%s"
-					targErrPairWrapped = "%w;\n" + targErrPair
-				)
-
-				errWrap := func(target string, base, appended error) error {
-					if base == nil {
-						base = fmt.Errorf(targErrPair, target, appended)
-					} else {
-						base = fmt.Errorf(targErrPairWrapped, base, target, appended)
-					}
-					return base
+		// if systems were bound, but not released before shutdown
+		if node.FileSystem != nil {
+			// release them now
+			//TODO: the manager constructor
+			// needs to refcount somehow, and remove itself from the node
+			// or signal us to to it somehow (len == 0 style)
+			for resp := range fscmds.CloseFileSystem(node.FileSystem) {
+				// printing the responses to the node's console
+				if resp.Info != "" {
+					fmt.Println(resp.Info)
+					continue
 				}
 
-				var err error
-				for resp := range fscmds.CloseFileSystem(node.FileSystem.Dispatcher) {
-					if resp.Info != "" {
-						fmt.Println(resp.Info)
-						continue
-					}
-					if resp.Error != "" {
-						fmt.Println("error:", resp.Error)
-						err = errWrap(resp.String(), err, errors.New(resp.Error))
-						continue
-					}
-					fmt.Println("detached:", resp.String())
+				targetName := resp.Request.String()
+				if resp.Error != nil {
+					fmt.Fprintln(os.Stderr, "error:", resp.Error)
+					daemonShutdownChan <- fmt.Errorf("%q: %s",
+						targetName,
+						resp.Error)
+					continue
 				}
+				fmt.Println("detached:", targetName)
 			}
+		}
+	}()
 
-			closeChan <- err
-		}()
-
-		node.FileSystem.ErrorChannel = closeChan
-	}
-
-	// our responsibility is to set up the file node error channel
-	// and maybe make a bind request
 	// if bind requests parameters are not present, we can return
 	// otherwise we'll translate the request from a `daemon` command
 	// to a `mount` command request
-	mountRequest, forwardRequest := fscmds.TranslateToMountRequest(fscmds.DaemonCmdPrefix, req)
+	mountRequest, forwardRequest := fscmds.TranslateToBindRequest(fscmds.DaemonCmdPrefix, req)
 	if !forwardRequest {
-		return closeChan, nil
+		return daemonShutdownChan, nil
 	}
 
 	// otherwise, the request above was translated `daemon` => `mount
@@ -770,7 +754,7 @@ func maybeBindFileSystem(req *cmds.Request, env cmds.Environment) (<-chan error,
 		return nil, err
 	}
 
-	return closeChan, fscmds.Mount.Run(mountRequest, emitter, env)
+	return daemonShutdownChan, fscmds.Mount.Run(mountRequest, emitter, env)
 }
 
 // merge does fan-in of multiple read-only error channels

@@ -287,7 +287,7 @@ func staticStat(r filesystem.Interface, basePath string, template *fuselib.Stat_
 }
 
 // dynamicStat generates a statFunc
-// that always fetches attributes for a requests (assuming they may have changed since the last request)
+// that always fetches attributes for a requests (assuming they may have changed since the last Request)
 func dynamicStat(r filesystem.Interface, basePath string, template *fuselib.Stat_t) statFunc {
 	return func(name string) *fuselib.Stat_t {
 		return getStat(r, gopath.Join(basePath, name), template)

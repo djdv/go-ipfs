@@ -5,21 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"os"
-	"os/user"
-	"path/filepath"
 	"runtime"
 	"strings"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
-
-	"github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	config "github.com/ipfs/go-ipfs-config"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
-	"github.com/multiformats/go-multiaddr"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
+	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
+	"github.com/ipfs/go-ipfs/filesystem"
 )
 
 var (
@@ -55,25 +52,25 @@ e.g. command flags should look like this:
 */
 
 // returns true if the input request was translated into a bind request
-func TranslateToMountRequest(prefix string, sourceReq *cmds.Request) (*cmds.Request, bool) {
+func TranslateToBindRequest(prefix string, sourceReq *cmds.Request) (*cmds.Request, bool) {
 	if prefixFlag, _ := sourceReq.Options[prefix].(bool); !prefixFlag {
 		return nil, false
 	}
 
-	mountReq := *sourceReq
-	mountReq.Command = Mount
+	bindReq := *sourceReq
+	bindReq.Command = Mount
 
-	delete(mountReq.Options, prefix) // delete the prefix option itself first
+	delete(bindReq.Options, prefix) // delete the prefix option itself first
 
-	for param, arg := range mountReq.Options {
-		delete(mountReq.Options, param)       // delete the rest of the options
+	for param, arg := range bindReq.Options {
+		delete(bindReq.Options, param)        // delete the rest of the options
 		if strings.HasPrefix(param, prefix) { // keeping (unencapsulated) copies of prefixed parameters
 			// e.g. `superCmd --prefix-ABC=123` => `cmd -ABC=123`
-			mountReq.Options[strings.TrimPrefix(param, prefix+"-")] = arg
+			bindReq.Options[strings.TrimPrefix(param, prefix+"-")] = arg
 		}
 	}
 
-	return &mountReq, true
+	return &bindReq, true
 }
 
 func parseRequest(req *cmds.Request, env cmds.Environment) ([]manager.Request, error) {
@@ -97,11 +94,7 @@ func parseRequest(req *cmds.Request, env cmds.Environment) ([]manager.Request, e
 		return nil, fmt.Errorf(paramErrStr, err)
 	}
 
-	requests, err := combine(api, subsystems, targets)
-	if err != nil {
-		return nil, fmt.Errorf(paramErrStr, err)
-	}
-	return requests, nil
+	return combine(api, subsystems, targets)
 }
 
 func hasParam(req *cmds.Request, parameterName string) (string, bool) {
@@ -263,235 +256,61 @@ func parseTargetConfig(nodeConf *config.Config, systems []filesystem.ID) ([]stri
 }
 
 func combine(apis []manager.API, systems []filesystem.ID, targets []string) ([]manager.Request, error) {
-	if tLen, nLen := len(targets), len(systems); tLen != nLen {
-		return nil, fmt.Errorf("system and target count do not match([%d]system:%v|[%d]targets:%v)", nLen, systems, tLen, targets)
+	targetCount, systemCount := len(targets), len(systems)
+
+	// TODO: we should do blank fill-ins here, not in the parserX functions
+	// since there's ambiguity as to whether a value was provided or not
+	// too much magic going on here
+
+	// TODO: [HACK] this prevents the default system vector from causing issues on
+	// single target requests like `ipfs mount --target=/somewhere`
+	// but is magic and bad
+	// also targets need to be the command argument, not flags
+	if targetCount > systemCount {
+		return nil, fmt.Errorf("targets ([%d]system:%v|[%d]targets:%v)", systemCount, systems, targetCount, targets)
 	}
 
 	apiCount := len(apis)
-	if apiCount == 1 { // special case, apply to all
+	if apiCount == 1 && targetCount != 1 { // special case, apply to all
 		api := apis[0]
-		targs := len(targets)
-		apis = make([]manager.API, targs)
-		for i := 0; i != targs; i++ {
-			apis[i] = api
+		apis = make([]manager.API, targetCount)
+		for apiCount = 0; apiCount != targetCount; apiCount++ {
+			apis[apiCount] = api
 		}
-	} else { // otherwise make sure everything aligns
-		// TODO: for now restrict to one arg
-		// later parse correctly
-		return nil, fmt.Errorf("too many file system API's provided in request: %v", apis)
 	}
-
-	api := apis[0] // HACK: the pipeline needs to be better but isn't yet
+	if apiCount != targetCount {
+		return nil, fmt.Errorf("host API and target count do not match([%d]apis:%v|[%d]targets:%v)", apiCount, apis, targetCount, targets)
+	}
 
 	var requests []manager.Request
-	for i, t := range targets {
+	for i, target := range targets {
+		api := apis[i]
 		sysID := systems[i]
 
-		request := manager.Request{
-			Header:  manager.Header{ID: sysID},
-			Request: host.Request{Target: t},
-		}
-
 		// process the target request into an API specific request
+		var (
+			hostRequest host.Request
+			err         error
+		)
 		switch api {
 		default:
-			return nil, fmt.Errorf("unexpected file system: %v", sysID)
+			err = fmt.Errorf("unexpected host API: %v", api)
 		case manager.Plan9Protocol:
-			var err error
-			if request.Arguments, err = nineArgs(&request.Target, sysID); err != nil {
-				return nil, err
-			}
-			request.API = manager.Plan9Protocol
+			hostRequest, err = p9fsp.ParseRequest(sysID, target)
 		case manager.Fuse:
-			request.Arguments = fuseArgs(&request.Target, sysID)
-			request.API = manager.Fuse
+			hostRequest, err = fuse.ParseRequest(sysID, target)
+		}
+		if err != nil {
+			return nil, err
 		}
 
-		requests = append(requests, request)
+		requests = append(requests, manager.Request{
+			Header:      manager.Header{API: api, ID: sysID},
+			HostRequest: hostRequest,
+		})
 	}
+
 	return requests, nil
-}
-
-// modifies the request target (if necessary for the platform/request)
-// and may return a 9P specific parameter
-// if the target is a file system path, to be mounted by us (as a client)
-// the parameter string will specify a maddr for the provider to use (as the server)
-// if the target is itself a listener address, it will be moved to the parameter string, and the target cleared
-// (despite its name, the arity of `nineArgs` is 2, not 9)
-func nineArgs(target *string, namespace filesystem.ID) ([]string, error) {
-	// we allow templating unix domain socket maddrs, so check for those and expand them here
-	if strings.HasPrefix(*target, "/unix") {
-		listenerString, err := stabilizeUnixPath(*target)
-		if err != nil {
-			return nil, err
-		}
-		*target = listenerString
-	}
-
-	var listenerString string
-
-	// if the target is a maddr, move it to the parameter string
-	// to signify to the provider there is no mount target, and we just want the listener
-	if _, err := multiaddr.NewMultiaddr(*target); err == nil {
-		listenerString = *target
-		*target = ""
-	} else {
-		// otherwise, provide a listening address for targets that are themselves, not-listeners
-		// leaving the target string unmodified
-		udsPath, err := stabilizeUnixPath(fmt.Sprintf("/unix/$IPFS_HOME/9p.%s.sock", namespace.String()))
-		if err != nil {
-			return nil, err
-		}
-		listenerString = udsPath
-	}
-
-	return []string{listenerString}, nil
-}
-
-// modifies the request target (if necessary for the platform/request)
-// and may return an array of platform specific FUSE parameters, if needed
-func fuseArgs(target *string, namespace filesystem.ID) []string {
-	var (
-		opts string
-		args []string
-	)
-
-	switch runtime.GOOS {
-	default:
-		// NOOP
-
-	case "windows": // expected target is WinFSP; use its options
-		// cgofuse expects an argument format comprised of components
-		// e.g. `mount.exe -o "uid=-1,volname=a valid name,gid=-1" --VolumePrefix=\localhost\UNC`
-		// is equivalent to this in Go:
-		//`[]string{"-o", "uid=-1,volname=a valid name,gid=-1", "--VolumePrefix=\\localhost\\UNC"}`
-		// refer to the WinFSP documentation for expected parameters and their literal format
-
-		// basic Info
-		/* TODO overlay
-		if namespace == Combined {
-			opts = "FileSystemName=IPFS,volname=IPFS"
-		} else {
-			opts = fmt.Sprintf("FileSystemName=%s,volname=%s", namespace.String(), namespace.String())
-		}
-		*/
-
-		opts = fmt.Sprintf("FileSystemName=%s,volname=%s", namespace.String(), namespace.String())
-
-		// set the owner to be the same as the process (`daemon`'s or `mount`'s depending on background/foreground)
-		opts += ",uid=-1,gid=-1"
-		args = append(args, "-o", opts)
-
-		// convert UNC targets to WinFSP format
-		if len(*target) > 2 && (*target)[:2] == `\\` {
-			// NOTE: cgo-fuse/WinFSP UNC parameter uses single slash prefix, so we chop one off
-			// the FUSE target uses `/`,
-			// while the prefix parameter uses `\`
-			// but otherwise they point to the same target
-			//args = append(args, `--VolumePrefix`, (*target)[1:])
-			//*target = ""
-			//args = append(args, fmt.Sprintf(`--VolumePrefix=%s`, (*target)[1:]))
-
-			//			modTarg := (*target)[1:]
-			//args = append(args, fmt.Sprintf(`--VolumePrefix=%s`, modTarg))
-			args = append(args, fmt.Sprintf(`--VolumePrefix=%s`, (*target)[1:]))
-			//*target = filepath.ToSlash(modTarg)
-			*target = ""
-		}
-		// otherwise target is another reference; leave it alone
-
-	case "freebsd":
-		/* TODO: overlay
-		if namespace == Combined {
-			opts = "fsname=IPFS,subtype=IPFS"
-		} else {
-			opts = fmt.Sprintf("fsname=%s,subtype=%s", namespace.String(), namespace.String())
-		}
-		*/
-
-		opts = fmt.Sprintf("fsname=%s,subtype=%s", namespace.String(), namespace.String())
-
-		// TODO: [general] we should allow the user to pass in raw options
-		// that we will then relay to the underlying fuse implementation, unaltered
-		// options like `allow_other` depend on opinions of the sysop, not us
-		// so we shouldn't just assume this is what they want
-		if os.Geteuid() == 0 { // if root, allow other users to access the mount
-			opts += ",allow_other" // allow users besides root to see and access the mount
-
-			//opts += ",default_permissions"
-			// TODO: [cli, constructors]
-			// for now, `default_permissions` won't prevent anything
-			// since we tell whoever is calling that they own the file, regardless of who it is
-			// we need a way for the user to set `uid` and `gid` values
-			// both for our internal context (getattr)
-			// as well as allowing them to pass the uid= and gid= FUSE options (not specifically, pass anything)
-			// (^system ignores our values and substitutes its own)
-		}
-		args = append(args, "-o", opts)
-
-	case "openbsd":
-		args = append(args, "-o", "allow_other")
-
-	case "darwin":
-		/* TODO: overlay
-		if namespace == filesystem.SystemIDCombined {
-			// TODO: see if we can provide `volicon` via an IPFS path; or make the overlay provide one via `/.VolumeIcon.icns` on darwin
-			opts = "fsname=IPFS,volname=IPFS"
-		} else {
-			opts = fmt.Sprintf("fsname=%s,volname=%s", namespace.String(), namespace.String())
-		}
-		*/
-		opts = fmt.Sprintf("fsname=%s,volname=%s", namespace.String(), namespace.String())
-
-		args = append(args, "-o", opts)
-
-		// TODO reconsider if we should leave this hack in
-		// macfuse takes this literally and will make a mountpoint as `./~/target` not `/home/user/target`
-		if strings.HasPrefix(*target, "~") {
-			usr, err := user.Current()
-			if err != nil {
-				panic(err)
-			}
-			*target = usr.HomeDir + (*target)[1:]
-		}
-
-	case "linux":
-		// [2020.04.18] cgofuse currently backed by hanwen/go-fuse on linux
-		// their option set doesn't support our desired options
-		// libfuse: opts = fmt.Sprintf(`-o fsname=ipfs,subtype=fuse.%s`, namespace.String())
-	}
-
-	return args
-}
-
-func stabilizeUnixPath(maString string) (string, error) {
-	templateValueRepoPath, err := config.PathRoot()
-	if err != nil {
-		return "", err
-	}
-
-	if !filepath.IsAbs(templateValueRepoPath) { // stabilize root path
-		absRepo, err := filepath.Abs(templateValueRepoPath)
-		if err != nil {
-			return "", err
-		}
-		templateValueRepoPath = absRepo
-	}
-
-	// expand templates
-
-	// NOTE: the literal parsing and use of `/` is interned
-	// we don't want to treat this like a file system path, it is specifically a multiaddr string
-	// this prevents the template from expanding to double slashed paths like `/unix//home/...` on *nix systems
-	// but allow it to expand to `/unix/C:\Users\...` on NT, which is the valid form for the maddr target value
-	templateValueRepoPath = strings.TrimPrefix(templateValueRepoPath, "/")
-
-	// only expand documented template keys, not everything
-	return os.Expand(maString, func(key string) string {
-		return (map[string]string{
-			templateHome: templateValueRepoPath,
-		})[key]
-	}), nil
 }
 
 /* TODO: [lint] we likely won't need this; maybe the warning for length would be good to have
