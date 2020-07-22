@@ -8,27 +8,22 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
-
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
-
-	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
-
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
+	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 )
 
-// TODO: rework this into some proper response structure
-// I misunderstood how the emitter worked lol
-// it takes in an interface{} but is still bound to a single type
-// (the concrete type of the value set on `cmd.Command.Type`)
-// responders always receive a pointer to concreteTypeOf(`.Type`)
+// Response is the RPC message used between local and remote `cmds.Commands`.
+// It gets (un)marshaled into/from Go, json, text("encode" only)
 type Response struct {
 	manager.Request
 	Info  string
 	Error error
 }
 
+// a successful result is encoded and sent without additional info from the Response
 type responseEnc struct {
 	Target    string
 	Arguments []string
@@ -81,9 +76,9 @@ func (resp *Response) UnmarshalJSON(b []byte) (err error) {
 		return
 	}
 
-	var bigError = struct{ Error error }{}
-	if err = json.Unmarshal(b, &bigError); err == nil && bigError.Error != nil {
-		resp.Error = bigError.Error
+	var bigError = struct{ Error string }{}
+	if err = json.Unmarshal(b, &bigError); err == nil && bigError.Error != "" {
+		resp.Error = errors.New(bigError.Error)
 		return
 	}
 
@@ -105,17 +100,19 @@ func (resp *Response) UnmarshalJSON(b []byte) (err error) {
 func decodeTarget(targetLine string, arguments []string) (manager.Request, error) {
 	var mReq manager.Request
 
+	const malformedFmt = "malformed response: `%s`"
+
 	// input should look like:
 	// `/api/fsid/socket/ip4/.../host/n/ipfs`
 	if len(targetLine) == 0 || targetLine[0] != '/' {
-		return mReq, errors.New("malformed response 1") // TODO real error
+		return mReq, fmt.Errorf(malformedFmt, targetLine) // TODO: real error
 	}
 	// skip initial slash
 	targetLine = targetLine[1:] // `api/fsid/socket/ip4/.../host/n/ipfs`
 
 	slashBound := strings.IndexRune(targetLine, '/') // find the next boundary
 	if slashBound == 0 {
-		return mReq, errors.New("malformed response 2") // TODO real error
+		return mReq, fmt.Errorf(malformedFmt, targetLine) // TODO: real error
 	}
 
 	api, err := typeCastAPIArg(targetLine[:slashBound]) // evaluate
@@ -127,7 +124,7 @@ func decodeTarget(targetLine string, arguments []string) (manager.Request, error
 
 	slashBound = strings.IndexRune(targetLine, '/') // find the next boundary
 	if slashBound == 0 {
-		return mReq, errors.New("malformed response 3") // TODO real error
+		return mReq, fmt.Errorf(malformedFmt, targetLine) // TODO: real error
 	}
 
 	sysID, err := typeCastSystemArg(targetLine[:slashBound]) // evaluate

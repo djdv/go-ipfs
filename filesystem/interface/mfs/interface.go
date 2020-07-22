@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	gomfs "github.com/ipfs/go-mfs"
@@ -32,7 +34,7 @@ func (mi *mfsInterface) ID() filesystem.ID { return filesystem.Files } // TODO: 
 func (mi *mfsInterface) Close() error      { return mi.mroot.Close() }
 func (mi *mfsInterface) Rename(oldName, newName string) error {
 	if err := gomfs.Mv(mi.mroot, oldName, newName); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
+		return &interfaceutils.Error{Cause: err, Type: errors.IO}
 	}
 	return nil
 }

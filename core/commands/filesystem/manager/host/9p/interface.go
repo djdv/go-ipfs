@@ -38,13 +38,14 @@ type nineAttacher struct {
 // bind a `filesystem.Interface` to a host nineAttacher (file system manager format)
 func HostAttacher(ctx context.Context, fs filesystem.Interface, opts ...host.Option) (Attacher, error) {
 	settings := host.ParseOptions(opts...)
+
 	return &nineAttacher{
 		srvCtx: ctx,
 		log: logging.Logger(gopath.Join(
 			settings.LogPrefix, // fmt: `filesystem`
 			logGroup,           // fmt: `9P`
 		)),
-		srv:     ninelib.NewServer(newAttacher(fs)),
+		srv:     ninelib.NewServer(newAttacher(fs, opts...)),
 		servers: make(map[string]serverRef),
 	}, nil
 }
@@ -62,6 +63,11 @@ func newAttacher(fs filesystem.Interface, opts ...host.Option) ninelib.Attacher 
 		)),
 
 		initTime: time.Now(), // TODO: this should be done on `file.Attach()`
+	}
+
+	switch fs.ID() {
+	case filesystem.KeyFS, filesystem.Files:
+		fid.filesWritable = true
 	}
 
 	return fid

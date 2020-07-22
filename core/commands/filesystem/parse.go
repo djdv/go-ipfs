@@ -8,14 +8,13 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
-
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	config "github.com/ipfs/go-ipfs-config"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
 	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 	"github.com/ipfs/go-ipfs/filesystem"
 )
 
@@ -51,7 +50,10 @@ e.g. command flags should look like this:
 	    `ipfs daemon --mount --filesystem-target="/path"`
 */
 
+// TranslateToBindRequest takes in a request for 1 command and translates it into a request for the base command.
+// Copying parameters to the new request, without their prefix.
 // returns true if the input request was translated into a bind request
+// TODO: convert bool -> error; specify that a prefix was not found in the provided request
 func TranslateToBindRequest(prefix string, sourceReq *cmds.Request) (*cmds.Request, bool) {
 	if prefixFlag, _ := sourceReq.Options[prefix].(bool); !prefixFlag {
 		return nil, false

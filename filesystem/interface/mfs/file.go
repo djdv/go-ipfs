@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	gomfs "github.com/ipfs/go-mfs"
@@ -27,22 +29,22 @@ func (mi *mfsInterface) Open(path string, flags filesystem.IOFlags) (filesystem.
 	if err != nil {
 		rErr := &interfaceutils.Error{Cause: err}
 		if err == os.ErrNotExist {
-			rErr.Type = filesystem.ErrorNotExist
+			rErr.Type = errors.NotExist
 			return nil, rErr
 		}
-		rErr.Type = filesystem.ErrorPermission
+		rErr.Type = errors.Permission
 		return nil, rErr
 	}
 
 	mfsFileIf, ok := mfsNode.(*gomfs.File)
 	if !ok {
 		err := fmt.Errorf("%q is not a file (%T)", path, mfsNode)
-		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIsDir}
+		return nil, &interfaceutils.Error{Cause: err, Type: errors.IsDir}
 	}
 
 	mfsFile, err := mfsFileIf.Open(translateFlags(flags))
 	if err != nil {
-		return nil, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorPermission}
+		return nil, &interfaceutils.Error{Cause: err, Type: errors.Permission}
 	}
 
 	return &mfsIOWrapper{f: mfsFile}, nil

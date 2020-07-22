@@ -5,7 +5,7 @@ import (
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
-	fsm "github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
 )
 
 var Unmount = &cmds.Command{
@@ -67,7 +67,7 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 			for hostResp := range host.FromHost {
 				responses <- Response{ // emit a copy without the closer
 					Error: hostResp.Error,
-					Request: fsm.Request{
+					Request: manager.Request{
 						Header:      host.Header,
 						HostRequest: hostResp.Request,
 					},

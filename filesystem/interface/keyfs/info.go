@@ -3,6 +3,8 @@ package keyfs
 import (
 	"errors"
 
+	errors2 "github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -16,7 +18,7 @@ var (
 func (ki *keyInterface) Info(path string, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	fs, key, fsPath, deferFunc, err := ki.selectFS(path)
 	if err != nil {
-		return nil, filesystem.StatRequest{}, &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
+		return nil, filesystem.StatRequest{}, &interfaceutils.Error{Cause: err, Type: errors2.Other}
 	}
 	defer deferFunc()
 
@@ -33,12 +35,12 @@ func (ki *keyInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 
 func (ki *keyInterface) ExtractLink(path string) (string, error) {
 	if path == "/" {
-		return "", &interfaceutils.Error{Cause: errors.New("root is not a link"), Type: filesystem.ErrorInvalidItem}
+		return "", &interfaceutils.Error{Cause: errors.New("root is not a link"), Type: errors2.InvalidItem}
 	}
 
 	fs, key, fsPath, deferFunc, err := ki.selectFS(path)
 	if err != nil {
-		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
+		return "", &interfaceutils.Error{Cause: err, Type: errors2.Other}
 	}
 	defer deferFunc()
 

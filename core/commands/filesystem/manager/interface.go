@@ -7,18 +7,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
-
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
-
-	logging "github.com/ipfs/go-log"
-
 	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/interface/ipfscore"
 	"github.com/ipfs/go-ipfs/filesystem/interface/keyfs"
 	"github.com/ipfs/go-ipfs/filesystem/interface/mfs"
 	"github.com/ipfs/go-ipfs/filesystem/interface/pinfs"
+	logging "github.com/ipfs/go-log"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )

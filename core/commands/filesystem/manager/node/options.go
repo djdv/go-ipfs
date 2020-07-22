@@ -2,7 +2,6 @@ package node
 
 import (
 	"github.com/ipfs/go-ipfs/filesystem"
-
 	logging "github.com/ipfs/go-log"
 )
 

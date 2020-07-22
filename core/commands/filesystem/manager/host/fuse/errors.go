@@ -6,26 +6,24 @@ import (
 	"fmt"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	"github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem/errors"
 )
 
 func interpretError(err error) errNo {
-	if errIntf, ok := err.(filesystem.Error); ok {
-		return kindToFuse[errIntf.Kind()]
+	if errIntf, ok := err.(errors.Error); ok {
+		return map[errors.Kind]errNo{ // translation table for interface.Error -> FUSE error
+			errors.Other:            -fuselib.EIO,
+			errors.InvalidItem:      -fuselib.EINVAL,
+			errors.InvalidOperation: -fuselib.ENOSYS,
+			errors.Permission:       -fuselib.EACCES,
+			errors.IO:               -fuselib.EIO,
+			errors.Exist:            -fuselib.EEXIST,
+			errors.NotExist:         -fuselib.ENOENT,
+			errors.IsDir:            -fuselib.EISDIR,
+			errors.NotDir:           -fuselib.ENOTDIR,
+			errors.NotEmpty:         -fuselib.ENOTEMPTY,
+		}[errIntf.Kind()]
 	}
 
 	panic(fmt.Sprintf("provided error is not translatable to POSIX error %#v", err))
-}
-
-var kindToFuse = map[filesystem.Kind]errNo{
-	filesystem.ErrorOther:            -fuselib.EIO,
-	filesystem.ErrorInvalidItem:      -fuselib.EINVAL,
-	filesystem.ErrorInvalidOperation: -fuselib.ENOSYS,
-	filesystem.ErrorPermission:       -fuselib.EACCES,
-	filesystem.ErrorIO:               -fuselib.EIO,
-	filesystem.ErrorExist:            -fuselib.EEXIST,
-	filesystem.ErrorNotExist:         -fuselib.ENOENT,
-	filesystem.ErrorIsDir:            -fuselib.EISDIR,
-	filesystem.ErrorNotDir:           -fuselib.ENOTDIR,
-	filesystem.ErrorNotEmpty:         -fuselib.ENOTEMPTY,
 }

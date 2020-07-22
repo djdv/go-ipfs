@@ -48,8 +48,8 @@ type fid struct {
 
 	log logging.EventLogger // general operations log
 
-	path          path      // the path this FID is currently at
-	filesWritable bool      // switch for metadata fields and operation avilability
+	path          path      // the path this FID has walked
+	filesWritable bool      // switch for metadata fields and operation availability
 	initTime      time.Time // artificial file time signatures
 
 	ninelib.QID // 9P metadata about this file

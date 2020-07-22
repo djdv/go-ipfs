@@ -6,6 +6,8 @@ import (
 	gopath "path"
 	"strings"
 
+	errors2 "github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -14,7 +16,7 @@ import (
 
 var errNotImplemented = &interfaceutils.Error{
 	Cause: errors.New("read only FS, modification operations are not implemented"),
-	Type:  filesystem.ErrorInvalidOperation,
+	Type:  errors2.InvalidOperation,
 }
 
 type coreInterface struct {

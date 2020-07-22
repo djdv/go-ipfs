@@ -3,13 +3,15 @@ package ufs
 import (
 	"errors"
 
+	errors2 "github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 )
 
 var errNotImplemented = &interfaceutils.Error{
 	Cause: errors.New("operation not supported by this node"),
-	Type:  filesystem.ErrorInvalidOperation,
+	Type:  errors2.InvalidOperation,
 }
 
 // TODO: we can implement directories, but currently have no use for them here

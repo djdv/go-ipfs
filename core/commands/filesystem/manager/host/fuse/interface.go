@@ -52,8 +52,8 @@ func NewHostInterface(fs filesystem.Interface, opts ...host.Option) fuselib.File
 	// so that plexed attachers are possible
 	// e.g. `permission("/x")` => not writable;
 	// `permission("/x/y")` => writable
-	// always use cached items if available - otherwise assume data may change between calls
-
+	// or, always using cached metadata for read only systems
+	// etc.
 	switch fs.ID() {
 	case filesystem.PinFS, filesystem.IPFS:
 		fuseInterface.readdirplusGen = staticStat

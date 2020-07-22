@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
-
-	"github.com/ipfs/go-ipfs/filesystem"
-
 	cmds "github.com/ipfs/go-ipfs-cmds"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
+	"github.com/ipfs/go-ipfs/filesystem"
 )
 
 var (

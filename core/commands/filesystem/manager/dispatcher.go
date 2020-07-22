@@ -4,11 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
-
-	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
-
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
+	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
 )

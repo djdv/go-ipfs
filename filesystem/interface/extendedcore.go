@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ipfs/go-ipfs/filesystem/errors"
+
 	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/filesystem"
 	ipld "github.com/ipfs/go-ipld-format"
@@ -58,7 +60,7 @@ func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req file
 		if err != nil {
 			return nil, filesystem.StatRequest{}, &Error{
 				Cause: err,
-				Type:  filesystem.ErrorOther,
+				Type:  errors.Other,
 			}
 		}
 		return unixFSAttr(ufsNode, req)
@@ -84,7 +86,7 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	if iStat.Type != coreiface.TSymlink {
 		return "", &Error{
 			Cause: fmt.Errorf("%q is not a symlink", path.String()),
-			Type:  filesystem.ErrorInvalidItem,
+			Type:  errors.InvalidItem,
 		}
 	}
 
@@ -93,7 +95,7 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	if err != nil {
 		return "", &Error{
 			Cause: err,
-			Type:  filesystem.ErrorIO,
+			Type:  errors.IO,
 		}
 	}
 
@@ -109,7 +111,7 @@ func (core *CoreExtended) ResolveNode(ctx context.Context, path corepath.Path) (
 		// TODO: inspect error to disambiguate type
 		return nil, &Error{
 			Cause: err,
-			Type:  filesystem.ErrorNotExist,
+			Type:  errors.NotExist,
 		}
 	}
 	return n, nil
@@ -122,7 +124,7 @@ func (core *CoreExtended) ResolvePath(ctx context.Context, path corepath.Path) (
 		// TODO: inspect error to disambiguate type
 		return nil, &Error{
 			Cause: err,
-			Type:  filesystem.ErrorNotExist,
+			Type:  errors.NotExist,
 		}
 	}
 	return p, nil
@@ -147,7 +149,7 @@ func genericAttr(genericNode ipld.Node, req filesystem.StatRequest) (*filesystem
 		if err != nil {
 			return attr, filledAttrs, &Error{
 				Cause: err,
-				Type:  filesystem.ErrorIO,
+				Type:  errors.IO,
 			}
 		}
 

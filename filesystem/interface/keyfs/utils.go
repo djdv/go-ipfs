@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -29,7 +31,7 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 	keyName, remainder := splitPath(path)
 
 	if coreKey, err = ki.checkKey(keyName); err != nil {
-		err = &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
+		err = &interfaceutils.Error{Cause: err, Type: errors.Other}
 		return
 	}
 
@@ -47,7 +49,7 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 		// so check its type to determine the FS for it (Files, Links: KeyFS, Directories: MFS)
 		var stat *filesystem.Stat
 		if stat, _, err = ki.core.Stat(callCtx, coreKey.Path(), filesystem.StatRequest{Type: true}); err != nil {
-			err = &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
+			err = &interfaceutils.Error{Cause: err, Type: errors.IO}
 			return
 		}
 
@@ -60,7 +62,7 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 			fsPath = remainder
 			deferFunc = func() { fs.Close() }
 		default:
-			err = &interfaceutils.Error{Cause: fmt.Errorf("unexpected type: %v", t), Type: filesystem.ErrorOther}
+			err = &interfaceutils.Error{Cause: fmt.Errorf("unexpected type: %v", t), Type: errors.Other}
 		}
 
 		return
@@ -78,11 +80,11 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 func localPublish(ctx context.Context, core coreiface.CoreAPI, keyName string, target corepath.Path) error {
 	oAPI, err := core.WithOptions(coreoptions.Api.Offline(true))
 	if err != nil {
-		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
+		return &interfaceutils.Error{Cause: err, Type: errors.Other}
 	}
 
 	if _, err = oAPI.Name().Publish(ctx, target, coreoptions.Name.Key(keyName), coreoptions.Name.AllowOffline(true)); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorOther}
+		return &interfaceutils.Error{Cause: err, Type: errors.Other}
 	}
 
 	return nil

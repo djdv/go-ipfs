@@ -3,10 +3,9 @@ package fscmds
 import (
 	"fmt"
 
+	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	fsm "github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
-
-	cmds "github.com/ipfs/go-ipfs-cmds"
 )
 
 var Mount = &cmds.Command{

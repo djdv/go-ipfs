@@ -5,7 +5,8 @@ import (
 	"fmt"
 	gopath "path"
 
-	"github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem/errors"
+
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
@@ -33,7 +34,7 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 
 	childNode, err := parentDir.Child(childName)
 	if err != nil {
-		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorNotExist}
+		return &interfaceutils.Error{Cause: err, Type: errors.NotExist}
 	}
 
 	// check behavior for specific types
@@ -43,16 +44,16 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 			// make sure it's not a (UFS) symlink
 			ipldNode, err := childNode.GetNode()
 			if err != nil {
-				return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorPermission}
+				return &interfaceutils.Error{Cause: err, Type: errors.Permission}
 			}
 			ufsNode, err := unixfs.ExtractFSNode(ipldNode)
 			if err != nil {
-				return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorPermission}
+				return &interfaceutils.Error{Cause: err, Type: errors.Permission}
 			}
 			if t := ufsNode.Type(); t != unixpb.Data_Symlink {
 				return &interfaceutils.Error{
 					Cause: fmt.Errorf("%q is not a file or symlink (%q)", path, t),
-					Type:  filesystem.ErrorPermission,
+					Type:  errors.Permission,
 				}
 			}
 		}
@@ -62,35 +63,35 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 		if !ok {
 			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a directory (%T)", path, childNode),
-				Type:  filesystem.ErrorNotDir,
+				Type:  errors.NotDir,
 			}
 		}
 
 		ents, err := childDir.ListNames(context.TODO())
 		if err != nil {
-			return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorPermission}
+			return &interfaceutils.Error{Cause: err, Type: errors.Permission}
 		}
 
 		if len(ents) != 0 {
 			return &interfaceutils.Error{
 				Cause: fmt.Errorf("directory %q is not empty", path),
-				Type:  filesystem.ErrorNotEmpty,
+				Type:  errors.NotEmpty,
 			}
 		}
 
 	default:
 		return &interfaceutils.Error{
 			Cause: fmt.Errorf("unexpected node type %v", nodeType),
-			Type:  filesystem.ErrorPermission,
+			Type:  errors.Permission,
 		}
 	}
 
 	// unlink parent and child actually
 	if err := parentDir.Unlink(childName); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorPermission}
+		return &interfaceutils.Error{Cause: err, Type: errors.Permission}
 	}
 	if err := parentDir.Flush(); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: filesystem.ErrorPermission}
+		return &interfaceutils.Error{Cause: err, Type: errors.Permission}
 	}
 
 	return nil
@@ -100,13 +101,13 @@ func splitParentChild(mroot *gomfs.Root, path string) (*gomfs.Directory, string,
 	parentPath, childName := gopath.Split(path)
 	parentNode, err := gomfs.Lookup(mroot, parentPath)
 	if err != nil {
-		return nil, "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorNotExist}
+		return nil, "", &interfaceutils.Error{Cause: err, Type: errors.NotExist}
 	}
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
 		err = fmt.Errorf("parent %q isn't a directory", parentPath)
-		return nil, "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorNotDir}
+		return nil, "", &interfaceutils.Error{Cause: err, Type: errors.NotDir}
 	}
 
 	return parentDir, childName, nil

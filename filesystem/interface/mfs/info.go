@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	gomfs "github.com/ipfs/go-mfs"
@@ -21,7 +23,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 	if err != nil {
 		return attr, filled, &interfaceutils.Error{
 			Cause: err,
-			Type:  filesystem.ErrorNotExist,
+			Type:  errors.NotExist,
 		}
 	}
 
@@ -29,7 +31,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 	if err != nil {
 		return nil, filled, &interfaceutils.Error{
 			Cause: err,
-			Type:  filesystem.ErrorOther,
+			Type:  errors.Other,
 		}
 	}
 
@@ -37,7 +39,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 	if err != nil {
 		return attr, filled, &interfaceutils.Error{
 			Cause: err,
-			Type:  filesystem.ErrorOther,
+			Type:  errors.Other,
 		}
 	}
 
@@ -57,7 +59,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 
 			return attr, filled, &interfaceutils.Error{
 				Cause: fmt.Errorf("unexpected node type %d", nodeType),
-				Type:  filesystem.ErrorOther,
+				Type:  errors.Other,
 			}
 		}
 	}
@@ -87,25 +89,25 @@ func (mi *mfsInterface) ExtractLink(path string) (string, error) {
 	if err != nil {
 		rErr := &interfaceutils.Error{Cause: err}
 		if err == os.ErrNotExist {
-			rErr.Type = filesystem.ErrorNotExist
+			rErr.Type = errors.NotExist
 			return "", rErr
 		}
-		rErr.Type = filesystem.ErrorPermission
+		rErr.Type = errors.Permission
 		return "", rErr
 	}
 
 	ipldNode, err := mfsNode.GetNode()
 	if err != nil {
-		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
+		return "", &interfaceutils.Error{Cause: err, Type: errors.IO}
 	}
 
 	ufsNode, err := unixfs.ExtractFSNode(ipldNode)
 	if err != nil {
-		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorIO}
+		return "", &interfaceutils.Error{Cause: err, Type: errors.IO}
 	}
 	if ufsNode.Type() != unixfs.TSymlink {
 		err := fmt.Errorf("%q is not a link", path)
-		return "", &interfaceutils.Error{Cause: err, Type: filesystem.ErrorInvalidItem}
+		return "", &interfaceutils.Error{Cause: err, Type: errors.InvalidItem}
 	}
 
 	return string(ufsNode.Data()), nil

@@ -3,6 +3,8 @@ package keyfs
 import (
 	"fmt"
 
+	"github.com/ipfs/go-ipfs/filesystem/errors"
+
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -58,17 +60,17 @@ func (ki *keyInterface) remove(path string, nodeType coreiface.FileType) error {
 		case coreiface.TFile:
 			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a file", path),
-				Type:  filesystem.ErrorIsDir,
+				Type:  errors.IsDir,
 			}
 		case coreiface.TDirectory:
 			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a directory", path),
-				Type:  filesystem.ErrorNotDir,
+				Type:  errors.NotDir,
 			}
 		case coreiface.TSymlink:
 			return &interfaceutils.Error{
 				Cause: fmt.Errorf("%q is not a link", path),
-				Type:  filesystem.ErrorNotExist, // TODO: [review] SUS doesn't distinguish between files and links in `unlink` so there's no real appropriate value for this
+				Type:  errors.NotExist, // TODO: [review] SUS doesn't distinguish between files and links in `unlink` so there's no real appropriate value for this
 			}
 		}
 	}
@@ -79,7 +81,7 @@ func (ki *keyInterface) remove(path string, nodeType coreiface.FileType) error {
 	if _, err = ki.core.Key().Remove(callCtx, keyName); err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  filesystem.ErrorIO,
+			Type:  errors.IO,
 		}
 	}
 	return nil
