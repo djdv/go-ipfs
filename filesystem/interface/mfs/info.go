@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ipfs/go-ipfs/filesystem/errors"
-
 	"github.com/ipfs/go-ipfs/filesystem"
+	"github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"

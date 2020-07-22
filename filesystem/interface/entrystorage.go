@@ -49,14 +49,13 @@ type entryStorage struct {
 	tail         uint64
 	entryStore   []filesystem.DirectoryEntry
 	sourceStream <-chan PartialEntry
-	sync.WaitGroup
+	sync.Mutex
 }
 
 func (es *entryStorage) head() uint64 { return es.tail - uint64(len(es.entryStore)) }
 
 func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan filesystem.DirectoryEntry {
-	es.Wait()
-	es.Add(1)
+	es.Lock()
 
 	// NOTE:
 	// Offset values in our system are unique per stream instance,
@@ -71,7 +70,7 @@ func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan filesyst
 		// lower bound - our streams head, which is also the leftmost stored entry's "absolute offset"
 		// upper bound - our streams tail, as incremented by each read from the underlying source stream
 		if offset < es.head() || offset > es.tail {
-			es.Done()
+			es.Unlock()
 			return errWrap(fmt.Errorf("offset %d is not/no-longer valid", offset))
 		}
 
@@ -90,7 +89,7 @@ func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan filesyst
 
 	go func() {
 		defer close(listChan)
-		defer es.Done()
+		defer es.Unlock()
 		// if cursor is within store range, pull entires from it first
 		if cursor < uint64(len(es.entryStore)) {
 			for _, ent := range es.entryStore[cursor:] {
@@ -134,8 +133,8 @@ func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan filesyst
 }
 
 func (es *entryStorage) Reset(streamSource <-chan PartialEntry) {
-	es.Wait()
-	es.Add(1)
+	es.Lock()
+	defer es.Unlock()
 
 	for i := range es.entryStore { // clear the store (so the gc can reap the entries)
 		es.entryStore[i] = nil
@@ -155,5 +154,4 @@ func (es *entryStorage) Reset(streamSource <-chan PartialEntry) {
 	if es.tail != 0 { // (we don't do this if the directory hasn't actually been read)
 		es.tail++
 	}
-	es.Done()
 }

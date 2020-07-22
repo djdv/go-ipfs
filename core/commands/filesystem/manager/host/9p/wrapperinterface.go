@@ -119,21 +119,19 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 	f.log.Debugf("Walk: %s -> %v", f.path.String(), components)
 
 	qids := make([]ninelib.QID, 0, len(components))
-	subQid := f.QID
-	ver := atomic.LoadUint32(&f.QID.Version)
-	pathGen := pathGenerator()
 
 	comLen := len(components)
 	subPath := make(path, len(f.path), len(f.path)+comLen)
 	copy(subPath, f.path)
+	comLen-- // index base changes 1 -> 0
 
-	comLen-- // index base changed 1 -> 0
-
+	ver := atomic.LoadUint32(&f.QID.Version)
+	pathGen := pathGenerator()
+	subQid := f.QID
 	for i, component := range components {
 		subPath = append(subPath, component)
-		subString := subPath.String()
 
-		fidInfo, _, err := f.nodeInterface.Info(subString, filesystem.StatRequest{Type: true})
+		fidInfo, _, err := f.nodeInterface.Info(subPath.String(), filesystem.StatRequest{Type: true})
 		if err != nil {
 			return nil, nil, interpretError(err)
 		}
@@ -235,7 +233,7 @@ func (f *fid) ReadAt(p []byte, offset int64) (int, error) {
 	}
 
 	readBytes, err := f.File.Read(p)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		err = interpretError(err)
 	}
 	return readBytes, err
