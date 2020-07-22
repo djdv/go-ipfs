@@ -2,6 +2,7 @@ package p9fsp
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"hash/fnv"
 	"io"
@@ -88,6 +89,24 @@ func (f *fid) Attach() (ninelib.File, error) {
 	return newFid, nil
 }
 
+func pathGenerator() func(version uint32, component string) (uint64, error) {
+	hasher := fnv.New64a()
+
+	// path = version, component | {version, component};
+	// format can be whatever as long as it's unique to a specific file (and its version)
+	return func(version uint32, component string) (uint64, error) {
+		if err := binary.Write(hasher, binary.LittleEndian, version); err != nil {
+			return 0, err
+		}
+
+		if _, err := hasher.Write([]byte(component)); err != nil {
+			return 0, err
+		}
+
+		return hasher.Sum64(), nil
+	}
+}
+
 // NOTE: the server should guarantee that we won't walk a path that's already been traversed
 // same goes for empty walk messages (clone requests)
 // While an FID is still referenced; the server will return the existing reference from a previous call
@@ -101,14 +120,14 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 
 	qids := make([]ninelib.QID, 0, len(components))
 	subQid := f.QID
-	hasher := fnv.New64a()
-	ver := uint64(atomic.LoadUint32(&f.QID.Version))
+	ver := atomic.LoadUint32(&f.QID.Version)
+	pathGen := pathGenerator()
 
 	comLen := len(components)
 	subPath := make(path, len(f.path), len(f.path)+comLen)
 	copy(subPath, f.path)
 
-	comLen-- // 1 -> 0 base; allocate needed 1b, we're comparing against 0b
+	comLen-- // index base changed 1 -> 0
 
 	for i, component := range components {
 		subPath = append(subPath, component)
@@ -124,8 +143,9 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 			return qids, nil, errors.New("TODO error message: middle component is not a directory")
 		}
 
-		if _, err = hasher.Write([]byte(subString)); err != nil {
-			return nil, nil, err // TODO: 9Error not GoError
+		path, err := pathGen(ver, component)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		/* TODO:
@@ -147,7 +167,7 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 
 		subQid = ninelib.QID{
 			Type: coreTypeTo9PType(fidInfo.Type).QIDType(),
-			Path: hasher.Sum64() + ver,
+			Path: path,
 			// TODO:
 			// we need some QID generation abstraction, provided in the constructor
 			// The only spec requirement is that `Path` be unique per file
@@ -158,7 +178,6 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 			// nor can we retrieve it later
 		}
 
-		hasher.Reset()
 		qids = append(qids, subQid)
 	}
 
@@ -167,36 +186,6 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 	newFid.QID = subQid
 
 	return qids, newFid, nil
-}
-
-func (f *fid) Create(name string, flags ninelib.OpenFlags, permissions ninelib.FileMode, uid ninelib.UID, gid ninelib.GID) (ninelib.File, ninelib.QID, uint32, error) {
-	subPath := f.path.Join(name)
-	if err := f.nodeInterface.Make(subPath); err != nil {
-		return nil, ninelib.QID{}, 0, interpretError(err)
-	}
-
-	// directory has changed, so too will its version
-	ver := uint64(atomic.AddUint32(&f.QID.Version, 1))
-
-	file, err := f.nodeInterface.Open(subPath, ioFlagsFrom9P(flags))
-	if err != nil {
-		return nil, ninelib.QID{}, 0, interpretError(err)
-	}
-
-	hasher := fnv.New64a()
-	if _, err = hasher.Write([]byte(subPath)); err != nil {
-		return nil, ninelib.QID{}, 0, err // TODO: 9Error not GoError
-	}
-
-	newFid := f.template()
-	newFid.path = append(newFid.path, name)
-	newFid.QID = ninelib.QID{
-		Type: ninelib.TypeRegular,
-		Path: hasher.Sum64() + ver,
-	}
-	newFid.File = file
-
-	return newFid, newFid.QID, 0, nil // TODO: we need to get IOUnit from the constructor
 }
 
 func (f *fid) Open(mode ninelib.OpenFlags) (ninelib.QID, uint32, error) {
