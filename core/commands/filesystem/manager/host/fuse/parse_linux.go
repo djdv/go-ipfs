@@ -1,6 +1,8 @@
 package fuse
 
-import "github.com/ipfs/go-ipfs/filesystem"
+import (
+	"github.com/ipfs/go-ipfs/filesystem"
+)
 
 func ParseRequest(sysID filesystem.ID, target string) (request Request, err error) {
 	// [2020.04.18] cgofuse currently backed by hanwen/go-fuse on linux

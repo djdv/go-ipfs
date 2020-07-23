@@ -5,11 +5,11 @@ package fuse
 import (
 	"context"
 	gopath "path"
-	"runtime"
 	"sync"
 
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
+
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
 	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
 )
@@ -29,13 +29,8 @@ type fuseMounter struct {
 	fuseInterface fuselib.FileSystemInterface // the actual interface with the host
 }
 
-// NOTE: [b7952c54-1614-45ea-a042-7cfae90c5361] cgofuse only supports ReaddirPlus on Windows
-// if this ever changes (bumps libfuse from 2.8 -> 3.X+), add platform support here (and to any other tags with this UUID)
-// TODO: this would be best in the fuselib itself; make a patch upstream
-const canReaddirPlus bool = runtime.GOOS == "windows"
-
-func NewHostInterface(fs filesystem.Interface, opts ...host.Option) fuselib.FileSystemInterface {
-	settings := host.ParseOptions(opts...)
+func NewHostInterface(fs filesystem.Interface, opts ...options.Option) fuselib.FileSystemInterface {
+	settings := options.Parse(opts...)
 
 	fuseInterface := &nodeBinding{
 		nodeInterface: fs,
@@ -67,8 +62,8 @@ func NewHostInterface(fs filesystem.Interface, opts ...host.Option) fuselib.File
 	return fuseInterface
 }
 
-func HostMounter(ctx context.Context, fs filesystem.Interface, opts ...host.Option) (Mounter, error) {
-	settings := host.ParseOptions(opts...)
+func HostMounter(ctx context.Context, fs filesystem.Interface, opts ...options.Option) (Mounter, error) {
+	settings := options.Parse(opts...)
 
 	return &fuseMounter{
 		ctx: ctx,

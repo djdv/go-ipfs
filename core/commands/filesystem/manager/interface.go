@@ -7,7 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
+
 	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 	"github.com/ipfs/go-ipfs/filesystem"
@@ -91,8 +92,8 @@ func newFileSystem(ctx context.Context, sysID filesystem.ID, core coreiface.Core
 }
 
 func newHostAttacher(ctx context.Context, api API, fs filesystem.Interface) (attacher interface{}, err error) {
-	hostOpts := []host.Option{
-		host.WithLogPrefix(gopath.Join(
+	hostOpts := []options.Option{
+		options.WithLogPrefix(gopath.Join(
 			filesystem.LogGroup,           // fmt: `filesystem`
 			strings.ToLower(api.String()), // fmt: `9p`|`fuse`
 		)),

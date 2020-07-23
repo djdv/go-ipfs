@@ -5,7 +5,7 @@ import (
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
-	fsm "github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
 )
 
 var Mount = &cmds.Command{
@@ -97,9 +97,6 @@ func listCommand(_ *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter)
 		return fmt.Errorf("failed to get file instance node from request: %w", err)
 	}
 
-	// TODO: --formated
-	// format to table
-
 	responses := make(chan interface{}, 1) // NOTE: value must match `cmd.Command.Type`
 	// ^ responses := make(chan Response, 1) // cmds lib needs it to be interface{}
 
@@ -122,8 +119,8 @@ func listCommand(_ *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter)
 			for hostResp := range system.FromHost {
 				responses <- Response{
 					Error: hostResp.Error,
-					Request: fsm.Request{
-						Header: fsm.Header{
+					Request: manager.Request{
+						Header: manager.Header{
 							API: system.API,
 							ID:  system.ID,
 						},
@@ -165,7 +162,7 @@ func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) e
 			return fmt.Errorf("failed to interface with the node: %w", err)
 		}
 
-		dispatcher, err = fsm.NewDispatcher(node.Context(), core, node.FilesRoot)
+		dispatcher, err = manager.NewDispatcher(node.Context(), core, node.FilesRoot)
 		if err != nil {
 			return fmt.Errorf("failed to construct file system interface: %w", err)
 		}
@@ -177,7 +174,7 @@ func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) e
 			for hostResp := range host.FromHost {
 				responses <- Response{ // emit a copy without the closer
 					Error: hostResp.Error,
-					Request: fsm.Request{
+					Request: manager.Request{
 						Header:      host.Header,
 						HostRequest: hostResp.Request,
 					},

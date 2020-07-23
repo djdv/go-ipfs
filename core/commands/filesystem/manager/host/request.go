@@ -6,6 +6,8 @@ import (
 )
 
 // TODO: enum iota/stringer type
+// and move to a another package
+// fspath.Parse(string); fspath.HasSocket(...), IsFuse...
 const (
 	PathNamespace   = "host"
 	SocketNamespace = "socket"

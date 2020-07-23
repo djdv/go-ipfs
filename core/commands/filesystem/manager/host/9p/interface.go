@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
+
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
 	"github.com/ipfs/go-ipfs/filesystem"
@@ -36,8 +38,8 @@ type nineAttacher struct {
 }
 
 // bind a `filesystem.Interface` to a host nineAttacher (file system manager format)
-func HostAttacher(ctx context.Context, fs filesystem.Interface, opts ...host.Option) (Attacher, error) {
-	settings := host.ParseOptions(opts...)
+func HostAttacher(ctx context.Context, fs filesystem.Interface, opts ...options.Option) (Attacher, error) {
+	settings := options.Parse(opts...)
 
 	return &nineAttacher{
 		srvCtx: ctx,
@@ -51,8 +53,8 @@ func HostAttacher(ctx context.Context, fs filesystem.Interface, opts ...host.Opt
 }
 
 // bind a `filesystem.Interface` to a 9P nineAttacher (9P library format)
-func newAttacher(fs filesystem.Interface, opts ...host.Option) ninelib.Attacher {
-	settings := host.ParseOptions(opts...)
+func newAttacher(fs filesystem.Interface, opts ...options.Option) ninelib.Attacher {
+	settings := options.Parse(opts...)
 
 	fid := &fid{
 		nodeInterface: fs,

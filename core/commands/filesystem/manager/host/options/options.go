@@ -1,4 +1,5 @@
-package host
+// Package options is a WIP, standard set of host options that should be handled
+package options
 
 type (
 	InitSignal chan error
@@ -14,7 +15,7 @@ type Settings struct {
 	//foreground bool   // should the host operation block in the foreground until it exits or run in a background routine
 }
 
-func ParseOptions(options ...Option) *Settings {
+func Parse(options ...Option) *Settings {
 	settings := new(Settings)
 	for _, opt := range options {
 		opt.apply(settings)

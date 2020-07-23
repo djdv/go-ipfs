@@ -20,8 +20,10 @@ It may be replaced with some user documentation around the command line interfac
 
 The "filesystem" directory contains mappings between the various IPFS APIs and ways to facilitate mounting them on various hosts using various APIs.  
 
+TODO: link to godoc; it has better descriptions for the packages
 ```text
 .\filesystem\
+├── errors
 └── interface (file system interface for Go)
     ├── ipfscore (interfaces between the node's APIs, and the Go interface)
     ├── keyfs
@@ -31,29 +33,21 @@ The "filesystem" directory contains mappings between the various IPFS APIs and w
 
 .\core\commands\filesystem\
 └── manager (interfaces between cmds.Commands, and file system requests)
-    ├── host (interfaces between the node, and its host APIs)
-    │   ├── 9p
-    │   └── fuse
-    └── node (interfaces between the node and the Go interface)
+    └── host (interfaces between the node, and its host APIs)
+        ├── 9p
+        │   └── sys
+        ├── fuse
+        │   └── sys
+        └── options
+
 ```
 
 
-![dependency-graph](./graph-all.png)
+![dependency-graph](./depgraph.svg)
 
 The `commands` packages parse cmds requests, and dispatch them via a `manager.Dispatcher` stored on the node.
 
 The dispatcher will facilitate management of host bindings.
-
-\* A lot of things below this line are outdated  
-they're going to be moved into the godoc packages and linked to instead  
-and the command line description via the helptext  
-(later)
-___
-
-
-"Providers" provide implementations of file systems, and facilities to graft them to some target.  
-Typically this will be mounting file systems to a path in the host system.  
-(e.g. mounting the abstract namespace "IPFS" to the local path `/ipfs`  via the FUSE API)
 
 ## Building
 
@@ -125,6 +119,12 @@ At any time, you may list the currently active mounts via `ipfs mount --list` or
 `ipfs daemon` shares the same parameters as `ipfs mount` simply prefixed with `--mount-`.  
 e.g. `ipfs daemon --mount --mount-provider="FUSE" --mount-namespace="IPFS,IPNS" --mount-target="/ipfs,/ipns"`  
 It carries the same auto expansion rules, picking up missing parameters through the same deduction methods. (checks arguments, then config, then environment)
+
+\* A lot of things below this line are outdated  
+they're going to be moved into the godoc packages and linked to instead  
+and the command line description via the helptext  
+(later)
+___
 
 ### File System Interface
 
