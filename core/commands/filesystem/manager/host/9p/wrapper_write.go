@@ -87,3 +87,10 @@ func (f *fid) WriteAt(p []byte, offset int64) (int, error) {
 
 	return written, err
 }
+
+func (f *fid) UnlinkAt(name string, flags uint32) error {
+	if err := f.nodeInterface.Remove(f.path.Join(name)); err != nil {
+		return interpretError(err)
+	}
+	return nil
+}
