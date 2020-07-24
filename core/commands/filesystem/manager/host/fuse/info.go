@@ -7,7 +7,7 @@ import (
 	"github.com/ipfs/go-ipfs/filesystem"
 )
 
-func (fs *nodeBinding) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int {
+func (fs *hostBinding) Getattr(path string, stat *fuselib.Stat_t, fh uint64) int {
 	fs.log.Debugf("Getattr - {%X}%q", fh, path)
 
 	if path == "" {

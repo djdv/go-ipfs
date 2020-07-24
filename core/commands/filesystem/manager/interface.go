@@ -38,7 +38,7 @@ func NewDispatcher(ctx context.Context, core coreiface.CoreAPI, filesAPIRoot *go
 			return
 		}
 
-		system, err = newFileSystem(ctx, id, core, filesAPIRoot)
+		system, err = NewFileSystem(ctx, id, core, filesAPIRoot)
 		if err != nil {
 			systems[id] = system
 		}
@@ -74,7 +74,7 @@ func NewDispatcher(ctx context.Context, core coreiface.CoreAPI, filesAPIRoot *go
 	}, nil
 }
 
-func newFileSystem(ctx context.Context, sysID filesystem.ID, core coreiface.CoreAPI, filesAPIRoot *gomfs.Root) (fs filesystem.Interface, err error) {
+func NewFileSystem(ctx context.Context, sysID filesystem.ID, core coreiface.CoreAPI, filesAPIRoot *gomfs.Root) (fs filesystem.Interface, err error) {
 	switch sysID {
 	case filesystem.PinFS:
 		fs = pinfs.NewInterface(ctx, core)

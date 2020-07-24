@@ -73,7 +73,7 @@ func (fp *fuseMounter) mount(request Request) (binding host.Binding, err error) 
 func attachToHost(hostInterface *fuselib.FileSystemHost, request Request) (instanceDetach io.Closer, err error) {
 	//target, name := node.ParseFuseRequest(request)
 
-	// cgofuse will panic before calling `nodeBinding.Init` if the fuse libraries are not found
+	// cgofuse will panic before calling `hostBinding.Init` if the fuse libraries are not found
 	// or encounter some kind of fatal issue
 	// we want to recover from this and return an error to the waiting channel
 	// (instead of exiting the process)
@@ -92,12 +92,12 @@ func attachToHost(hostInterface *fuselib.FileSystemHost, request Request) (insta
 			}
 		}()
 
-		// if `Mount` returns true, we expect `nodeBinding.Init` to have been invoked
+		// if `Mount` returns true, we expect `hostBinding.Init` to have been invoked
 		// and return an error value to us via the channel
-		// otherwise `nodeBinding.Init` was not likely invoked,
+		// otherwise `hostBinding.Init` was not likely invoked,
 		// (typically because of a permission error that is logged to the console, but unknown to us)
 		// so we provide a surrogate error value to the channel in that case
-		// (because `nodeBinding.Init` will never communicate with us, and the receive below would block forever)
+		// (because `hostBinding.Init` will never communicate with us, and the receive below would block forever)
 		if !hostInterface.Mount(request.HostPath, request.FuseArgs) {
 			err = fmt.Errorf("%s: mount failed for an unknown reason", request.String())
 		}

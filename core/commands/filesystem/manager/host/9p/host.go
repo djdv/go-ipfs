@@ -1,17 +1,14 @@
 package p9fsp
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"hash/fnv"
-	"io"
 	gopath "path"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
@@ -42,7 +39,7 @@ if a child doesn't exist then nobody walked there, if it does, re-use it
 // it is upgraded to one via `ninelib.NewServer`
 // operations depend on the library to track and validate references and state
 type fid struct {
-	templatefs.NoopFile // TODO remove
+	//templatefs.NoopFile // TODO remove
 	sync.RWMutex
 
 	nodeInterface filesystem.Interface // interface between 9P and the target API
@@ -225,80 +222,4 @@ func (f *fid) Close() error {
 	}
 
 	return nil // no I/O was opened, just the reference
-}
-
-func (f *fid) ReadAt(p []byte, offset int64) (int, error) {
-	if _, err := f.File.Seek(offset, io.SeekStart); err != nil {
-		return 0, interpretError(err)
-	}
-
-	readBytes, err := f.File.Read(p)
-	if err != nil && err != io.EOF {
-		err = interpretError(err)
-	}
-	return readBytes, err
-}
-
-func (f *fid) Readdir(offset uint64, count uint32) (ninelib.Dirents, error) {
-	f.log.Debugf("Readdir: {%d|%d} %s", offset, count, f.path.String())
-	if f.Directory == nil {
-		return nil, errors.New("file is not open") // TODO: 9Error
-	}
-
-	// TODO: we might want to reset the directory on 0
-	// check the specs on what it says about this
-	//if offset == 0 {f.dir.reset}
-
-	ver := uint64(atomic.LoadUint32(&f.QID.Version))
-	hasher := fnv.New64a()
-
-	// TODO: const timeout and maybe embed a srvCtx on fid
-	callCtx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
-	defer cancel()
-
-	nineEnts := make(ninelib.Dirents, 0)
-	for ent := range f.Directory.List(callCtx, offset) {
-		entName := ent.Name()
-		entPath := f.path.Join(entName)
-
-		fidInfo, _, err := f.nodeInterface.Info(entPath, filesystem.StatRequest{Type: true})
-		if err != nil {
-			return nineEnts, interpretError(err)
-		}
-
-		if _, err = hasher.Write([]byte(entPath)); err != nil {
-			return nineEnts, err // TODO: 9Error not GoError
-		}
-
-		nineEnts = append(nineEnts, ninelib.Dirent{
-			Name:   entName,
-			Offset: ent.Offset(),
-			QID: ninelib.QID{
-				Type: coreTypeTo9PType(fidInfo.Type).QIDType(),
-				Path: hasher.Sum64() + ver,
-			},
-		})
-		hasher.Reset()
-
-		if uint32(len(nineEnts)) == count {
-			break
-		}
-	}
-
-	return nineEnts, nil
-}
-
-func (f *fid) GetAttr(req ninelib.AttrMask) (ninelib.QID, ninelib.AttrMask, ninelib.Attr, error) {
-	f.log.Debugf("GetAttr: %s", f.path.String())
-
-	fidInfo, infoFilled, err := f.nodeInterface.Info(f.path.String(), requestFrom9P(req))
-	if err != nil {
-		return f.QID, ninelib.AttrMask{}, ninelib.Attr{}, interpretError(err)
-	}
-
-	attr := attrFromCore(fidInfo) // TODO: maybe resolve IDs
-	tg := timeGroup{atime: f.initTime, mtime: f.initTime, ctime: f.initTime, btime: f.initTime}
-	applyCommonsToAttr(&attr, f.filesWritable, tg, idGroup{uid: ninelib.NoUID, gid: ninelib.NoGID})
-
-	return f.QID, filledFromCore(infoFilled), attr, nil
 }

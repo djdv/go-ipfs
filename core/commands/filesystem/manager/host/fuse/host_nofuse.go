@@ -7,12 +7,8 @@ import (
 	"errors"
 
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
-
 	"github.com/ipfs/go-ipfs/filesystem"
 )
-
-// TODO: interface changed
-// we need to add errors in for these
 
 // NOTE: don't export this for `!nofuse` build constraints, things depending on this should fail at compile time
 // (specifically our tests)

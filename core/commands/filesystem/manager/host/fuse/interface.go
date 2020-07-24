@@ -29,10 +29,10 @@ type fuseMounter struct {
 	fuseInterface fuselib.FileSystemInterface // the actual interface with the host
 }
 
-func NewHostInterface(fs filesystem.Interface, opts ...options.Option) fuselib.FileSystemInterface {
+func NewHostInterface(fs filesystem.Interface, opts ...options.Option) (fuselib.FileSystemInterface, error) {
 	settings := options.Parse(opts...)
 
-	fuseInterface := &nodeBinding{
+	fuseInterface := &hostBinding{
 		nodeInterface: fs,
 		log: logging.Logger(gopath.Join(
 			settings.LogPrefix, // fmt: `filesystem`
@@ -59,11 +59,16 @@ func NewHostInterface(fs filesystem.Interface, opts ...options.Option) fuselib.F
 		fuseInterface.readdirplusGen = dynamicStat
 	}
 
-	return fuseInterface
+	return fuseInterface, nil
 }
 
 func HostMounter(ctx context.Context, fs filesystem.Interface, opts ...options.Option) (Mounter, error) {
 	settings := options.Parse(opts...)
+
+	fsi, err := NewHostInterface(fs, opts...)
+	if err != nil {
+		return nil, err
+	}
 
 	return &fuseMounter{
 		ctx: ctx,
@@ -71,6 +76,6 @@ func HostMounter(ctx context.Context, fs filesystem.Interface, opts ...options.O
 			settings.LogPrefix,
 			fs.ID().String(), // fmt: `IPFS`|`IPNS`|...
 		)),
-		fuseInterface: NewHostInterface(fs, opts...),
+		fuseInterface: fsi,
 	}, nil
 }

@@ -12,7 +12,7 @@ import (
 	logging "github.com/ipfs/go-log"
 )
 
-type nodeBinding struct {
+type hostBinding struct {
 	nodeInterface filesystem.Interface // interface between FUSE and the target API
 
 	log logging.EventLogger // general operations log
@@ -26,7 +26,7 @@ type nodeBinding struct {
 	mountTimeGroup statTimeGroup // artificial file time signatures
 }
 
-func (fs *nodeBinding) Init() {
+func (fs *hostBinding) Init() {
 	fs.log.Debug("init")
 	/*
 		defer func() {
@@ -50,11 +50,11 @@ func (fs *nodeBinding) Init() {
 	}
 }
 
-func (fs *nodeBinding) Destroy() {
+func (fs *hostBinding) Destroy() {
 	fs.log.Debugf("Destroy - Requested")
 }
 
-func (fs *nodeBinding) Statfs(path string, stat *fuselib.Statfs_t) int {
+func (fs *hostBinding) Statfs(path string, stat *fuselib.Statfs_t) int {
 	fs.log.Debugf("Statfs - HostRequest %q", path)
 
 	target, err := config.DataStorePath("")
@@ -70,7 +70,7 @@ func (fs *nodeBinding) Statfs(path string, stat *fuselib.Statfs_t) int {
 	return errNo
 }
 
-func (fs *nodeBinding) Readlink(path string) (int, string) {
+func (fs *hostBinding) Readlink(path string) (int, string) {
 	fs.log.Debugf("Readlink - %q", path)
 
 	switch path {
@@ -94,7 +94,7 @@ func (fs *nodeBinding) Readlink(path string) (int, string) {
 	return operationSuccess, filepath.ToSlash(linkString)
 }
 
-func (fs *nodeBinding) Rename(oldpath, newpath string) int {
+func (fs *hostBinding) Rename(oldpath, newpath string) int {
 	fs.log.Warnf("Rename - HostRequest %q->%q", oldpath, newpath)
 
 	if err := fs.nodeInterface.Rename(oldpath, newpath); err != nil {
@@ -105,7 +105,7 @@ func (fs *nodeBinding) Rename(oldpath, newpath string) int {
 	return operationSuccess
 }
 
-func (fs *nodeBinding) Truncate(path string, size int64, fh uint64) int {
+func (fs *hostBinding) Truncate(path string, size int64, fh uint64) int {
 	fs.log.Debugf("Truncate - HostRequest {%X|%d}%q", fh, size, path)
 
 	if size < 0 {
