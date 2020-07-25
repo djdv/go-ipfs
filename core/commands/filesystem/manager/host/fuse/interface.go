@@ -5,6 +5,7 @@ package fuse
 import (
 	"context"
 	gopath "path"
+	"strings"
 	"sync"
 
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
@@ -29,15 +30,33 @@ type fuseMounter struct {
 	fuseInterface fuselib.FileSystemInterface // the actual interface with the host
 }
 
-func NewHostInterface(fs filesystem.Interface, opts ...options.Option) (fuselib.FileSystemInterface, error) {
+func NewMounter(ctx context.Context, fs filesystem.Interface, opts ...options.Option) (Mounter, error) {
+	settings := options.Parse(opts...)
+
+	fsi, err := NewFuseInterface(fs, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &fuseMounter{
+		ctx: ctx,
+		log: logging.Logger(gopath.Join(
+			strings.ToLower(settings.LogPrefix), // (opt)fmt: `filesystem`
+			strings.ToLower(logGroup),           // fmt: `fuse`
+		)),
+		fuseInterface: fsi,
+	}, nil
+}
+
+func NewFuseInterface(fs filesystem.Interface, opts ...options.Option) (fuselib.FileSystemInterface, error) {
 	settings := options.Parse(opts...)
 
 	fuseInterface := &hostBinding{
 		nodeInterface: fs,
 		log: logging.Logger(gopath.Join(
-			settings.LogPrefix, // fmt: `filesystem`
-			logGroup,           // fmt: `FUSE`
-			fs.ID().String()),  // fmt: `IPFS`
+			settings.LogPrefix,                 // (opt)fmt: `filesystem`
+			strings.ToLower(logGroup),          // fmt: `fuse`
+			strings.ToLower(fs.ID().String())), // fmt: `ipfs`
 		),
 		//initSignal: settings.InitSignal,
 	}
@@ -60,22 +79,4 @@ func NewHostInterface(fs filesystem.Interface, opts ...options.Option) (fuselib.
 	}
 
 	return fuseInterface, nil
-}
-
-func HostMounter(ctx context.Context, fs filesystem.Interface, opts ...options.Option) (Mounter, error) {
-	settings := options.Parse(opts...)
-
-	fsi, err := NewHostInterface(fs, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return &fuseMounter{
-		ctx: ctx,
-		log: logging.Logger(gopath.Join(
-			settings.LogPrefix,
-			fs.ID().String(), // fmt: `IPFS`|`IPNS`|...
-		)),
-		fuseInterface: fsi,
-	}, nil
 }

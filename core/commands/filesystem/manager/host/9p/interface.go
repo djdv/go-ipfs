@@ -3,6 +3,7 @@ package p9fsp
 import (
 	"context"
 	gopath "path"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,14 +39,14 @@ type nineAttacher struct {
 }
 
 // bind a `filesystem.Interface` to a host nineAttacher (file system manager format)
-func HostAttacher(ctx context.Context, fs filesystem.Interface, opts ...options.Option) (Attacher, error) {
+func NewAttacher(ctx context.Context, fs filesystem.Interface, opts ...options.Option) (Attacher, error) {
 	settings := options.Parse(opts...)
 
 	return &nineAttacher{
 		srvCtx: ctx,
 		log: logging.Logger(gopath.Join(
-			settings.LogPrefix, // fmt: `filesystem`
-			logGroup,           // fmt: `9P`
+			settings.LogPrefix,        // (opt)fmt: `filesystem`
+			strings.ToLower(logGroup), // fmt: `9p`
 		)),
 		srv:     ninelib.NewServer(newAttacher(fs, opts...)),
 		servers: make(map[string]serverRef),
@@ -59,9 +60,9 @@ func newAttacher(fs filesystem.Interface, opts ...options.Option) ninelib.Attach
 	fid := &fid{
 		nodeInterface: fs,
 		log: logging.Logger(gopath.Join(
-			settings.LogPrefix, // fmt: `filesystem`
-			logGroup,           // fmt: `9P`
-			fs.ID().String(),   // fmt: `IPFS`
+			settings.LogPrefix,                // (opt)fmt: `filesystem`
+			strings.ToLower(logGroup),         // fmt: `9p`
+			strings.ToLower(fs.ID().String()), // fmt: `ipfs`
 		)),
 
 		initTime: time.Now(), // TODO: this should be done on `file.Attach()`

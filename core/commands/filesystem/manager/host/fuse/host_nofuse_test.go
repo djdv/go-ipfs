@@ -9,7 +9,7 @@ import (
 )
 
 func testProvider(t *testing.T) {
-	if _, err := fuse.HostMounter(nil, nil); err != fuse.ErrNoFuse {
+	if _, err := fuse.NewMounter(nil, nil); err != fuse.ErrNoFuse {
 		t.Fatalf("nofuse tag enabled but provider did not return appropriate error: %#v", err)
 	}
 }

@@ -32,7 +32,7 @@ func testIPFS(ctx context.Context, t *testing.T, testEnv envData, core coreiface
 			t.Fatal(err)
 		}
 
-		hostFS, err := fuse.NewHostInterface(nodeFS)
+		hostFS, err := fuse.NewFuseInterface(nodeFS)
 
 		hostFS.Init()
 

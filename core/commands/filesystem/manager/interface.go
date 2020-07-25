@@ -3,8 +3,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	gopath "path"
-	"strings"
 	"sync"
 
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
@@ -93,17 +91,14 @@ func NewFileSystem(ctx context.Context, sysID filesystem.ID, core coreiface.Core
 
 func newHostAttacher(ctx context.Context, api API, fs filesystem.Interface) (attacher interface{}, err error) {
 	hostOpts := []options.Option{
-		options.WithLogPrefix(gopath.Join(
-			filesystem.LogGroup,           // fmt: `filesystem`
-			strings.ToLower(api.String()), // fmt: `9p`|`fuse`
-		)),
+		options.WithLogPrefix(filesystem.LogGroup), // fmt: `filesystem`
 	}
 
 	switch api {
 	case Fuse:
-		attacher, err = fuse.HostMounter(ctx, fs, hostOpts...)
+		attacher, err = fuse.NewMounter(ctx, fs, hostOpts...)
 	case Plan9Protocol:
-		attacher, err = p9fsp.HostAttacher(ctx, fs, hostOpts...)
+		attacher, err = p9fsp.NewAttacher(ctx, fs, hostOpts...)
 	default:
 		err = fmt.Errorf("unknown nineAttacher requested: %v", api)
 	}
