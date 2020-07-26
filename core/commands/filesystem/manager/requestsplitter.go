@@ -114,15 +114,18 @@ func dispatch(hostMethod hostMethod, requests ...Request) <-chan Response {
 
 func (am *apiMux) splitRequests(hostMethod hostMethod, requests ...Request) <-chan Response {
 	if err := check(am.NameIndex, requests...); err != nil {
+
+		// create the return channels with a message buffer
 		hostResp := make(chan host.Response, 1)
-		hostResp <- host.Response{Error: err}
+		managerResp := make(chan Response, 1)
+
+		hostResp <- host.Response{Error: err}       // stuff the error into the channel buffer
+		managerResp <- Response{FromHost: hostResp} // and send it through the manager's response channel
+
 		close(hostResp)
+		close(managerResp)
 
-		resp := make(chan Response, 1)
-		resp <- Response{FromHost: hostResp}
-		close(resp)
-
-		return resp
+		return managerResp // return the buffered message(s)
 	}
 	return dispatch(hostMethod, requests...)
 }

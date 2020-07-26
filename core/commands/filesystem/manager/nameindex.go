@@ -190,10 +190,6 @@ func (ni *nameIndex) List() <-chan Response {
 	return resp
 }
 
-// TODO: in addition to removing the elements from the index
-// the manager needs some way to know that the last element was closed
-// so that it can remove itself from the node
-// when len(APIs) == 0; node.filesystem = nil
 func (ni *nameIndex) Detach(requests ...Request) <-chan Response {
 	ni.Lock()
 	defer ni.Unlock()
@@ -201,7 +197,7 @@ func (ni *nameIndex) Detach(requests ...Request) <-chan Response {
 	responses := make(chan Response)
 	hostMap := make(map[Header]chan host.Response)
 
-	// TODO: [lazy] a better structure and traversal for this
+	// TODO: [lazy] a better structure, communication, and traversal for this
 	// for each api:system => for each request => close if match
 	go func() {
 		for api, systems := range ni.instances {
@@ -210,12 +206,13 @@ func (ni *nameIndex) Detach(requests ...Request) <-chan Response {
 					if index.API == api &&
 						index.ID == sysID {
 						if binding, ok := targets[index.HostRequest.String()]; ok {
+							// re-use the same channel if it exists for this index's header pair
 							hostChan, ok := hostMap[index.Header]
 							if !ok {
 								hostChan = make(chan host.Response)
-								defer close(hostChan)
-
 								hostMap[index.Header] = hostChan
+								// let the receiver know there's a new response channel for `Header`
+								defer close(hostChan)
 								responses <- Response{
 									Header:   index.Header,
 									FromHost: hostChan,

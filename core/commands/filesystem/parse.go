@@ -20,7 +20,7 @@ import (
 
 var (
 	/*
-		cmdSharedOpts = []cmds.Option{
+		sharedOpts = []cmds.Option{
 			cmds.StringOption(NamespaceKwd, cmdNamespaceDesc),
 			cmds.StringOption(PathKwd, cmdPathDesc),
 		}
@@ -113,6 +113,7 @@ func parseSubsystem(req *cmds.Request, env cmds.Environment) ([]filesystem.ID, e
 	// otherwise pull from config
 	nodeConf, err := cmdenv.GetConfig(env)
 	if err != nil {
+		fmt.Printf("this:\n%#v", err)
 		return nil, fmt.Errorf("failed to get file system's subsystem config from node: %w", err)
 	}
 

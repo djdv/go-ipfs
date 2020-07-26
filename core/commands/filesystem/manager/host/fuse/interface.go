@@ -58,7 +58,6 @@ func NewFuseInterface(fs filesystem.Interface, opts ...options.Option) (fuselib.
 			strings.ToLower(logGroup),          // fmt: `fuse`
 			strings.ToLower(fs.ID().String())), // fmt: `ipfs`
 		),
-		//initSignal: settings.InitSignal,
 	}
 
 	// TODO: should we switch on the ID per API or have a node.Option for

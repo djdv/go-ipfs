@@ -10,64 +10,11 @@ import (
 
 var Mount = &cmds.Command{
 	Helptext: cmds.HelpText{
-		Tagline: "Mounts IPFS to the filesystem.",
-		ShortDescription: `
-		TODO: change this text
-Mount IPFS at a read-only mountpoint on the OS (default: /ipfs and /ipns).
-All IPFS objects will be accessible under that directory. Note that the
-root will not be listable, as it is virtual. Access known paths directly.
-
-You may have to create /ipfs and /ipns before using 'ipfs mount':
-
-> sudo mkdir /ipfs /ipns
-> sudo chown $(whoami) /ipfs /ipns
-> ipfs daemon &
-> ipfs mount
-`,
-		LongDescription: `
-		TODO: change this text
-Mount IPFS at a read-only mountpoint on the OS. The default, /ipfs and /ipns,
-are set in the configuration file, but can be overridden by the options.
-All IPFS objects will be accessible under this directory. Note that the
-root will not be listable, as it is virtual. Access known paths directly.
-
-You may have to create /ipfs and /ipns before using 'ipfs mount':
-
-> sudo mkdir /ipfs /ipns
-> sudo chown $(whoami) /ipfs /ipns
-> ipfs daemon &
-> ipfs mount
-
-Example:
-
-# setup
-> mkdir foo
-> echo "baz" > foo/bar
-> ipfs add -r foo
-added QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR foo/bar
-added QmSh5e7S6fdcu75LAbXNZAFY2nGyZUJXyLCJDvn2zRkWyC foo
-> ipfs ls QmSh5e7S6fdcu75LAbXNZAFY2nGyZUJXyLCJDvn2zRkWyC
-QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR 12 bar
-> ipfs cat QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR
-baz
-
-# mount
-> ipfs daemon &
-> ipfs mount
-IPFS mounted at: /ipfs
-IPNS mounted at: /ipns
-> cd /ipfs/QmSh5e7S6fdcu75LAbXNZAFY2nGyZUJXyLCJDvn2zRkWyC
-> ls
-bar
-> cat bar
-baz
-> cat /ipfs/QmSh5e7S6fdcu75LAbXNZAFY2nGyZUJXyLCJDvn2zRkWyC/bar
-baz
-> cat /ipfs/QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR
-baz
-`,
+		Tagline:          "Mounts IPFS to the filesystem.",
+		ShortDescription: mountDescWhatAndWhere,
+		LongDescription:  mountDescWhatAndWhere + "\nExample:\n" + mountDescExample,
 	},
-	Options: append(cmdSharedOpts,
+	Options: append(sharedOpts,
 		cmds.BoolOption(mountListKwd, "l", mountListDesc),
 	),
 	Type: &Response{},
@@ -147,8 +94,7 @@ func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) e
 
 	responses := make(chan interface{}, 1) // NOTE: value must match `cmd.Command.Type`
 	// ^ responses := make(chan Response, 1) // cmds lib needs it to be interface{}
-
-	responses <- Response{Info: "binding file systems to host:"}
+	responses <- Response{Info: "binding to host:"}
 
 	node, err := cmdenv.GetNode(env)
 	if err != nil {

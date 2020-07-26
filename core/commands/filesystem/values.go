@@ -14,7 +14,7 @@ var (
 	ErrInvalidSystem = errors.New("unknown system requested")
 	ErrInvalidAPI    = errors.New("unknown API requested")
 
-	cmdSharedOpts = []cmds.Option{
+	sharedOpts = []cmds.Option{
 		cmds.StringOption(aPIKwd, aPIDesc),
 		cmds.StringOption(subsystemKwd, subsystemDesc),
 		cmds.StringOption(TargetKwd, targetDesc),
@@ -60,9 +60,9 @@ const (
 	unmountAllKwd  = "all"
 	unmountAllDesc = "Unmount all instances."
 
-	// all daemon descriptions should include this message
+	// all daemon flag descriptions should include this message
 	// in addition to the parameters normal description
-	daemonDescInfo = "(if using --mount) "
+	daemonDescInfo = "(if using --" + DaemonCmdPrefix + ") "
 )
 
 func typeCastSystemArg(systemName string) (sysID filesystem.ID, err error) {

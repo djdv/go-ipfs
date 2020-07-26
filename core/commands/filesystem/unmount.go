@@ -2,6 +2,7 @@ package fscmds
 
 import (
 	"errors"
+	"sync"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
@@ -18,7 +19,7 @@ var Unmount = &cmds.Command{
 		TODO: replace this text :^)
 `,
 	},
-	Options: append(cmdSharedOpts,
+	Options: append(sharedOpts,
 		cmds.BoolOption(unmountAllKwd, "a", unmountAllDesc)),
 	Type: &Response{},
 	Encoders: cmds.EncoderMap{
@@ -36,6 +37,7 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 
 	responses := make(chan interface{}, 1) // NOTE: value must match `cmd.Command.Type`
 	// ^ responses := make(chan Response, 1) // cmds lib needs it to be interface{}
+	responses <- Response{Info: "detaching from host:"}
 
 	dispatcher := node.FileSystem
 
@@ -49,9 +51,9 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	if detachArg, ok := req.Options[unmountAllKwd].(bool); ok && detachArg {
 		go func() {
 			for resp := range CloseFileSystem(dispatcher) {
-				// FIXME: needs processing; this is sending the wrong type
 				responses <- resp
 			}
+			node.FileSystem = nil // remove self from the node, don't remain in empty state
 			close(responses)
 		}()
 		return re.Emit(responses)
@@ -62,18 +64,42 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		return err
 	}
 
-	go func() {
-		for host := range dispatcher.Detach(requests...) {
-			for hostResp := range host.FromHost {
-				responses <- Response{ // emit a copy without the closer
+	var wg sync.WaitGroup
+
+	// TODO: look here again; can we merge the response closer or does it have to be independent?
+	// *⬇
+	for resp := range dispatcher.Detach(requests...) {
+		wg.Add(1)                        // for each host response channel
+		go func(resp manager.Response) { // for each host response channel
+			for hostResp := range resp.FromHost { // merge host responses into the main response channel
+				responses <- Response{
 					Error: hostResp.Error,
 					Request: manager.Request{
-						Header:      host.Header,
+						Header:      resp.Header,
 						HostRequest: hostResp.Request,
 					},
 				}
 			}
+			wg.Done()
+		}(resp)
+	}
+
+	go func() { // *⬆
+		wg.Wait() // wait for all hosts to respond before closing responses
+
+		// HACK: needs formalization; List needs ctx cancel too
+		// we want the dispatcher to remove itself on final close
+		// (pass node to constructor, add detach wrapper to apiMux)
+		empty := true
+		for range dispatcher.List() {
+			empty = false
+			// and continue to drain the channel because no cancel
 		}
+
+		if empty { // XXX: no sync
+			node.FileSystem = nil // remove self from the node, don't remain in empty state
+		}
+
 		close(responses)
 	}()
 

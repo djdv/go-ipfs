@@ -12,8 +12,11 @@ import (
 	logging "github.com/ipfs/go-log"
 )
 
+type fuseMountSignal chan error
+
 type hostBinding struct {
 	nodeInterface filesystem.Interface // interface between FUSE and the target API
+	destroySignal fuseMountSignal
 
 	log logging.EventLogger // general operations log
 
@@ -27,15 +30,8 @@ type hostBinding struct {
 }
 
 func (fs *hostBinding) Init() {
-	fs.log.Debug("init")
-	/*
-		defer func() {
-			if fs.initSignal != nil {
-				close(fs.initSignal)
-			}
-			fs.log.Debugf("init finished")
-		}()
-	*/
+	fs.log.Debugf("Init")
+	defer fs.log.Debugf("Init finished")
 
 	fs.files = newFileTable()
 	fs.directories = newDirectoryTable()
@@ -51,7 +47,16 @@ func (fs *hostBinding) Init() {
 }
 
 func (fs *hostBinding) Destroy() {
-	fs.log.Debugf("Destroy - Requested")
+	fs.log.Debugf("Destroy")
+
+	defer func() {
+		if fs.destroySignal != nil {
+			// TODO: close all file/dir indices, stream errors out to destroy chan
+			close(fs.destroySignal)
+			fs.destroySignal = nil
+		}
+		fs.log.Debugf("Destroy finished")
+	}()
 }
 
 func (fs *hostBinding) Statfs(path string, stat *fuselib.Statfs_t) int {
