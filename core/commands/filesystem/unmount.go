@@ -69,7 +69,7 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	// TODO: look here again; can we merge the response closer or does it have to be independent?
 	// *⬇
 	for resp := range dispatcher.Detach(requests...) {
-		wg.Add(1)                        // for each host response channel
+		wg.Add(1)
 		go func(resp manager.Response) { // for each host response channel
 			for hostResp := range resp.FromHost { // merge host responses into the main response channel
 				responses <- Response{

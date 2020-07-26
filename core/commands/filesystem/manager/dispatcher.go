@@ -57,44 +57,35 @@ func (am *apiMux) hostAttach(api API, id filesystem.ID, requests ...host.Request
 		return responses
 	}
 
-	// XXX: defeating the type system hacks
-	proxy := make(chan host.Response, 1)
-	go func() {
-		var hostChan <-chan host.Response
-		switch api {
-		case Plan9Protocol:
-			typedReqs := make([]p9fsp.Request, len(requests))
-			for i := range requests {
-				typedReqs[i] = requests[i].(p9fsp.Request)
-			}
-			hostChan = hostAttacher.(p9fsp.Attacher).Attach(typedReqs...)
-		case Fuse:
-			typedReqs := make([]fuse.Request, len(requests))
-			for i := range requests {
-				typedReqs[i] = requests[i].(fuse.Request)
-			}
-			hostChan = hostAttacher.(fuse.Mounter).Mount(typedReqs...)
-
-		default:
-			panic("unexpected API type requested")
+	// inputs are typed but results are generalized
+	var hostChan <-chan host.Response
+	switch api {
+	case Plan9Protocol:
+		typedReqs := make([]p9fsp.Request, len(requests))
+		for i := range requests {
+			typedReqs[i] = requests[i].(p9fsp.Request)
 		}
-
-		for resp := range hostChan {
-			proxy <- resp
+		hostChan = hostAttacher.(p9fsp.Attacher).Attach(typedReqs...)
+	case Fuse:
+		typedReqs := make([]fuse.Request, len(requests))
+		for i := range requests {
+			typedReqs[i] = requests[i].(fuse.Request)
 		}
+		hostChan = hostAttacher.(fuse.Mounter).Mount(typedReqs...)
 
-		close(proxy)
-	}()
+	default:
+		panic("unexpected API type requested")
+	}
 
 	go func() {
-		for msg := range proxy {
+		for msg := range hostChan {
 			responses <- msg
 
 			if msg.Error != nil {
 				continue
 			}
 
-			am.NameIndex.Push(indexValue{
+			am.NameIndex.Push(&indexValue{
 				Header:  Header{API: api, ID: id},
 				Binding: msg.Binding,
 			})

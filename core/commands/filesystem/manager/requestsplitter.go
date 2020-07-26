@@ -56,65 +56,67 @@ type hostMethod func(api API, id filesystem.ID, requests ...host.Request) <-chan
 func dispatch(hostMethod hostMethod, requests ...Request) <-chan Response {
 	sort.Sort(byAPI(requests))
 
-	merged := make(chan Response)
+	var (
+		responses = make(chan Response)
+		queue     []host.Request
 
+		hostTasks  sync.WaitGroup
+		hostHeader Header
+	)
+
+	// call the host API method with a batch of sysID specific requests
+	// e.g. Bind(ipfsRequests...), Detach(mfsRequests...)
 	dispatchToMethod := func(wg *sync.WaitGroup, header Header, hostRequests ...host.Request) {
 		if len(hostRequests) == 0 {
-			return
+			return // do nothing, don't stall
 		}
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
-			// TODO: inspect error
-			// if present, call an "unwind" closure
-			merged <- Response{
+			// TODO: inspect error; if present, call an "unwind" closure
+			responses <- Response{
 				Header:   header,
 				FromHost: hostMethod(header.API, header.ID, hostRequests...),
 			}
 		}()
 	}
 
-	var hostTasks sync.WaitGroup
-	var hostHeader Header
-	var requestBatch []host.Request
-
-	// build a unique list for each pair of {API:FS} requests
-	// dispatching the request as soon as all elements are prepared
-	rEnd := len(requests) - 1
+	// divide requests into unique lists, based on their Header {API:FS}
+	// before we start processing the next group of Headers
+	// we'll dispatch the existing group of requests to their method
+	requestsEnd := len(requests) - 1
 	for i, req := range requests {
 		if i == 0 {
 			hostHeader = req.Header
 		}
 
-		if hostHeader != req.Header {
-			hostRequests := make([]host.Request, len(requestBatch))
-			copy(hostRequests, requestBatch) // copy contents into a new array
-			// send them off to their handler
-			dispatchToMethod(&hostTasks, hostHeader, hostRequests...)
+		if hostHeader != req.Header { // header changed, new group
+			requestBatch := make([]host.Request, len(queue))          // make a group request slice
+			copy(requestBatch, queue)                                 // copy the queue into it
+			dispatchToMethod(&hostTasks, hostHeader, requestBatch...) // and send it to the host method for processing
 
-			requestBatch = requestBatch[:0] // re-use the buffer slice
-			hostHeader = req.Header         // move batch marker forward
+			queue = queue[:0]       // re-use the queue slice (to avoid realloc)
+			hostHeader = req.Header // set group separator to the new header
 		}
 
-		requestBatch = append(requestBatch, req.HostRequest)
+		queue = append(queue, req.HostRequest) // append request to host batch queue
 
-		if i == rEnd {
-			dispatchToMethod(&hostTasks, hostHeader, requestBatch...)
+		if i == requestsEnd { // if we're the last request, fire off the queue
+			dispatchToMethod(&hostTasks, hostHeader, queue...)
 		}
 	}
 
 	go func() {
-		hostTasks.Wait()
-		close(merged)
+		hostTasks.Wait() // wait for all bind requests to respond
+		close(responses)
 	}()
 
-	return merged
+	return responses
 }
 
 func (am *apiMux) splitRequests(hostMethod hostMethod, requests ...Request) <-chan Response {
 	if err := check(am.NameIndex, requests...); err != nil {
-
 		// create the return channels with a message buffer
 		hostResp := make(chan host.Response, 1)
 		managerResp := make(chan Response, 1)

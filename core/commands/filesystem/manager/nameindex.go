@@ -14,7 +14,7 @@ type indexValue struct {
 
 type NameIndex interface {
 	Exist(Request) bool
-	Push(indexValue)
+	Push(*indexValue)
 	Commit()
 
 	Detach(...Request) <-chan Response
@@ -35,7 +35,7 @@ type nameIndex struct {
 	// to attempt to undo the request transaction
 	// if the entire operation succeeds
 	// we can commit the results to an index
-	stack     []indexValue
+	stack     []*indexValue
 	instances instanceIndex
 }
 
@@ -53,7 +53,7 @@ func NewNameIndex() NameIndex {
 //
 // commit flushes the stack into the index
 
-func (ni *nameIndex) Push(result indexValue) {
+func (ni *nameIndex) Push(result *indexValue) {
 	ni.Lock()
 	defer ni.Unlock()
 	ni.stack = append(ni.stack, result)
@@ -111,10 +111,11 @@ func (ni *nameIndex) Commit() {
 			systems[sysID] = targets
 		}
 
-		// insert into index and remove self when closed
 		indexName := index.Binding.String()
-
 		bindCloser := index.Binding.Closer.Close
+
+		// override `Close` method
+		// so that we remove ourselves from the index on `Close`
 		index.Binding.Closer = closer(func() error {
 			ni.Lock()
 			defer ni.Unlock()
@@ -126,13 +127,16 @@ func (ni *nameIndex) Commit() {
 				delete(ni.instances, api)
 			}
 
-			return bindCloser()
+			return bindCloser() // calling and returning the original `binding.Close` error
 		})
 
 		targets[indexName] = index.Binding
 	}
 
-	ni.stack = ni.stack[:0] // clear the stack
+	for i := range ni.stack { // clear the stack
+		ni.stack[i] = nil
+	}
+	ni.stack = ni.stack[:0] // reset len
 }
 
 func (ni *nameIndex) Exist(request Request) bool {

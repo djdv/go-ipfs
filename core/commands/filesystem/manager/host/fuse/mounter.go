@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	gopath "path"
 	"runtime"
-	"strings"
 	"time"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
@@ -64,8 +62,7 @@ func attachToHost(fuseFS fuselib.FileSystemInterface, request Request) (instance
 	hostInterface.SetCapCaseInsensitive(false)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	hostPath := strings.TrimPrefix(request.String(),
-		gopath.Join("/", host.PathNamespace)+"/")
+	hostPath := request.hostTarget()
 
 	// cgofuse will panic before calling `hostBinding.Init` if the fuse libraries are not found
 	// or it encounters some kind of fatal issue
@@ -149,12 +146,21 @@ func attachToHost(fuseFS fuselib.FileSystemInterface, request Request) (instance
 		return
 	}
 
+	// TODO: better
+	// we need to remove ourselves from the index on fs.Destroy since FUSE may call fs.Destroy without us knowing
+	// (like when WinFSP receives a sigint)
+	// this means piping the index delete() all the way down to the FS.Destroy
+	// otherwise we double close on shutdown/unmount
+	// because FUSE closed the FS, but we were still tracking it in the FS manager
 	instanceDetach = closer(func() (err error) {
-		switch v := fuseFS.(type) {
-		case *hostBinding:
-			destroySignal := v.destroySignal
-			go hostInterface.Unmount()
+		// if this interface is ours, retrieve any errors from the FS instance's `Destroy` method
+		if ffs, ok := fuseFS.(*hostBinding); ok {
+			destroySignal := ffs.destroySignal
+			if destroySignal == nil { // HACK: if this is true `fs.Destroy` got called twice
+				return nil // this will happen if FUSE tells the FS to stop, then our FS manager does the same
+			}
 
+			go hostInterface.Unmount()
 			for fuseErr := range destroySignal {
 				/* fmt:
 				/n/somewhere/ipns
@@ -168,10 +174,12 @@ func attachToHost(fuseFS fuselib.FileSystemInterface, request Request) (instance
 					err = fmt.Errorf("%w,\n\t%s", err, fuseErr.Error())
 				}
 			}
-		default:
-			if !hostInterface.Unmount() {
-				err = fmt.Errorf("%s: unmount failed for an unknown reason", request.String())
-			}
+			return
+		}
+
+		// otherwise just do default behaviour
+		if !hostInterface.Unmount() {
+			err = fmt.Errorf("%s: unmount failed for an unknown reason", request.String())
 		}
 
 		return

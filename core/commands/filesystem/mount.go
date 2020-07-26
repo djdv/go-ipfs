@@ -2,6 +2,7 @@ package fscmds
 
 import (
 	"fmt"
+	"sync"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/cmdenv"
@@ -115,86 +116,27 @@ func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) e
 		node.FileSystem = dispatcher
 	}
 
-	go func() {
-		for host := range dispatcher.Attach(requests...) {
-			for hostResp := range host.FromHost {
-				responses <- Response{ // emit a copy without the closer
+	var wg sync.WaitGroup
+	for resp := range dispatcher.Attach(requests...) {
+		wg.Add(1)
+		go func(resp manager.Response) { // for each host response channel
+			for hostResp := range resp.FromHost { // merge host responses into the main response channel
+				responses <- Response{ // (a copy of the response without the closer)
 					Error: hostResp.Error,
 					Request: manager.Request{
-						Header:      host.Header,
+						Header:      resp.Header,
 						HostRequest: hostResp.Request,
 					},
 				}
 			}
-		}
+			wg.Done()
+		}(resp)
+	}
+
+	go func() {
+		wg.Wait()
 		close(responses)
 	}()
 
 	return re.Emit(responses)
 }
-
-/*
-func bindCmd(req *cmds.HostRequest, env cmds.Environment, re cmds.ResponseEmitter) error {
-	// TODO: string emissions should all move to the emit handler
-	// Emit{Err:infoError("Binding")
-	// handleEmit(){ if infoError, print(err.Err()); return nil}
-	re.Emit("Binding file systems...")
-
-	node, err := cmdenv.GetNode(env)
-	if err != nil {
-		return fmt.Errorf("failed to get file instance node from request: %w", err)
-	}
-
-	requests, err := parseRequest(req, env)
-	if err != nil {
-		return err
-	}
-
-	if len(requests) == 0 {
-		re.Emit("No binds requested")
-		return nil
-	}
-
-	// NOTE:
-	// the node's daemon-error-channel is set up by the daemon
-	// the dispatcher is set up by us
-
-	// TODO: torn down by `unmount` on the last instance
-	dispatcher := node.FileSystem.Dispatcher
-	if dispatcher == nil { // so instantiate it if it's not there
-		coreAPI, err := cmdenv.GetApi(env, req)
-		if err != nil {
-			return fmt.Errorf("failed to node file instance with node: %w", err)
-		}
-
-		var managerOpts []_interface.Option
-
-		if node.FilesRoot != nil { // TODO: should we just always do this?
-			managerOpts = append(managerOpts, _interface.WithFilesAPIRoot(node.FilesRoot))
-		}
-		// TODO: option like `IsOffline` for the dispatcher; set's IPNS publisher to node, etc.
-		// set when !IsDaemon
-
-		dispatcher, err = fsn.NewDispatcher(node.Context(), coreAPI, managerOpts...)
-		if err != nil {
-			return err
-		}
-		node.FileSystem.Dispatcher = dispatcher
-	}
-
-	go func() {
-		for res := range dispatcher.Attach(requests...) {
-			re.Emit(res)
-		}
-	}()
-
-	if !node.IsDaemon {
-		// if this command isn't running on a daemon
-		// block until the node's context is canceled
-		// the binds will be active for as long as the node exists
-		// and closed via the node's own shutdown mechanism
-		<-node.Context().Done()
-	}
-	return
-}
-*/

@@ -14,15 +14,19 @@ type Request struct {
 
 func (r Request) Arguments() []string { return r.FuseArgs }
 func (r Request) String() string {
-	hostPath := r.HostPath
-	if hostPath == "" { // TODO: this is WinFSP specific and needs to be more explicit about that
-		hostPath = extractUNCArg(r.FuseArgs)
-	}
-
 	return gopath.Join("/",
 		host.PathNamespace,
-		hostPath,
+		r.hostTarget(),
 	)
+}
+
+func (r Request) hostTarget() (hostPath string) {
+	if r.HostPath == "" { // TODO: this is WinFSP specific and needs to be more explicit about that
+		hostPath = extractUNCArg(r.FuseArgs)
+	} else {
+		hostPath = r.HostPath
+	}
+	return
 }
 
 func extractUNCArg(args []string) string {
