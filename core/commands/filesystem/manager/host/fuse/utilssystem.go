@@ -72,7 +72,7 @@ func fillDir(ctx context.Context, directory filesystem.Directory, fill fuseFillF
 		}
 		stat = statFunc(ent.Name())
 		if !fill(ent.Name(), stat, int64(ent.Offset())) {
-			break
+			break // fill asked us to stop filling
 		}
 	}
 

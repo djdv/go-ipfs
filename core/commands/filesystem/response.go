@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
@@ -169,7 +170,7 @@ func decodeTarget(targetLine string, arguments []string) (manager.Request, error
 	return mReq, nil
 }
 
-func encodeText(req *cmds.Request, w io.Writer, v interface{}) error {
+func encodeText(_ *cmds.Request, w io.Writer, v interface{}) error {
 	val, ok := v.(Response)
 	if !ok {
 		val = *(v.(*Response))
@@ -192,34 +193,34 @@ func encodeText(req *cmds.Request, w io.Writer, v interface{}) error {
 	return err
 }
 
-func encodeJson(req *cmds.Request, w io.Writer, v interface{}) error {
+func encodeJson(_ *cmds.Request, w io.Writer, v interface{}) error {
 	return json.NewEncoder(w).Encode(v)
 }
 
 // TODO: put on dispatcher unexported
 // export Close which calls this, merged
 func CloseFileSystem(dispatcher manager.Dispatcher) <-chan Response {
-	responses := make(chan Response, 1)
-	responses <- Response{Info: "detaching all host bindings..."}
-
-	go func() {
-		for index := range dispatcher.List() {
-			for hostResp := range index.FromHost {
+	responses := make(chan Response)
+	var wg sync.WaitGroup
+	for resp := range dispatcher.List() {
+		wg.Add(1)
+		go func(resp manager.Response) {
+			for hostResp := range resp.FromHost {
 				binding := hostResp.Binding
-				resp := Response{
+				responses <- Response{
+					Error: binding.Close(),
 					Request: manager.Request{
-						Header:      index.Header,
+						Header:      resp.Header,
 						HostRequest: binding.Request,
 					},
 				}
-
-				responses <- Response{Info: fmt.Sprintf(`closing: %s`, resp.String())}
-				if err := binding.Close(); err != nil {
-					resp.Error = err
-				}
-				responses <- resp
 			}
-		}
+			wg.Done()
+		}(resp)
+	}
+
+	go func() {
+		wg.Wait()
 		close(responses)
 	}()
 

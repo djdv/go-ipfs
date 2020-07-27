@@ -62,13 +62,15 @@ func TranslateToBindRequest(prefix string, sourceReq *cmds.Request) (*cmds.Reque
 	bindReq := *sourceReq
 	bindReq.Command = Mount
 
-	delete(bindReq.Options, prefix) // delete the prefix option itself first
-
-	for param, arg := range bindReq.Options {
-		delete(bindReq.Options, param)        // delete the rest of the options
-		if strings.HasPrefix(param, prefix) { // keeping (unencapsulated) copies of prefixed parameters
-			// e.g. `superCmd --prefix-ABC=123` => `cmd -ABC=123`
-			bindReq.Options[strings.TrimPrefix(param, prefix+"-")] = arg
+	bindReq.Options = make(cmds.OptMap, len(sourceReq.Options)) // NOTE: we don't want to modify the source map
+	for param, arg := range sourceReq.Options {
+		switch {
+		default: // don't copy options that don't apply to us
+		case param == prefix: // don't copy the prefix itself
+		case param == cmds.EncLong || param == cmds.EncShort: // copy encoding option if present
+			bindReq.Options[param] = arg
+		case strings.HasPrefix(param, prefix): // copy prefixed parameters, sans prefix
+			bindReq.Options[strings.TrimPrefix(param, prefix+"-")] = arg // e.g. `superCmd --prefix-ABC=123` => `cmd -ABC=123`
 		}
 	}
 

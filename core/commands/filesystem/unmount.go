@@ -37,7 +37,6 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 
 	responses := make(chan interface{}, 1) // NOTE: value must match `cmd.Command.Type`
 	// ^ responses := make(chan Response, 1) // cmds lib needs it to be interface{}
-	responses <- Response{Info: "detaching from host:"}
 
 	dispatcher := node.FileSystem
 
@@ -49,6 +48,7 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	}
 
 	if detachArg, ok := req.Options[unmountAllKwd].(bool); ok && detachArg {
+		responses <- Response{Info: "detaching all host bindings..."}
 		go func() {
 			for resp := range CloseFileSystem(dispatcher) {
 				responses <- resp
@@ -64,6 +64,7 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		return err
 	}
 
+	responses <- Response{Info: "detaching from host:"}
 	var wg sync.WaitGroup
 
 	// TODO: look here again; can we merge the response closer or does it have to be independent?

@@ -5,8 +5,15 @@ import (
 	"io"
 )
 
+// TODO: pass on docs
+// Directories return a channel of their entries, which contain a name and an offset.
+// The initial call to List must have an offset value of 0.
+// Subsequent calls to List with a non-0 offset shall replay the stream exactly, starting at the provided offset.
+// (replay meaning: entries are returned in the same order with the same values)
+// Calling Reset shall reset the stream as if it had just been opened.
+// Previous offset values may be considered invalid after a Reset, but are not required to be.
 type Directory interface {
-	// List attempts to return all entires starting from `offset`
+	// List attempts to return all entries starting from `offset`
 	// `offset` values must be either 0 or a value previously provided by `DirectoryEntry.Offset()`
 	// the returned channel is closed under the following conditions:
 	//  - The context is canceled

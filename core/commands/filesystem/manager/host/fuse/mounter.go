@@ -107,6 +107,10 @@ func attachToHost(fuseFS fuselib.FileSystemInterface, request Request) (instance
 		)
 
 		// poll the OS to see if `Mount` succeeded
+		// FIXME: this only applies to Windows, and non-existing mount targets
+		// we need to break out into a sys specific function
+		// NT: if target exists before Mount, ???, otherwise poll
+		// *nix: check /proc if it exists, otherwise mtab, otherwise ???
 		go func() {
 			for {
 				select {

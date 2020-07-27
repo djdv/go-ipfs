@@ -15,7 +15,6 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 	version "github.com/ipfs/go-ipfs"
 	cmds "github.com/ipfs/go-ipfs-cmds"
-	"github.com/ipfs/go-ipfs-cmds/cli"
 	config "github.com/ipfs/go-ipfs-config"
 	cserial "github.com/ipfs/go-ipfs-config/serialize"
 	utilmain "github.com/ipfs/go-ipfs/cmd/ipfs/util"
@@ -396,7 +395,7 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	}
 
 	// bind to the host filesystem - if --mount flag is present
-	fsErrc, err := maybeBindFileSystem(req, env)
+	fsErrc, err := maybeBindFileSystem(req, re, env)
 	if err != nil {
 		return err
 	}
@@ -692,7 +691,7 @@ func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {
 	return errc, nil
 }
 
-func maybeBindFileSystem(req *cmds.Request, env cmds.Environment) (<-chan error, error) {
+func maybeBindFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) (<-chan error, error) {
 	// regardless of if we bind during node init (now)
 	// or some time after the node is initialized
 	// we always set up an error channel for the node
@@ -708,33 +707,25 @@ func maybeBindFileSystem(req *cmds.Request, env cmds.Environment) (<-chan error,
 
 	daemonShutdownChan := make(chan error)
 	go func() {
-		defer close(daemonShutdownChan)
 		<-node.Context().Done() // wait for the node to say it's done
-
 		// if systems were bound, but not released before shutdown
-		if node.FileSystem != nil {
-			// release them now
-			//TODO: the manager constructor
-			// needs to refcount somehow, and remove itself from the node
-			// or signal us to to it somehow (len == 0 style)
+		if node.FileSystem != nil { // release them now
 			for resp := range fscmds.CloseFileSystem(node.FileSystem) {
-				// printing the responses to the node's console
-				if resp.Info != "" {
-					fmt.Println(resp.Info)
-					continue
-				}
-
 				targetName := resp.Request.String()
+
+				// relaying the error if it was encountered
 				if resp.Error != nil {
-					fmt.Fprintln(os.Stderr, "error:", resp.Error)
-					daemonShutdownChan <- fmt.Errorf("%q: %s",
+					daemonShutdownChan <- fmt.Errorf("%s: %s",
 						targetName,
 						resp.Error)
 					continue
 				}
-				fmt.Println("detached:", targetName)
+
+				// or print the responses to the node's console if successful
+				fmt.Println(targetName)
 			}
 		}
+		close(daemonShutdownChan)
 	}()
 
 	// if bind requests parameters are not present, we can return
@@ -747,14 +738,13 @@ func maybeBindFileSystem(req *cmds.Request, env cmds.Environment) (<-chan error,
 
 	// otherwise, the request above was translated `daemon` => `mount
 	// so we can forward it to the `mount` command with the user provided flags
-	// TODO: we need to print these raw not use the emitter here
 
-	emitter, err := cli.NewResponseEmitter(os.Stdout, os.Stderr, req)
-	if err != nil {
-		return nil, err
-	}
+	// TODO: we need to provide our own emitter to print these raw
+	// fscmds.CliEmitter() resp =stringified> stdout
+	// (because the daemon emitter is always JSON format, even if invoked with `ipfs daemon --encoding=text`
+	// is this a bug?)
 
-	return daemonShutdownChan, fscmds.Mount.Run(mountRequest, emitter, env)
+	return daemonShutdownChan, fscmds.Mount.Run(mountRequest, re, env)
 }
 
 // merge does fan-in of multiple read-only error channels
