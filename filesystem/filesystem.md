@@ -1,15 +1,24 @@
 # File System
 
-* [Overview](#overview)
-* [Building](#building)
-* [Important interfaces](#important-interfaces)
+- [Overview](#overview)
+- [Building](#building)
+  * [Without a C compiler](#without-a-c-compiler)
+  * [With a C compiler](#with-a-c-compiler)
+  * [Running](#running)
+- [Important interfaces](#important-interfaces)
   * [Command line](#command-line)
-  * [Conductors](#conductors)
-  * [Providers](#providers)
-  * [Instances](#provider-instances)
-* [Implementation details](#implementation-details-incomplete)
-  * [Cross boundary locking](#cross-boundary-locking)
-  * [File system implementations](#file-system-implementations-themselves)
+  * [File System Interface](#file-system-interface)
+  * [IPFS cmds](#ipfs-cmds)
+  * [Node Manager](#node-manager)
+  * [Host instances](#host-instances)
+- [Implementation details](#implementation-details)
+  * [(FUSE/9P) API mappings themselves](#-fuse-9p--api-mappings-themselves)
+  * [File System Directory interface](#file-system-directory-interface)
+  * [Cross boundary locking (incomplete)](#cross-boundary-locking--incomplete-)
+- [Misc Notes](#misc-notes)
+  * [FUSE](#fuse)
+  * [NetBSD](#netbsd)
+  * [OpenBSD](#openbsd)
 
 ## Overview
 
@@ -17,37 +26,13 @@ Editors note:
 Nothing is final and this document is temporary.
 It may be replaced with some user documentation around the command line interface if the help text can't be written succinctly enough.
 
+The "filesystem" packages contain maps between the various IPFS APIs and a common file system interface.
 
-The "filesystem" directory contains mappings between the various IPFS APIs and ways to facilitate mounting them on various hosts using various APIs.  
+The "core/commands/filesystem" packages provide a means to parse and dispatch requests, as well as manage instances of file system bindings.
 
-TODO: link to godoc; it has better descriptions for the packages
-```text
-.\filesystem\
-├── errors
-└── interface (file system interface for Go)
-    ├── ipfscore (interfaces between the node's APIs, and the Go interface)
-    ├── keyfs
-    ├── mfs
-    ├── pinfs
-    └── ufs
-
-.\core\commands\filesystem\
-└── manager (interfaces between cmds.Commands, and file system requests)
-    └── host (interfaces between the node, and its host APIs)
-        ├── 9p
-        │   └── sys
-        ├── fuse
-        │   └── sys
-        └── options
-
-```
 
 
 ![dependency-graph](./depgraph.svg)
-
-The `commands` packages parse cmds requests, and dispatch them via a `manager.Dispatcher` stored on the node.
-
-The dispatcher will facilitate management of host bindings.
 
 ## Building
 
@@ -124,111 +109,143 @@ It carries the same auto expansion rules, picking up missing parameters through 
 they're going to be moved into the godoc packages and linked to instead  
 and the command line description via the helptext  
 (later)
-___
 
 ### File System Interface
 
+(temporary godoc host)
+
+[filesystem - Go Documentation Server](http://fiveeyes.iiiii.info:6060/pkg/github.com/ipfs/go-ipfs/filesystem/#Interface)
+
 The well named `Interface` acts as a common interface between various APIs for use with our provider implementations. Allowing things to present themselves as a file system.  
-*The name and structure of this is likely to change
+
+Currently, we maintain a list of ID's for implementations to use, such as IPFS, IPNS, et al. (see godoc for full list)
+
+### IPFS cmds
+
+[fscmds - Go Documentation Server](http://fiveeyes.iiiii.info:6060/pkg/github.com/ipfs/go-ipfs/core/commands/filesystem/#pkg-subdirectories)
+
+Responsible for defining `cmds.Command`s such as `mount`, `unmount`,  their parameters, their request parsers, \*translations methods for requests, etc.
+
+(\*e.g `daemon --mount -...` -> `mount -...`)
+
+### Node Manager
+
+[manager - Go Documentation Server](http://fiveeyes.iiiii.info:6060/pkg/github.com/ipfs/go-ipfs/core/commands/filesystem/manager/)
+
+Defines and implements a `Dispatcher`, which is responsible for taking in a list of requests, and returning a stream of their results. Dispatching them to their `Header{Host-API-ID:FS-ID}` pair's implementation method.
+
+(e.g. internally one could map `dispatcher.Attach({fuse:IPFS}{/mnt/ipfs}, {fuse:IPFS}{/mnt/ipfs2}, ...)` to `dispatch(fuse, ipfs).mount("/mnt/ipfs", "/mnt/ipfs2", ...)` and plex these requests/results)
+
+### Host instances
+
+Host implementations for the managers API list, provide interfaces to make requests and communicate with the host system.
+
+They return types of their own, such as `fuse`'s  [mounter](http://j.desk.top:6060/pkg/github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse/#Mounter), or `p9fsp``s [attacher](http://fiveeyes.iiiii.info:6060/pkg/github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p/#Attacher).
+
+Which take in their own specific requests, but reply with a common message format (a [host.Response](http://fiveeyes.iiiii.info:6060/pkg/github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/#Response)), which contain a [host.Binding](http://fiveeyes.iiiii.info:6060/pkg/github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/#Binding), the result of binding the deconstructor returned from the host, with a symbolic representation (the request that caused its construction).
+
+(conceptually: `host.Binding{"/n/ipfs":io.Closer}`)
+
+## Implementation details
+
+### (FUSE/9P) API mappings themselves
+
+API mappings utilize the file system `Interface` and simply transform data from it into external API specific constructs. For example this is the `Gettattr` for IPFS under FUSE.
 
 ```go
-type Interface interface {
-	// index
-	Open(path string, flags IOFlags) (File, error)
-	OpenDirectory(path string) (Directory, error)
-	Info(path string, req StatRequest) (*Stat, StatRequest, error)
-	ExtractLink(path string) (string, error)
+    ...
+    iStat, _, err := fs.intf.Info(path, filesystem.StatRequestAll)
+        if err != nil {
+            errNo := interpretError(err)
+            if errNo != -fuselib.ENOENT { // don't flood the logs with "not found" errors
+                fs.log.Error(err)
+            }
+            return errNo
+        }
 
-	// creation
-	Make(path string) error
-	MakeDirectory(path string) error
-	MakeLink(path, target string) error
+        var ids statIDGroup
+        ids.uid, ids.gid, _ = fuselib.Getcontext()
+        applyIntermediateStat(stat, iStat)
+        applyCommonsToStat(stat, fs.filesWritable, fs.mountTimeGroup, ids)
+        return operationSuccess
+```
 
-	// removal
-	Remove(path string) error
-	RemoveDirectory(path string) error
-	RemoveLink(path string) error
+and under 9P
 
-	// modification
-	Rename(oldName, newName string) error
+```go
+    ...
 
-	// system
-	Close() error // TODO: I don't know if it's a good idea to have this; an even though it's Go convention the name is kind of bad for this
-	// TODO: consider
-	// Subsystem(path string) (Root, error)
-	// e.g. keyfs.Subsystem("/Qm.../an/ipns/path") => (ipns.Root, nil)
+    fidInfo, infoFilled, err := f.intf.Info(f.path.String(), requestFrom9P(req))
+    if err != nil {
+        return f.QID, ninelib.AttrMask{}, ninelib.Attr{}, interpretError(err)
+    }
+
+    attr := attrFromCore(fidInfo) // TODO: maybe resolve IDs
+    tg := timeGroup{atime: f.initTime, mtime: f.initTime, ctime: f.initTime, btime: f.initTime}
+    applyCommonsToAttr(&attr, f.filesWritable, tg, idGroup{uid: ninelib.NoUID, gid: ninelib.NoGID})
+
+    return f.QID, filledFromCore(infoFilled), attr, nil
+```
+
+A version of the `pinfs` (a directory which lists the node's pins as files and directories) has been implemented using this method. ~~Its use within FUSE looks like this:~~  
+This is how it was, but it's in the process of being changed for standards compliance.
+
+### File System Directory interface
+
+[filesystem.Directory - Go Documentation Server](http://fiveeyes.iiiii.info:6060/pkg/github.com/ipfs/go-ipfs/filesystem/#Directory)
+
+This is (for the moment) our semantics for what a directory is. It may need to change, or be redefined. But currently returns a stream of entries, containing an offset and an error value if one was encountered during operation.
+
+This is an example usage of translating these entries from `filesystem.DirectoryEntry` to FUSE native entries.
+
+```go
+package fuse
+
+func OpenDir() {
+    directory, err := fs.intf.OpenDirectory(path)
+...
 }
 
-```
+func Readdir() {
+    callCtx, cancel := context.WithCancel(ctx)
+    defer cancel()
 
-### Conductors
+    errNo, err := fillDir(callCtx, directory, fill, ofst)
+    if err != nil {
+        fs.log.Error(err)
+    }
 
-(Note: I don't like this name but couldn't think of anything better; something like volume manager wouldn't be bad)  
-The Conductor is responsible for managing multiple "system `Provider`s". Delegating requests to them, while also managing the instances they provide.
+    return errNo
+}
 
-```go
-type Conductor interface {
-	// Graft uses the selected provider to map groups of namespaces to their targets
-	Graft(ProviderType, []TargetCollection) error
-	// Detach removes a previously grafted target
-	Detach(target string) error
-	// Where provides the mapping of providers and their targets
-	Where() map[ProviderType][]string
+func fillDir(ctx context.Context, directory filesystem.irectory, fill fuseFillFunc, offset int64) (int, error) {
+...
+    if offset == 0 {
+        if err := directory.Reset(); err != nil {
+            // NOTE: POSIX `rewinddir` is not expected to fail
+            // if this happens, we'll inform FUSE's `readdir` that the stream position is (now) invalid
+            return -fuselib.ENOENT, err // see: SUSv7 `readdir` "Errors"
+        }
+    }
+
+    readCtx, cancel := context.WithCancel(ctx)
+    defer cancel()
+
+    for ent := range directory.List(readCtx, uint64(offset)) {
+        if err := ent.Error(); err != nil {
+            return -fuselib.ENOENT, err
+        }
+        stat = statFunc(ent.Name())
+        if !fill(ent.Name(), stat, int64(ent.Offset())) {
+            cancel()
+        }
+    }
+
+    return operationSuccess, nil
 }
 ```
 
-An implementation of this exists in `mount/conductors/ipfs-core` which is constructed by the daemon on startup or upon calling the mount sub-command. It's stored on the node and shared across calls. It utilizes the IPFS core API for it's operations.
-
-```go
-node.Mount = mountcon.NewConductor(node.Context(), coreAPI, opts...)
-```
-
-### Providers
-
-Providers provide instances of a namespace/file system and a means with which to bind it to some target (like a path in the operating system's own file system).
-
-```go
-// Provider interacts with a namespace and the file system
-// grafting a file node implementation to a target
-type Provider interface {
-	// grafts the target to the file system, returning the node to detach it
-	Graft(target string) (Instance, error)
-	// returns true if the target has been grafted but not detached
-	Grafted(target string) bool
-	// returns a list of grafted targets
-	Where() []string
-}
-```
-
-There are currently 2 providers, 1 for the Plan 9 protocol and 1 for FUSE. They live under `./mount/providers`.  
-The providers themselves map the file system `Interface` to their respective API  
-
-Our conductor manages multiple providers on demand. Here is an example of instantiating a 9P related request
-
-```go
-mount9p.NewProvider(ctx, namespace, listenAddr, coreAPI, ops...)
-mountfuse.NewProvider(ctx, namespace, fuseArgs, coreAPI, ops...)
-```
-
-### Provider instances
-
-Simply, provider instances are instances generated by the provider that should be tracked by the caller that generated them. In our case this is the conductor which maps a series of targets to instances, allowing callers to detach these instances by name/path. Following the traditional model of volumes, you can think of these almost as active partitions of a volume.
-
-```go
-// Instance is an active provider target that may be detached from the file node
-type Instance interface {
-	Detach() error
-	Where() (string, error)
-}
-```
-
-```go
-instance, err := someProvider.Graft(target)
-```
-
-## Implementation details (incomplete)
-
-### Cross boundary locking
+### Cross boundary locking (incomplete)
 
 In order to allow the daemon to perform normal operations without locking the user out of certain features, such as publishing to IPNS keys or using the FilesAPI via the `ipfs` command, or other API instances. We'll want to incorporate a shared resource lock on the daemon for these namespaces to use.
 For example, within the `ipfs name publish` command we would like to acquire a lock for the key we are about to publish to, which may or may not also be in use by an `ipfs mount` instance, or other instance of the CoreAPI.
@@ -237,8 +254,8 @@ As a result we'll need some kind of interface such as this
 
 ```go
 type ResourceLock interface {
-	Request(namespace mountinter.Namespace, resourceReference string, ltype LockType, timeout time.Duration) error
-	Release(namespace mountinter.Namespace, resourceReference string, ltype LockType)
+    Request(namespace mountinter.Namespace, resourceReference string, ltype LockType, timeout time.Duration) error
+    Release(namespace mountinter.Namespace, resourceReference string, ltype LockType)
 }
 ```
 
@@ -249,101 +266,10 @@ err := daemonNode.???.Request(mountinter.NamespaceIPNS, "/${key-hash}", mountint
 ```
 
 where the same instance is used by the rest of the services on the daemon, such as `files`, and `mount`.
-Any may hold the lock at various points, preventing one another from colliding and creating inconsistency without entirely disabling functionality on the node / holding exclusive access of the entire node.  
+Any may hold the lock at various points, preventing one another from colliding and creating inconsistency without entirely disabling functionality on the node / holding exclusive access of the entire node.
 
 NOTE: a quick hack was written to implement this but I don't trust myself to implement it correctly/efficiently.  
-This will require research to see how other systems perform ancestry style path locking and which libraries already exist that could help with it.  
-
-###  API mappings themselves
-
-API mappings utilize the file system `Interface` and simply transform data from it into external API specific constructs. For example this is the `Gettattr` for IPFS under FUSE.
-
-```go
-	...
-	iStat, _, err := fs.intf.Info(path, filesystem.StatRequestAll)
-		if err != nil {
-			errNo := interpretError(err)
-			if errNo != -fuselib.ENOENT { // don't flood the logs with "not found" errors
-				fs.log.Error(err)
-			}
-			return errNo
-		}
-
-		var ids statIDGroup
-		ids.uid, ids.gid, _ = fuselib.Getcontext()
-		applyIntermediateStat(stat, iStat)
-		applyCommonsToStat(stat, fs.filesWritable, fs.mountTimeGroup, ids)
-		return operationSuccess
-```
-
-and under 9P
-
-```go
-	...
-
-	fidInfo, infoFilled, err := f.intf.Info(f.path.String(), requestFrom9P(req))
-	if err != nil {
-		return f.QID, ninelib.AttrMask{}, ninelib.Attr{}, interpretError(err)
-	}
-
-	attr := attrFromCore(fidInfo) // TODO: maybe resolve IDs
-	tg := timeGroup{atime: f.initTime, mtime: f.initTime, ctime: f.initTime, btime: f.initTime}
-	applyCommonsToAttr(&attr, f.filesWritable, tg, idGroup{uid: ninelib.NoUID, gid: ninelib.NoGID})
-
-	return f.QID, filledFromCore(infoFilled), attr, nil
-
-```
-
-A version of the `pinfs` (a directory which lists the node's pins as files and directories) has been implemented using this method. ~~Its use within FUSE looks like this:~~  
-This is how it was, but it's in the process of being changed for standards compliance.
-
-## Directory interface
-
-TODO: move this text out and just reference the godoc comment
-(We should also talk about the implementation of streams somewhere, probably also in godoc)  
-
-Directories return a channel of their entries, which contain a name and an offset.  
-The initial call to List must have an offset value of 0.  
-Subsequent calls to List with a non-0 offset shall replay the stream exactly, starting at the provided offset. (entries are returned in the same order with the same values)  
-Calling Reset shall reset the stream as if it had just been opened.  
-Previous offset values may be considered invalid after a Reset, but are not required to be.
-
-translation of the entries into API specific constructs is to be done in the file system layer
-
-```go
-type DirectoryEntry interface {
-	Name() string
-	Offset() uint64
-	Error() error
-}
-
-type Directory interface {
-	// List attempts to return all entires starting from offset until it reaches the end
-	// or the context is canceled
-	// if an error is encountered, an entry is returned containing it, and the channel is closed
-	List(ctx context.Context, offset uint64) <-chan DirectoryEntry
-	Reset() error
-	io.Closer
-}
-```
-
-```go
-// FUSE OpenDir(){
-directory, err := fs.intf.OpenDirectory(path)
-// FUSE Readdir{
-readCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	for ent := range directory.List(readCtx, uint64(offset)) {
-		if err := ent.Error(); err != nil {
-			return -fuselib.ENOENT, err
-		}
-		stat = statFunc(ent.Name())
-		if !fill(ent.Name(), stat, int64(ent.Offset())) {
-			break
-		}
-	}
-```
+This will require research to see how other systems perform ancestry style path locking and which libraries already exist that could help with it.
 
 ## Misc Notes
 
@@ -355,13 +281,13 @@ It should be noted somewhere, the behaviour of (Go)`fuse.Getcontext`/(C)`fuse_ge
 None of the implementations have useful documentation for this call, other than saying the pointer to the structure should not be held past the operation call that invoked it.  
 The various implementations have varying results. For example, consider the non-exhaustive table below.  
 
-|FreeBSD (fusefs)<br>NetBSD (PUFFS)<br>macOS (FUSE for macOS)   | Linux (fuse)       | Windows (WinFSP)   |
-|------------------------------------------------------------   | ------------       | ----------------   |
-| opendir: populated                                            | opendir: populated | opendir: populated |
-| readdir: populated                                            | readdir: populated | readdir: NULL      |
-| releasedir: populated                                         | releasedir: NULL   | releasedir: NULL   |
+| FreeBSD (fusefs)<br>NetBSD (PUFFS)<br>macOS (FUSE for macOS) | Linux (fuse)       | Windows (WinFSP)   |
+| ------------------------------------------------------------ | ------------------ | ------------------ |
+| opendir: populated                                           | opendir: populated | opendir: populated |
+| readdir: populated                                           | readdir: populated | readdir: NULL      |
+| releasedir: populated                                        | releasedir: NULL   | releasedir: NULL   |
 
-Inherently, but not via any spec, the context is only required to be populated within operations that create system files and/or check system access. (Without them, you wouldn't be able to implement file systems that adhear to POSIX specifications.)  
+Inherently, but not via any spec, the context is only required to be populated within operations that create system files and/or check system access. (Without them, you wouldn't be able to implement file systems that adhere to POSIX specifications.)  
 i.e. `opendir` must know the UID/GID of the caller in order to check access permissions, but `readdir` does not, since `readdir` implies that the check was already done in `opendir` (as it must receive a valid reference that was previously returned from `opendir`).  
 
 As such, for our `readdir` implementations, we obtain the context during `opendir`, and bind it with the associated handle construct, if it's needed.  
@@ -421,4 +347,6 @@ The daemon is receiving a very large offset/`seekdir` value for some reason.
 Readdir tests are passing within Go on the platform, so this is likely a cgofuse issue.  
 This is also the only platform currently where `ls` doesn't work.  
 Needs investigating.  
-(Env: OpenBSD 6.6, Go 1.13.1; OpenBSD 6.7, Go 1.14.4)
+(Env: OpenBSD 6.6, Go 1.13.1; OpenBSD 6.7, Go 1.14.4; (b23023597) OpenBSD 6.7, Go 1.14.6)
+
+I wonder if this is something thread related. I tried locking the goroutine that calls `Mount` to the OS thread, but it didn't seem to influence anything. I need to see if I can break the cgofuse memfs examples on OpenBSD by mounting it via goroutine.
