@@ -126,6 +126,10 @@ func (f *fid) Walk(components []string) ([]ninelib.QID, ninelib.File, error) {
 	pathGen := pathGenerator()
 	subQid := f.QID
 	for i, component := range components {
+		if component == "" { // TODO: clean components prior to this loop, or check for all here
+			continue
+		}
+
 		subPath = append(subPath, component)
 
 		fidInfo, _, err := f.nodeInterface.Info(subPath.String(), filesystem.StatRequest{Type: true})

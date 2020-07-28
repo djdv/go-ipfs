@@ -27,8 +27,9 @@ func (f *fid) subQid(name string) (ninelib.QID, error) {
 }
 
 func (f *fid) Create(name string, flags ninelib.OpenFlags, permissions ninelib.FileMode, uid ninelib.UID, gid ninelib.GID) (ninelib.File, ninelib.QID, uint32, error) {
-	f.log.Debugf("Create %v %q", permissions, f.path.Join(name))
 	subPath := f.path.Join(name)
+	f.log.Debugf("Create %v %s", permissions, subPath)
+
 	if err := f.nodeInterface.Make(subPath); err != nil {
 		return nil, ninelib.QID{}, 0, interpretError(err)
 	}

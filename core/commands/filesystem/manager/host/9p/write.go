@@ -47,7 +47,7 @@ func (f *fid) SetAttr(setFields ninelib.SetAttrMask, new ninelib.SetAttr) error 
 }
 
 func (f *fid) WriteAt(p []byte, offset int64) (int, error) {
-	f.log.Debugf("WriteAt {%d} %q", offset, f.path.String())
+	f.log.Debugf("WriteAt {%d} %s", offset, f.path.String())
 	if f.File == nil {
 		// TODO: system error
 		err := fmt.Errorf("%q is not open for writing", f.path.String())
@@ -68,9 +68,29 @@ func (f *fid) WriteAt(p []byte, offset int64) (int, error) {
 	return written, err
 }
 
-func (f *fid) UnlinkAt(name string, flags uint32) error {
-	if err := f.nodeInterface.Remove(f.path.Join(name)); err != nil {
+func (f *fid) UnlinkAt(name string, flags uint32) (err error) {
+	subPath := f.path.Join(name)
+	f.log.Debugf("UnlinkAt %s", subPath)
+
+	var childStat *filesystem.Stat
+	childStat, _, err = f.nodeInterface.Info(subPath, filesystem.StatRequest{Type: true})
+	if err != nil {
+		return interpretError(err) // go.fs -> 9P
+	}
+
+	switch childStat.Type {
+	case coreiface.TFile:
+		err = f.nodeInterface.Remove(subPath)
+	case coreiface.TDirectory:
+		err = f.nodeInterface.RemoveDirectory(subPath)
+	case coreiface.TSymlink:
+		err = f.nodeInterface.RemoveLink(subPath)
+	default:
+		return fmt.Errorf("unexpected type: %v", childStat.Type)
+	}
+
+	if err != nil {
 		return interpretError(err)
 	}
-	return nil
+	return
 }
