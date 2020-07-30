@@ -16,7 +16,7 @@ type mfsDirectoryStream struct {
 	path  string
 }
 
-// OpenDirectory returns a Directory for the given path (as a stream of entries)
+// OpenDirectory returns a Directory for the given path (as a stream of entries).
 func (mi *mfsInterface) OpenDirectory(path string) (filesystem.Directory, error) {
 	mfsStream := &mfsDirectoryStream{
 		path:  path,
@@ -27,7 +27,7 @@ func (mi *mfsInterface) OpenDirectory(path string) (filesystem.Directory, error)
 		tcom.NewPartialStream(mi.ctx, mfsStream))
 }
 
-// SendTo receives a channel with which we will send entries to, until the context is caneled, or the end of stream is reached
+// SendTo receives a channel with which we will send entries to, until the context is caneled, or the end of stream is reached.
 func (ms *mfsDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.PartialEntry) error {
 	mfsNode, err := gomfs.Lookup(ms.mroot, ms.path)
 	if err != nil {
@@ -56,8 +56,8 @@ func (ms *mfsDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.P
 
 type mfsListingTranslator string
 
-func (me mfsListingTranslator) Name() string { return string(me) }
-func (me mfsListingTranslator) Error() error { return nil }
+func (mfsEntry mfsListingTranslator) Name() string { return string(mfsEntry) }
+func (mfsEntry mfsListingTranslator) Error() error { return nil }
 
 func translateEntries(ctx context.Context, in []string, out chan<- tcom.PartialEntry) {
 out:

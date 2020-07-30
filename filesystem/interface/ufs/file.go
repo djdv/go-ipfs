@@ -7,7 +7,7 @@ import (
 // dagref extends `DagModifier`
 // that is intended to be shared by multiple callers
 // who utilize the lock and adjust the reference count accordingly
-// dagRefs are intended to be managed internally by keyfs
+// dagRefs are intended to be managed internally by keyfs.
 type dagRef struct {
 	*mod.DagModifier
 	modifiedCallback ModifiedFunc

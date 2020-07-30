@@ -11,7 +11,7 @@ import (
 	logging "github.com/ipfs/go-log"
 )
 
-// apiMux handles requests for several host APIs
+// apiMux handles requests for several host APIs.
 type apiMux struct {
 	sync.Mutex
 	ctx context.Context

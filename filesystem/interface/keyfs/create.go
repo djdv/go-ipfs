@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 
-	errors2 "github.com/ipfs/go-ipfs/filesystem/errors"
-
 	"github.com/ipfs/go-ipfs/filesystem"
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
@@ -24,11 +23,10 @@ func (ki *keyInterface) createSplit(path string) (self bool, remote filesystem.I
 	}
 
 	var coreKey coreiface.Key
-	coreKey, err = ki.checkKey(keyName)
-	if err != nil {
+	if coreKey, err = ki.checkKey(keyName); err != nil {
 		err = &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.NotExist,
+			Type:  fserrors.NotExist,
 		}
 		return
 	}
@@ -128,7 +126,7 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 	default:
 		return nil, &interfaceutils.Error{
 			Cause: errors.New("unexpected node type"),
-			Type:  errors2.Other,
+			Type:  fserrors.Other,
 		}
 	}
 
@@ -136,7 +134,7 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 	if err := dagAPI.Add(ctx, node); err != nil {
 		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.IO,
+			Type:  fserrors.IO,
 		}
 	}
 
@@ -147,14 +145,14 @@ func makeKeyWithNode(ctx context.Context, core coreiface.CoreAPI, keyName string
 	if _, err := core.Key().Generate(ctx, keyName); err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.IO,
+			Type:  fserrors.IO,
 		}
 	}
 
 	if err := core.Dag().Add(ctx, node); err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.IO,
+			Type:  fserrors.IO,
 		}
 	}
 
@@ -166,7 +164,7 @@ func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarge
 	if err != nil {
 		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.Other,
+			Type:  fserrors.Other,
 		}
 	}
 
@@ -180,7 +178,7 @@ func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarge
 	if err := dagAPI.Add(ctx, dagNode); err != nil {
 		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.IO,
+			Type:  fserrors.IO,
 		}
 	}
 	return dagNode, nil

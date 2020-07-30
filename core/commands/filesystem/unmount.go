@@ -24,7 +24,7 @@ var Unmount = &cmds.Command{
 	Type: &Response{},
 	Encoders: cmds.EncoderMap{
 		cmds.Text: cmds.MakeEncoder(encodeText),
-		cmds.JSON: cmds.MakeEncoder(encodeJson),
+		cmds.JSON: cmds.MakeEncoder(encodeJSON),
 	},
 	Run: unmountRun,
 }

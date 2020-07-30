@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ipfs/go-ipfs/filesystem/errors"
-
 	"github.com/ipfs/go-ipfs/filesystem"
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	"github.com/ipfs/go-ipfs/filesystem/interface/mfs"
 	"github.com/ipfs/go-merkledag"
@@ -114,18 +113,18 @@ func (ki *keyInterface) keyToMFSRoot(key coreiface.Key) (*gomfs.Root, error) {
 
 	if iStat.Type != coreiface.TDirectory {
 		err := fmt.Errorf("key %q is not a directory (type: %s)", key.Name(), iStat.Type.String())
-		return nil, &interfaceutils.Error{Cause: err, Type: errors.NotDir}
+		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.NotDir}
 	}
 
 	pbNode, ok := ipldNode.(*merkledag.ProtoNode)
 	if !ok {
 		err := fmt.Errorf("key %q has incompatible root node type (%T)", key.Name(), ipldNode)
-		return nil, &interfaceutils.Error{Cause: err, Type: errors.InvalidItem}
+		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.InvalidItem}
 	}
 
 	mroot, err := gomfs.NewRoot(ki.ctx, ki.core.Dag(), pbNode, ki.publisherGenMFS(key.Name()))
 	if err != nil {
-		return nil, &interfaceutils.Error{Cause: err, Type: errors.IO}
+		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.IO}
 	}
 	return mroot, nil
 }

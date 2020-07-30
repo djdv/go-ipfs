@@ -26,7 +26,7 @@ type coreDirectoryStream struct {
 	path corepath.Path     // the streams source location; used to (re)construct the stream in `Open`/`Reset`
 }
 
-// OpenDirectory returns a Directory for the given path (as a stream of entries)
+// OpenDirectory returns a Directory for the given path (as a stream of entries).
 func (ci *coreInterface) OpenDirectory(path string) (filesystem.Directory, error) {
 	if path == "/" {
 		return &emptyDir{}, nil
@@ -41,7 +41,7 @@ func (ci *coreInterface) OpenDirectory(path string) (filesystem.Directory, error
 		tcom.NewPartialStream(ci.ctx, coreStream))
 }
 
-// SendTo receives a channel with which we will send entries to, until the context is caneled, or the end of stream is reached
+// SendTo receives a channel with which we will send entries to, until the context is canceled, or the end of stream is reached.
 func (cs *coreDirectoryStream) SendTo(ctx context.Context, receiver chan<- tcom.PartialEntry) error {
 	coreDirChan, err := cs.core.Unixfs().Ls(ctx, cs.path)
 	if err != nil {

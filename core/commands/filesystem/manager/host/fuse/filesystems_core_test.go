@@ -6,10 +6,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
-
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager"
-
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
 	"github.com/ipfs/go-ipfs/filesystem"
 	gomfs "github.com/ipfs/go-mfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"

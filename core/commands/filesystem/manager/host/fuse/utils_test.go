@@ -356,21 +356,24 @@ func generateTestEnv(t *testing.T) (string, envData, *core.IpfsNode, coreiface.C
 		}
 	})
 
+	testCtx, testCancel := context.WithCancel(context.Background())
+	unwindStack = append(unwindStack, testCancel)
+
 	// node actual
-	ctx := context.TODO()
-	node, err := testInitNode(ctx, t)
+	node, err := testInitNode(testCtx, t)
 	if err != nil {
 		t.Logf("Failed to construct IPFS node: %s\n", err)
 		unwind()
 		t.FailNow()
 	}
+
 	unwindStack = append(unwindStack, func() {
 		if err := node.Close(); err != nil {
 			t.Errorf("Failed to close node:%s", err)
 		}
 	})
 
-	core, err := coreapi.NewCoreAPI(node)
+	coreAPI, err := coreapi.NewCoreAPI(node)
 	if err != nil {
 		t.Logf("Failed to construct CoreAPI: %s\n", err)
 		unwind()
@@ -378,17 +381,18 @@ func generateTestEnv(t *testing.T) (string, envData, *core.IpfsNode, coreiface.C
 	}
 
 	// add data to some local path and to the node
-	testDir, testPin, testEnv := generateEnvData(t, ctx, core)
+	testDir, testPin, testEnv := generateEnvData(t, testCtx, coreAPI)
 	if err != nil {
 		t.Logf("Failed to construct IPFS test environment: %s\n", err)
 		unwind()
 		t.FailNow()
 	}
+
 	unwindStack = append(unwindStack, func() {
 		if err := os.RemoveAll(testDir); err != nil {
 			t.Errorf("failed to remove local test data dir %q: %s", testDir, err)
 		}
 	})
 
-	return testPin, testEnv, node, core, unwind
+	return testPin, testEnv, node, coreAPI, unwind
 }

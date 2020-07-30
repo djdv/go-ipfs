@@ -6,22 +6,22 @@ import (
 	"fmt"
 
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
-	"github.com/ipfs/go-ipfs/filesystem/errors"
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 )
 
 func interpretError(err error) errNo {
-	if errIntf, ok := err.(errors.Error); ok {
-		return map[errors.Kind]errNo{ // translation table for interface.Error -> FUSE error
-			errors.Other:            -fuselib.EIO,
-			errors.InvalidItem:      -fuselib.EINVAL,
-			errors.InvalidOperation: -fuselib.ENOSYS,
-			errors.Permission:       -fuselib.EACCES,
-			errors.IO:               -fuselib.EIO,
-			errors.Exist:            -fuselib.EEXIST,
-			errors.NotExist:         -fuselib.ENOENT,
-			errors.IsDir:            -fuselib.EISDIR,
-			errors.NotDir:           -fuselib.ENOTDIR,
-			errors.NotEmpty:         -fuselib.ENOTEMPTY,
+	if errIntf, ok := err.(fserrors.Error); ok {
+		return map[fserrors.Kind]errNo{ // translation table for interface.Error -> FUSE error
+			fserrors.Other:            -fuselib.EIO,
+			fserrors.InvalidItem:      -fuselib.EINVAL,
+			fserrors.InvalidOperation: -fuselib.ENOSYS,
+			fserrors.Permission:       -fuselib.EACCES,
+			fserrors.IO:               -fuselib.EIO,
+			fserrors.Exist:            -fuselib.EEXIST,
+			fserrors.NotExist:         -fuselib.ENOENT,
+			fserrors.IsDir:            -fuselib.EISDIR,
+			fserrors.NotDir:           -fuselib.ENOTDIR,
+			fserrors.NotEmpty:         -fuselib.ENOTEMPTY,
 		}[errIntf.Kind()]
 	}
 

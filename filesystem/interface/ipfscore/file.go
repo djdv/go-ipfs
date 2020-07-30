@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"io"
 
-	errors2 "github.com/ipfs/go-ipfs/filesystem/errors"
-
 	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/filesystem"
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	cbor "github.com/ipfs/go-ipld-cbor"
 )
@@ -48,7 +47,7 @@ func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem
 	if flags != filesystem.IOReadOnly {
 		return nil, &interfaceutils.Error{
 			Cause: errors.New("read only FS"),
-			Type:  errors2.ReadOnly,
+			Type:  fserrors.ReadOnly,
 		}
 	}
 
@@ -60,7 +59,7 @@ func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem
 	if err != nil {
 		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.Permission,
+			Type:  fserrors.Permission,
 		}
 	}
 
@@ -83,7 +82,7 @@ func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem
 	if err != nil {
 		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.Permission,
+			Type:  fserrors.Permission,
 		}
 	}
 
@@ -92,7 +91,7 @@ func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem
 		err := fmt.Errorf("%q does not appear to be a file: %T", path, apiNode)
 		return nil, &interfaceutils.Error{
 			Cause: err,
-			Type:  errors2.IsDir,
+			Type:  fserrors.IsDir,
 		}
 	}
 

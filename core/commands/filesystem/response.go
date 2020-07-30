@@ -193,7 +193,7 @@ func encodeText(_ *cmds.Request, w io.Writer, v interface{}) error {
 	return err
 }
 
-func encodeJson(_ *cmds.Request, w io.Writer, v interface{}) error {
+func encodeJSON(_ *cmds.Request, w io.Writer, v interface{}) error {
 	return json.NewEncoder(w).Encode(v)
 }
 

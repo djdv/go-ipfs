@@ -33,8 +33,8 @@ type Directory interface {
 
 // DirectoryEntry contains basic information about an entry within a directory
 // returned from `List`, it specifies the offset value for the next entry to be listed
-// you may provide this value to `List` if you wish to resume an interuppted listing
-// or replay a listing, from this entry
+// you may provide this value to `List` if you wish to resume an interrupted listing
+// or replay a listing, from this entry.
 // TODO: document all the nonsense around offset values and how they relate to `Reset`
 // (^ just some note about implementation specific blah blah)
 type DirectoryEntry interface {

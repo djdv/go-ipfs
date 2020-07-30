@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ipfs/go-ipfs/filesystem/errors"
-
 	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/filesystem"
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
@@ -22,7 +21,7 @@ const callTimeout = 20 * time.Second
 // CallContext provides a standard context
 // to be used during file system operation calls that make short lived calls to functions which
 // take a context. For example, `CoreAPI.ResolveNode`
-// But not for long lived operations such as a hypothetical `File.Open(ctx)`
+// But not for long lived operations such as a hypothetical `File.Open(ctx)`.
 func CallContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, callTimeout)
 }
@@ -60,7 +59,7 @@ func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req file
 		if err != nil {
 			return nil, filesystem.StatRequest{}, &Error{
 				Cause: err,
-				Type:  errors.Other,
+				Type:  fserrors.Other,
 			}
 		}
 		return unixFSAttr(ufsNode, req)
@@ -73,7 +72,7 @@ func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req file
 	}
 }
 
-// ExtractLink takes in a path to a UFS symlink, and returns its target
+// ExtractLink takes in a path to a UFS symlink, and returns its target.
 func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	// make sure the path is actually a link
 	callCtx, cancel := CallContext(context.Background())
@@ -86,7 +85,7 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	if iStat.Type != coreiface.TSymlink {
 		return "", &Error{
 			Cause: fmt.Errorf("%q is not a symlink", path.String()),
-			Type:  errors.InvalidItem,
+			Type:  fserrors.InvalidItem,
 		}
 	}
 
@@ -95,7 +94,7 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	if err != nil {
 		return "", &Error{
 			Cause: err,
-			Type:  errors.IO,
+			Type:  fserrors.IO,
 		}
 	}
 
@@ -104,27 +103,27 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	return files.ToSymlink(linkNode).Target, nil
 }
 
-// ResolveNode wraps the core method, but uses our error type for the return
+// ResolveNode wraps the core method, but uses our error type for the return.
 func (core *CoreExtended) ResolveNode(ctx context.Context, path corepath.Path) (ipld.Node, error) {
 	n, err := core.CoreAPI.ResolveNode(ctx, path)
 	if err != nil {
 		// TODO: inspect error to disambiguate type
 		return nil, &Error{
 			Cause: err,
-			Type:  errors.NotExist,
+			Type:  fserrors.NotExist,
 		}
 	}
 	return n, nil
 }
 
-// ResolvePath wraps the core method, but uses our error type for the return
+// ResolvePath wraps the core method, but uses our error type for the return.
 func (core *CoreExtended) ResolvePath(ctx context.Context, path corepath.Path) (corepath.Resolved, error) {
 	p, err := core.CoreAPI.ResolvePath(ctx, path)
 	if err != nil {
 		// TODO: inspect error to disambiguate type
 		return nil, &Error{
 			Cause: err,
-			Type:  errors.NotExist,
+			Type:  fserrors.NotExist,
 		}
 	}
 	return p, nil
@@ -149,7 +148,7 @@ func genericAttr(genericNode ipld.Node, req filesystem.StatRequest) (*filesystem
 		if err != nil {
 			return attr, filledAttrs, &Error{
 				Cause: err,
-				Type:  errors.IO,
+				Type:  fserrors.IO,
 			}
 		}
 
@@ -165,7 +164,7 @@ func genericAttr(genericNode ipld.Node, req filesystem.StatRequest) (*filesystem
 	return attr, filledAttrs, nil
 }
 
-// returns attr, filled members, error
+// returns attr, filled members, error.
 func unixFSAttr(ufsNode *unixfs.FSNode, req filesystem.StatRequest) (*filesystem.Stat, filesystem.StatRequest, error) {
 	var (
 		attr        filesystem.Stat

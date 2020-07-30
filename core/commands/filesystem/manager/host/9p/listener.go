@@ -25,12 +25,12 @@ func mountListener(target string, addr net.Addr) error {
 		mSource = addr.String()
 		mArgs = "trans=unix"
 	case "tcp":
-		host, port, err := net.SplitHostPort(addr.String())
+		netHost, netPort, err := net.SplitHostPort(addr.String())
 		if err != nil {
 			return err
 		}
-		mSource = host
-		mArgs = "port=" + port
+		mSource = netHost
+		mArgs = "port=" + netPort
 	default:
 		return fmt.Errorf("%q is not a supported protocol", network)
 	}

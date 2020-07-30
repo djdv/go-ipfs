@@ -16,7 +16,7 @@ var _ filesystem.File = (*keyFile)(nil)
 // references to a `keyFile` should utilize the shared lock on their underlying `fileRef`
 // during operations to prevent conflicting modifications
 // the underlying reference must have its cursor adjusted to match the cursor value stored on each reference
-// as this value is unique per reference while the underlying cursor position may have been modified by another caller
+// as this value is unique per reference while the underlying cursor position may have been modified by another caller.
 type keyFile struct {
 	fileRef
 	cursor int64
@@ -30,7 +30,7 @@ type fileRef struct {
 	io.Closer
 }
 
-// override `File.Close` with our own close method (which should in itself eventually call `File.Close`)
+// override `File.Close` with our own close method (which should in itself eventually call `File.Close`).
 func (fi fileRef) Close() error { return fi.Closer.Close() }
 
 func (ki *keyInterface) Open(path string, flags filesystem.IOFlags) (filesystem.File, error) {

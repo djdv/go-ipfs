@@ -134,7 +134,7 @@ func subsystemArg(arg string) ([]filesystem.ID, error) {
 		return nil, err
 	}
 
-	var typedIds []filesystem.ID
+	typedIds := make([]filesystem.ID, 0, len(idStrings))
 	for _, idString := range idStrings {
 		typedSys, err := typeCastSystemArg(idString)
 		if err != nil {
@@ -165,7 +165,7 @@ func parseAPIArg(arg string) ([]manager.API, error) {
 		return nil, err
 	}
 
-	var apis []manager.API
+	apis := make([]manager.API, 0, len(apiStrings))
 	for _, apiString := range apiStrings {
 		typedAPI, err := typeCastAPIArg(apiString)
 		if err != nil {
@@ -287,7 +287,7 @@ func combine(apis []manager.API, systems []filesystem.ID, targets []string) ([]m
 		return nil, fmt.Errorf("host API and target count do not match([%d]apis:%v|[%d]targets:%v)", apiCount, apis, targetCount, targets)
 	}
 
-	var requests []manager.Request
+	requests := make([]manager.Request, 0, len(targets))
 	for i, target := range targets {
 		api := apis[i]
 		sysID := systems[i]

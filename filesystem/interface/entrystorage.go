@@ -8,7 +8,7 @@ import (
 	"github.com/ipfs/go-ipfs/filesystem"
 )
 
-// fullEntry simply extends a `PartialEntry`, giving it an offset value
+// fullEntry simply extends a `PartialEntry`, giving it an offset value.
 type fullEntry struct {
 	PartialEntry
 	offset uint64
@@ -16,14 +16,14 @@ type fullEntry struct {
 
 func (fe *fullEntry) Offset() uint64 { return fe.offset }
 
-// errEntry is a `filesystem.DirectoryEntry` containing only an error
+// errEntry is a `filesystem.DirectoryEntry` containing only an error.
 type errorEntry struct{ Err error }
 
 func (ee *errorEntry) Name() string   { return "" }
 func (ee *errorEntry) Offset() uint64 { return 0 }
 func (ee *errorEntry) Error() error   { return ee.Err }
 
-// errWrap takes an error and returns a single entry stream containing it
+// errWrap takes an error and returns a single entry stream containing it.
 func errWrap(err error) <-chan filesystem.DirectoryEntry {
 	errChan := make(chan filesystem.DirectoryEntry, 1)
 	errChan <- &errorEntry{err}
@@ -32,7 +32,7 @@ func errWrap(err error) <-chan filesystem.DirectoryEntry {
 }
 
 // EntryStorage implements `filesystem.Directory.List` by utilizing a `PartialStream`
-// storing the entries it lists out, and assigning them offset values that persist across calls
+// storing the entries it lists out, and assigning them offset values that persist across calls.
 type EntryStorage interface {
 	List(context.Context, uint64) <-chan filesystem.DirectoryEntry
 	Reset(<-chan PartialEntry)
@@ -90,7 +90,7 @@ func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan filesyst
 	go func() {
 		defer close(listChan)
 		defer es.Unlock()
-		// if cursor is within store range, pull entires from it first
+		// if cursor is within store range, pull entries from it first
 		if cursor < uint64(len(es.entryStore)) {
 			for _, ent := range es.entryStore[cursor:] {
 				select {
@@ -103,7 +103,7 @@ func (es *entryStorage) List(ctx context.Context, offset uint64) <-chan filesyst
 			}
 		}
 
-		// pull entires from the stream
+		// pull entries from the stream
 		for {
 			select {
 			case <-ctx.Done(): // `List` was canceled before we read the source stream

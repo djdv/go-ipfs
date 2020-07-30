@@ -23,9 +23,11 @@ type NameIndex interface {
 }
 
 // TODO: better tree structure
-type instanceIndex map[API]systemIndex
-type systemIndex map[filesystem.ID]targetIndex
-type targetIndex map[string]host.Binding
+type (
+	instanceIndex map[API]systemIndex           // L0 Fuse, 9P, et al. separation
+	systemIndex   map[filesystem.ID]targetIndex // L1 IPFS, IPNS, et al. separation
+	targetIndex   map[string]host.Binding       // L2 individual target separation
+)
 
 type nameIndex struct {
 	sync.Mutex
@@ -232,6 +234,7 @@ func (ni *nameIndex) Detach(requests ...Request) <-chan Response {
 				}
 			}
 		}
+
 		close(responses)
 	}()
 

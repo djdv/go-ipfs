@@ -4,23 +4,23 @@ import (
 	"fmt"
 	"syscall"
 
-	"github.com/ipfs/go-ipfs/filesystem/errors"
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 )
 
 func interpretError(err error) error {
-	if errIntf, ok := err.(errors.Error); ok {
+	if errIntf, ok := err.(fserrors.Error); ok {
 		// TODO: translate error values; placeholder for now; prints to console and cancels the request
-		return map[errors.Kind]error{ // translation table for interface.Error  -> 9P2000.L error (Linux standard errno's)
-			errors.Other:            err,
-			errors.InvalidItem:      err,
-			errors.InvalidOperation: err,
-			errors.Permission:       err,
-			errors.IO:               err,
-			errors.Exist:            err,
-			errors.NotExist:         syscall.Errno(0x02),
-			errors.IsDir:            syscall.Errno(0x14),
-			errors.NotDir:           err,
-			errors.NotEmpty:         err,
+		return map[fserrors.Kind]error{ // translation table for interface.Error  -> 9P2000.L error (Linux standard errno's)
+			fserrors.Other:            err,
+			fserrors.InvalidItem:      err,
+			fserrors.InvalidOperation: err,
+			fserrors.Permission:       err,
+			fserrors.IO:               err,
+			fserrors.Exist:            err,
+			fserrors.NotExist:         syscall.Errno(0x02),
+			fserrors.IsDir:            syscall.Errno(0x14),
+			fserrors.NotDir:           err,
+			fserrors.NotEmpty:         err,
 		}[errIntf.Kind()]
 	}
 

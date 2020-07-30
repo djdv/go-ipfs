@@ -3,10 +3,9 @@ package ipfscore
 import (
 	"fmt"
 
-	"github.com/ipfs/go-ipfs/filesystem/errors"
-
 	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/filesystem"
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -36,7 +35,7 @@ func (ci *coreInterface) ExtractLink(path string) (string, error) {
 	if iStat.Type != coreiface.TSymlink {
 		return "", &interfaceutils.Error{
 			Cause: fmt.Errorf("%q is not a symlink", path),
-			Type:  errors.InvalidItem,
+			Type:  fserrors.InvalidItem,
 		}
 	}
 
@@ -47,7 +46,7 @@ func (ci *coreInterface) ExtractLink(path string) (string, error) {
 	if err != nil {
 		return "", &interfaceutils.Error{
 			Cause: err,
-			Type:  errors.IO,
+			Type:  fserrors.IO,
 		}
 	}
 

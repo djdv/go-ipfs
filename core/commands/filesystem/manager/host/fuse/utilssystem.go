@@ -20,7 +20,7 @@ type fuseFillFunc func(name string, stat *fuselib.Stat_t, ofst int64) bool
 
 type (
 	// directoryPlus is used in `fillDir` to handle FUSE's readdir plus feature
-	// (via a type assertion of objects returned from `UpgradeDirectory`)
+	// (via a type assertion of objects returned from `UpgradeDirectory`).
 	directoryPlus struct {
 		filesystem.Directory
 		statFunc
@@ -30,9 +30,9 @@ type (
 	readdirplusGen func(filesystem.Interface, string, *fuselib.Stat_t) statFunc
 )
 
-// upgradeDirectory binds a Directory and a means to get attributes for its elements
-// this should be used to transform directories into readdir plus capable directories
-// before being sent to `fillDir`
+// upgradeDirectory binds a Directory and a means to get attributes for its elements.
+// This should be used to transform directories into readdir plus capable directories
+// before being sent to `fillDir`.
 func upgradeDirectory(d filesystem.Directory, sf statFunc) filesystem.Directory {
 	return directoryPlus{Directory: d, statFunc: sf}
 }

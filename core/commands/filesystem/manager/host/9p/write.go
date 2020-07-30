@@ -13,37 +13,38 @@ import (
 func (f *fid) SetAttr(setFields ninelib.SetAttrMask, new ninelib.SetAttr) error {
 	f.log.Debugf("SetAttr %v %v", setFields, new)
 
-	if setFields.Size {
-		existing, _, err := f.nodeInterface.Info(f.path.String(), filesystem.StatRequest{Size: true, Type: true})
-		if err != nil {
-			return err
-		}
-
-		if existing.Type == coreiface.TDirectory && new.Size != 0 {
-			return errors.New("cannot change directory size")
-		}
-
-		// Truncate or extend
-		if existing.Size != new.Size {
-
-			file := f.File
-			if f.File == nil {
-				var err error
-				file, err = f.nodeInterface.Open(f.path.String(), filesystem.IOWriteOnly)
-				if err != nil {
-					f.log.Error(err)
-					return err
-				}
-				defer file.Close()
-			}
-
-			if err := file.Truncate(new.Size); err != nil {
-				return err
-			}
-		}
+	if !setFields.Size {
+		return nil // nothing to modify, nothing to do
 	}
 
-	return nil
+	// make sure we exist
+	existing, _, err := f.nodeInterface.Info(f.path.String(), filesystem.StatRequest{Size: true, Type: true})
+	if err != nil {
+		return err
+	}
+
+	// make sure the request actually requires a modification
+	if existing.Size == new.Size {
+		return nil
+	}
+
+	// and is legal
+	if existing.Type == coreiface.TDirectory && new.Size != 0 {
+		return errors.New("cannot change directory size")
+	}
+
+	// finally truncate or extend
+	file := f.File
+	if f.File == nil { // with an existing handle or a new temporary one
+		var err error
+		file, err = f.nodeInterface.Open(f.path.String(), filesystem.IOWriteOnly)
+		if err != nil {
+			f.log.Error(err)
+			return err
+		}
+		defer file.Close()
+	}
+	return file.Truncate(new.Size)
 }
 
 func (f *fid) WriteAt(p []byte, offset int64) (int, error) {

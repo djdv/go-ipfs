@@ -1,12 +1,12 @@
 package mfs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	gopath "path"
 
-	"github.com/ipfs/go-ipfs/filesystem/errors"
-
+	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	dag "github.com/ipfs/go-merkledag"
 	gomfs "github.com/ipfs/go-mfs"
@@ -19,7 +19,7 @@ func (mi *mfsInterface) Make(path string) error {
 	if err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  errors.NotExist,
+			Type:  fserrors.NotExist,
 		}
 	}
 
@@ -27,14 +27,14 @@ func (mi *mfsInterface) Make(path string) error {
 	if !ok {
 		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%s is not a directory", parentPath),
-			Type:  errors.NotDir,
+			Type:  fserrors.NotDir,
 		}
 	}
 
 	if _, err := parentDir.Child(childName); err == nil {
 		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%q already exists", path),
-			Type:  errors.Exist,
+			Type:  fserrors.Exist,
 		}
 	}
 
@@ -43,7 +43,7 @@ func (mi *mfsInterface) Make(path string) error {
 	if err := parentDir.AddChild(childName, dagFile); err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  errors.IO,
+			Type:  fserrors.IO,
 		}
 	}
 
@@ -54,13 +54,16 @@ func (mi *mfsInterface) MakeDirectory(path string) error {
 	if err := gomfs.Mkdir(mi.mroot, path, gomfs.MkdirOpts{Flush: true}); err != nil {
 		retErr := &interfaceutils.Error{
 			Cause: err,
-			Type:  errors.Permission,
+			Type:  fserrors.Permission,
 		}
-		if err == os.ErrExist {
-			retErr.Type = errors.Exist
+
+		if errors.Is(err, os.ErrExist) { // mfs can return this
+			retErr.Type = fserrors.Exist // and we translate it to the intermediate
 		}
+
 		return retErr
 	}
+
 	return nil
 }
 
@@ -71,7 +74,7 @@ func (mi *mfsInterface) MakeLink(path, linkTarget string) error {
 	if err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  errors.NotExist,
+			Type:  fserrors.NotExist,
 		}
 	}
 
@@ -79,14 +82,14 @@ func (mi *mfsInterface) MakeLink(path, linkTarget string) error {
 	if !ok {
 		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%s is not a directory", parentPath),
-			Type:  errors.NotDir,
+			Type:  fserrors.NotDir,
 		}
 	}
 
 	if _, err := parentDir.Child(linkName); err == nil {
 		return &interfaceutils.Error{
 			Cause: fmt.Errorf("%q already exists", path),
-			Type:  errors.Exist,
+			Type:  fserrors.Exist,
 		}
 	}
 
@@ -94,7 +97,7 @@ func (mi *mfsInterface) MakeLink(path, linkTarget string) error {
 	if err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  errors.NotExist,
+			Type:  fserrors.NotExist,
 		}
 	}
 
@@ -105,7 +108,7 @@ func (mi *mfsInterface) MakeLink(path, linkTarget string) error {
 	if err := parentDir.AddChild(linkName, dagNode); err != nil {
 		return &interfaceutils.Error{
 			Cause: err,
-			Type:  errors.NotExist, // SUSv7 "...or write permission is denied on the parent directory of the directory to be created"
+			Type:  fserrors.NotExist, // SUSv7 "...or write permission is denied on the parent directory of the directory to be created"
 		}
 	}
 	return nil
