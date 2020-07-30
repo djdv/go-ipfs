@@ -21,11 +21,11 @@ type ufsInterface struct {
 }
 
 type (
-	// UFS extends the file node `Interface`
-	// allowing the caller to set a callback used by the node
+	// UFS extends the file node `Interface`,
+	// allowing the caller to set a callback used by the node.
 	// This callback is attached to a `File` before being returned in `Open`
-	// and called during operations that modify said `File`
-	// it is valid to reset this value to `nil`
+	// and called during operations that modify said `File`.
+	// It is valid to reset this value to `nil`.
 	UFS interface {
 		filesystem.Interface
 		SetModifier(ModifiedFunc)

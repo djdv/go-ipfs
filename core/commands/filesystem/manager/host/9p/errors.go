@@ -1,6 +1,7 @@
 package p9fsp
 
 import (
+	"errors"
 	"fmt"
 	"syscall"
 
@@ -8,6 +9,10 @@ import (
 )
 
 func interpretError(err error) error {
+	if present := errors.Unwrap(err); present != nil {
+		err = present
+	}
+
 	if errIntf, ok := err.(fserrors.Error); ok {
 		// TODO: translate error values; placeholder for now; prints to console and cancels the request
 		return map[fserrors.Kind]error{ // translation table for interface.Error  -> 9P2000.L error (Linux standard errno's)

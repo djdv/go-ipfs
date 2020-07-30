@@ -8,9 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
-
 	fuselib "github.com/billziss-gh/cgofuse/fuse"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
 	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
 )

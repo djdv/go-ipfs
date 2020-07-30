@@ -254,7 +254,7 @@ func parseTargetConfig(nodeConf *config.Config, systems []filesystem.ID) ([]stri
 				targets = append(targets, mount.SuggestedCombinedPath())
 			*/
 		default:
-			return nil, fmt.Errorf("unexpected namespace: %s", system.String())
+			return nil, fmt.Errorf("unexpected host system API: %s", system.String())
 		}
 	}
 	return targets, nil

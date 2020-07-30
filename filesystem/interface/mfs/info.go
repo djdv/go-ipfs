@@ -86,6 +86,7 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 func (mi *mfsInterface) ExtractLink(path string) (string, error) {
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
+		// TODO: SUS annotation; error deviates from file/dir standard
 		rErr := &interfaceutils.Error{Cause: err}
 		if err == os.ErrNotExist {
 			rErr.Type = fserrors.NotExist

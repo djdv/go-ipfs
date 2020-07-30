@@ -7,10 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
-
 	ninelib "github.com/hugelgupf/p9/p9"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
 	"github.com/ipfs/go-ipfs/filesystem"
 	logging "github.com/ipfs/go-log"
 )

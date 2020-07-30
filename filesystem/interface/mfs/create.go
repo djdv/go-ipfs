@@ -2,7 +2,6 @@ package mfs
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	gopath "path"
 
@@ -17,25 +16,16 @@ func (mi *mfsInterface) Make(path string) error {
 	parentPath, childName := gopath.Split(path)
 	parentNode, err := gomfs.Lookup(mi.mroot, parentPath)
 	if err != nil {
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.NotExist,
-		}
+		return mfsLookupErr(parentPath, err)
 	}
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
-		return &interfaceutils.Error{
-			Cause: fmt.Errorf("%s is not a directory", parentPath),
-			Type:  fserrors.NotDir,
-		}
+		return interfaceutils.ErrNotDir(parentPath)
 	}
 
 	if _, err := parentDir.Child(childName); err == nil {
-		return &interfaceutils.Error{
-			Cause: fmt.Errorf("%q already exists", path),
-			Type:  fserrors.Exist,
-		}
+		return interfaceutils.ErrExist(path)
 	}
 
 	dagFile := dag.NodeWithData(unixfs.FilePBData(nil, 0))
@@ -72,33 +62,22 @@ func (mi *mfsInterface) MakeLink(path, linkTarget string) error {
 
 	parentNode, err := gomfs.Lookup(mi.mroot, parentPath)
 	if err != nil {
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.NotExist,
-		}
+		return mfsLookupErr(parentPath, err)
 	}
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
-		return &interfaceutils.Error{
-			Cause: fmt.Errorf("%s is not a directory", parentPath),
-			Type:  fserrors.NotDir,
-		}
+		return interfaceutils.ErrNotDir(parentPath)
 	}
 
 	if _, err := parentDir.Child(linkName); err == nil {
-		return &interfaceutils.Error{
-			Cause: fmt.Errorf("%q already exists", path),
-			Type:  fserrors.Exist,
-		}
+		return interfaceutils.ErrExist(path)
 	}
 
 	dagData, err := unixfs.SymlinkData(linkTarget)
 	if err != nil {
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.NotExist,
-		}
+		// TODO: SUS annotation
+		return interfaceutils.ErrNotExist(linkName)
 	}
 
 	// TODO: same note as on keyfs; use raw node's for this if we can
@@ -106,10 +85,9 @@ func (mi *mfsInterface) MakeLink(path, linkTarget string) error {
 	dagNode.SetCidBuilder(parentDir.GetCidBuilder())
 
 	if err := parentDir.AddChild(linkName, dagNode); err != nil {
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.NotExist, // SUSv7 "...or write permission is denied on the parent directory of the directory to be created"
-		}
+		// SUSv7
+		// "...or write permission is denied on the parent directory of the directory to be created"
+		return interfaceutils.ErrNotExist(linkName)
 	}
 	return nil
 }

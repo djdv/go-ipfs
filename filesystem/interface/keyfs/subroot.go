@@ -14,7 +14,7 @@ import (
 )
 
 // rootRef wraps a foreign file system
-// with means to manage sub-references of that system
+// with the means to manage sub-references of that system.
 type rootRef struct {
 	filesystem.Interface
 	counter refCounter
@@ -112,8 +112,12 @@ func (ki *keyInterface) keyToMFSRoot(key coreiface.Key) (*gomfs.Root, error) {
 	}
 
 	if iStat.Type != coreiface.TDirectory {
-		err := fmt.Errorf("key %q is not a directory (type: %s)", key.Name(), iStat.Type.String())
-		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.NotDir}
+		err := fmt.Errorf("(Type: %v), %w",
+			iStat.Type,
+			interfaceutils.ErrNotDir(key.Name()),
+		)
+
+		return nil, err
 	}
 
 	pbNode, ok := ipldNode.(*merkledag.ProtoNode)
@@ -124,7 +128,7 @@ func (ki *keyInterface) keyToMFSRoot(key coreiface.Key) (*gomfs.Root, error) {
 
 	mroot, err := gomfs.NewRoot(ki.ctx, ki.core.Dag(), pbNode, ki.publisherGenMFS(key.Name()))
 	if err != nil {
-		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.IO}
+		return nil, interfaceutils.ErrIO(err)
 	}
 	return mroot, nil
 }

@@ -14,20 +14,20 @@ var (
 	ErrNotInitialized = errors.New("directory not initialized")
 )
 
-// PartialEntry is intended to be extended into a full `filesystem.DirectoryEntry`
+// PartialEntry is intended to be extended into a full `filesystem.DirectoryEntry`.
 type PartialEntry interface {
 	Name() string
 	Error() error
 }
 
-// PartialStream implements a stream of `PartialEntry`s  that can be (re)opened and closed
+// PartialStream implements a stream of `PartialEntry`s  that can be (re)opened and closed.
 type PartialStream interface {
 	Open() (<-chan PartialEntry, error)
 	io.Closer
 }
 
-// PartialStreamGenerator will receive `SendTo` requests
-// instructing it to generate a stream of `PartialEntry`s and start sending them to a receiver
+// PartialStreamGenerator will receive `SendTo` requests.
+// Instructing it to generate a stream of `PartialEntry`s and start sending them to a receiver.
 type PartialStreamGenerator interface {
 	// SendTo is to generate a stream
 	// and start (asynchronously) sending entries to the receiver channel it was passed
@@ -40,7 +40,7 @@ type PartialStreamGenerator interface {
 }
 
 // streamBase implements a basic `PartialStream` by utilizing a `PartialStreamGenerator`
-// to handle `Open` and `Close` requests
+// to handle `Open` and `Close` requests.
 type streamBase struct {
 	parentCtx       context.Context
 	streamCancel    context.CancelFunc
@@ -82,17 +82,17 @@ func (ps *streamBase) Close() error {
 	return nil
 }
 
-// partialStreamWrapper implements a full `filesystem.Directory`
-// utilizing a `PartialStream` and `EntryStorage` to
-// support requests to `List` that contain an offset
+// partialStreamWrapper implements a full `filesystem.Directory`.
+// Utilizing a `PartialStream` and `EntryStorage` to
+// support requests to `List` that contain an offset.
 type partialStreamWrapper struct {
 	PartialStream       // actual source of entries
 	EntryStorage        // storage and offset management for them
 	err           error // errors persist across calls; cleared on Reset
 }
 
-// UpgradePartialStream adds seeking/offset support to a `PartialStream`
-// upgrading it into a full `filesystem.Directory`
+// UpgradePartialStream adds seeking/offset support to a `PartialStream`,
+// upgrading it into a full `filesystem.Directory`.
 func UpgradePartialStream(streamSource PartialStream) (filesystem.Directory, error) {
 	stream, err := streamSource.Open()
 	if err != nil {

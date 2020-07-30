@@ -10,6 +10,12 @@ import (
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
+var (
+	errDirectoryLengthNotWritable = errors.New("cannot change directory size")
+	errNotOpen                    = errors.New("not open")
+	errUnhandledType              = errors.New("unexpected type")
+)
+
 func (f *fid) SetAttr(setFields ninelib.SetAttrMask, new ninelib.SetAttr) error {
 	f.log.Debugf("SetAttr %v %v", setFields, new)
 
@@ -30,7 +36,7 @@ func (f *fid) SetAttr(setFields ninelib.SetAttrMask, new ninelib.SetAttr) error 
 
 	// and is legal
 	if existing.Type == coreiface.TDirectory && new.Size != 0 {
-		return errors.New("cannot change directory size")
+		return fmt.Errorf("%w: %s", errDirectoryLengthNotWritable, f.path.String())
 	}
 
 	// finally truncate or extend
@@ -51,7 +57,7 @@ func (f *fid) WriteAt(p []byte, offset int64) (int, error) {
 	f.log.Debugf("WriteAt {%d} %s", offset, f.path.String())
 	if f.File == nil {
 		// TODO: system error
-		err := fmt.Errorf("%q is not open for writing", f.path.String())
+		err := fmt.Errorf("%w: %s", errNotOpen, f.path.String())
 		f.log.Error(err)
 		return 0, err
 	}
@@ -87,7 +93,7 @@ func (f *fid) UnlinkAt(name string, flags uint32) (err error) {
 	case coreiface.TSymlink:
 		err = f.nodeInterface.RemoveLink(subPath)
 	default:
-		return fmt.Errorf("unexpected type: %v", childStat.Type)
+		return fmt.Errorf("%w: %v", errUnhandledType, childStat.Type)
 	}
 
 	if err != nil {

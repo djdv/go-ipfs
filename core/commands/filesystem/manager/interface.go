@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
-
 	p9fsp "github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/9p"
 	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/fuse"
+	"github.com/ipfs/go-ipfs/core/commands/filesystem/manager/host/options"
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/interface/ipfscore"
 	"github.com/ipfs/go-ipfs/filesystem/interface/keyfs"

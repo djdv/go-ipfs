@@ -2,7 +2,9 @@ package mfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	gopath "path"
 
 	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
@@ -33,7 +35,13 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 
 	childNode, err := parentDir.Child(childName)
 	if err != nil {
-		return &interfaceutils.Error{Cause: err, Type: fserrors.NotExist}
+		if errors.Is(err, os.ErrNotExist) {
+			return interfaceutils.ErrNotExist(path)
+		}
+		return &interfaceutils.Error{
+			Cause: err,
+			Type:  fserrors.Other,
+		}
 	}
 
 	// check behavior for specific types
@@ -60,10 +68,10 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 	case gomfs.TDir:
 		childDir, ok := childNode.(*gomfs.Directory)
 		if !ok {
-			return &interfaceutils.Error{
-				Cause: fmt.Errorf("%q is not a directory (%T)", path, childNode),
-				Type:  fserrors.NotDir,
-			}
+			return fmt.Errorf("(Type: %v), %w",
+				childNode.Type(),
+				interfaceutils.ErrNotDir(path),
+			)
 		}
 
 		ents, err := childDir.ListNames(context.TODO())
@@ -100,13 +108,12 @@ func splitParentChild(mroot *gomfs.Root, path string) (*gomfs.Directory, string,
 	parentPath, childName := gopath.Split(path)
 	parentNode, err := gomfs.Lookup(mroot, parentPath)
 	if err != nil {
-		return nil, "", &interfaceutils.Error{Cause: err, Type: fserrors.NotExist}
+		return nil, "", mfsLookupErr(parentPath, err)
 	}
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
-		err = fmt.Errorf("parent %q isn't a directory", parentPath)
-		return nil, "", &interfaceutils.Error{Cause: err, Type: fserrors.NotDir}
+		return nil, "", interfaceutils.ErrNotDir(parentPath)
 	}
 
 	return parentDir, childName, nil

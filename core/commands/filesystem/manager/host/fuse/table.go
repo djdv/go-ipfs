@@ -15,6 +15,11 @@ type (
 	dMap   map[handle]filesystem.Directory
 )
 
+var (
+	errInvalidHandle = errors.New("handle not found")
+	errFull          = errors.New("all slots filled")
+)
+
 func newFileTable() *fileTableStruct           { return &fileTableStruct{files: make(fMap)} }
 func newDirectoryTable() *directoryTableStruct { return &directoryTableStruct{directories: make(dMap)} }
 
@@ -55,7 +60,7 @@ func (ft *fileTableStruct) Add(f filesystem.File) (handle, error) {
 			ft.index = index
 			return index, nil
 		}
-		return errorHandle, errors.New("all slots filled")
+		return errorHandle, errFull
 	}
 
 	// we've never hit the cap, so we can assume the handle is free
@@ -79,7 +84,7 @@ func (ft *fileTableStruct) Get(fh handle) (filesystem.File, error) {
 	defer ft.RUnlock()
 	f, exists := ft.files[fh]
 	if !exists {
-		return nil, errors.New("handle not found")
+		return nil, errInvalidHandle
 	}
 	return f, nil
 }
@@ -88,7 +93,7 @@ func (ft *fileTableStruct) Remove(fh handle) error {
 	ft.Lock()
 	defer ft.Unlock()
 	if _, exists := ft.files[fh]; !exists {
-		return errors.New("handle not found")
+		return errInvalidHandle
 	}
 	delete(ft.files, fh)
 	return nil
@@ -135,7 +140,7 @@ func (dt *directoryTableStruct) Add(f filesystem.Directory) (handle, error) {
 			dt.index = index
 			return index, nil
 		}
-		return errorHandle, errors.New("all slots filled")
+		return errorHandle, errFull
 	}
 
 	// we've never hit the cap, so we can assume the handle is free
@@ -159,7 +164,7 @@ func (dt *directoryTableStruct) Get(fh handle) (filesystem.Directory, error) {
 	defer dt.RUnlock()
 	f, exists := dt.directories[fh]
 	if !exists {
-		return nil, errors.New("handle not found")
+		return nil, errInvalidHandle
 	}
 	return f, nil
 }
@@ -168,7 +173,7 @@ func (dt *directoryTableStruct) Remove(fh handle) error {
 	dt.Lock()
 	defer dt.Unlock()
 	if _, exists := dt.directories[fh]; !exists {
-		return errors.New("handle not found")
+		return errInvalidHandle
 	}
 	delete(dt.directories, fh)
 	return nil

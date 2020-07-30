@@ -2,7 +2,9 @@ package mfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/ipfs/go-ipfs/filesystem"
 	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
@@ -36,4 +38,14 @@ func (mi *mfsInterface) Rename(oldName, newName string) error {
 		return &interfaceutils.Error{Cause: err, Type: fserrors.IO}
 	}
 	return nil
+}
+
+func mfsLookupErr(path string, err error) error {
+	if errors.Is(err, os.ErrNotExist) {
+		return interfaceutils.ErrNotExist(path)
+	}
+	return &interfaceutils.Error{
+		Cause: fmt.Errorf("%w: %s", err, path),
+		Type:  fserrors.Other,
+	}
 }

@@ -11,7 +11,7 @@ import (
 
 // TODO: make a pass on everything [AM] [hasty port]
 
-// a `Directory` containing the node's pins (as a stream of entries)
+// a `Directory` containing the node's pins (as a stream of entries).
 type pinDirectoryStream struct {
 	pinAPI coreiface.PinAPI
 }
