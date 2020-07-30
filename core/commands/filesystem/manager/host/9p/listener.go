@@ -190,6 +190,26 @@ func (pr *nineAttacher) bind(request Request) (host.Binding, error) {
 			err = fmt.Errorf("%w; additionally the server encountered an error on `Close`: %s", err, sErr)
 		}
 	}
+
+	// in addition to closing and returning the socket error
+	// make sure to detach from the host first
+	socketCloser := binding.Closer.Close
+	binding.Closer = closer(func() (err error) {
+		hostError := sys.Detach(request.HostPath)
+		sockErr := socketCloser()
+
+		switch {
+		case hostError != nil && sockErr != nil: // wrap socket error in host error
+			err = fmt.Errorf("%s:%w", hostError, sockErr)
+		case hostError == nil && sockErr != nil:
+			err = sockErr
+		case hostError != nil && sockErr == nil:
+			err = hostError
+		}
+
+		return
+	})
+
 	return binding, err
 }
 
