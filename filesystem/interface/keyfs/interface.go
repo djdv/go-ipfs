@@ -5,8 +5,8 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	"github.com/ipfs/go-ipfs/filesystem/interface/ipfscore"
 	"github.com/ipfs/go-ipfs/filesystem/interface/ufs"
 	ipld "github.com/ipfs/go-ipld-format"
@@ -62,10 +62,7 @@ func (ki *keyInterface) Rename(oldName, newName string) error {
 		defer cancel()
 		_, _, err := ki.core.Key().Rename(callCtx, keyName, newName[1:])
 		if err != nil {
-			return &interfaceutils.Error{
-				Cause: err,
-				Type:  fserrors.IO,
-			}
+			return iferrors.IO(newName, err)
 		}
 		return nil
 	}

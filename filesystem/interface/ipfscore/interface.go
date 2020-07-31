@@ -2,29 +2,26 @@ package ipfscore
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	gopath "path"
 	"strings"
 
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
 )
 
-var errNotImplemented = &interfaceutils.Error{
-	Cause: errors.New("read only FS, modification operations are not implemented"),
-	Type:  fserrors.InvalidOperation,
-}
+var errReadOnly = fmt.Errorf("read only FS, modification %w",
+	iferrors.UnsupportedRequest(), // "operation not supported by this node" or similar
+)
 
 type coreInterface struct {
 	ctx      context.Context
 	core     interfaceutils.CoreExtender
 	systemID filesystem.ID
 }
-
-func (ci *coreInterface) ID() filesystem.ID { return ci.systemID }
 
 func NewInterface(ctx context.Context, core coreiface.CoreAPI, systemID filesystem.ID) filesystem.Interface {
 	return &coreInterface{
@@ -34,10 +31,10 @@ func NewInterface(ctx context.Context, core coreiface.CoreAPI, systemID filesyst
 	}
 }
 
+func (ci *coreInterface) ID() filesystem.ID     { return ci.systemID }
+func (*coreInterface) Close() error             { return nil }
+func (*coreInterface) Rename(_, _ string) error { return errReadOnly }
+
 func (ci *coreInterface) joinRoot(path string) corepath.Path {
 	return corepath.New(gopath.Join("/", strings.ToLower(ci.systemID.String()), path))
 }
-
-func (*coreInterface) Close() error { return nil }
-
-func (*coreInterface) Rename(_, _ string) error { return errNotImplemented }

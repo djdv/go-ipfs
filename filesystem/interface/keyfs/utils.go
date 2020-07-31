@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 	coreoptions "github.com/ipfs/interface-go-ipfs-core/options"
 	corepath "github.com/ipfs/interface-go-ipfs-core/path"
@@ -30,7 +30,7 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 	keyName, remainder := splitPath(path)
 
 	if coreKey, err = ki.checkKey(keyName); err != nil {
-		err = &interfaceutils.Error{Cause: err, Type: fserrors.Other}
+		err = iferrors.Other(path, err)
 		return
 	}
 
@@ -48,7 +48,7 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 		// so check its type to determine the FS for it (Files, Links: KeyFS, Directories: MFS)
 		var stat *filesystem.Stat
 		if stat, _, err = ki.core.Stat(callCtx, coreKey.Path(), filesystem.StatRequest{Type: true}); err != nil {
-			err = &interfaceutils.Error{Cause: err, Type: fserrors.IO}
+			err = iferrors.IO(path, err)
 			return
 		}
 
@@ -61,7 +61,8 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 			fsPath = remainder
 			deferFunc = func() { fs.Close() }
 		default:
-			err = &interfaceutils.Error{Cause: fmt.Errorf("unexpected type: %v", t), Type: fserrors.Other}
+			err = iferrors.Other(path,
+				fmt.Errorf("unexpected type: %v", t))
 		}
 
 		return
@@ -79,11 +80,11 @@ func (ki *keyInterface) selectFS(path string) (fs filesystem.Interface, coreKey 
 func localPublish(ctx context.Context, core coreiface.CoreAPI, keyName string, target corepath.Path) error {
 	oAPI, err := core.WithOptions(coreoptions.Api.Offline(true))
 	if err != nil {
-		return &interfaceutils.Error{Cause: err, Type: fserrors.Other}
+		return iferrors.Other(keyName, err)
 	}
 
 	if _, err = oAPI.Name().Publish(ctx, target, coreoptions.Name.Key(keyName), coreoptions.Name.AllowOffline(true)); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: fserrors.Other}
+		return iferrors.Other(keyName, err)
 	}
 
 	return nil

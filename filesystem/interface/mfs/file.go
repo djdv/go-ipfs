@@ -6,8 +6,7 @@ import (
 	"os"
 
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
-	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
@@ -27,24 +26,24 @@ func (mio *mfsIOWrapper) Seek(offset int64, whence int) (int64, error) {
 func (mi *mfsInterface) Open(path string, flags filesystem.IOFlags) (filesystem.File, error) {
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
-		rErr := &interfaceutils.Error{Cause: err}
+		return nil, mfsLookupErr(path, err)
 		if errors.Is(err, os.ErrNotExist) {
-			rErr.Type = fserrors.NotExist
-			return nil, rErr
+			return nil, iferrors.NotExist(path)
 		}
-		rErr.Type = fserrors.Permission
-		return nil, rErr
+		return nil, iferrors.Permission(path, err)
 	}
 
 	mfsFileIf, ok := mfsNode.(*gomfs.File)
 	if !ok {
-		err := fmt.Errorf("%q is not a file (%T)", path, mfsNode)
-		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.IsDir}
+		return nil, fmt.Errorf("(Type: %v), %w",
+			mfsNode.Type(),
+			iferrors.IsDir(path),
+		)
 	}
 
 	mfsFile, err := mfsFileIf.Open(translateFlags(flags))
 	if err != nil {
-		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.Permission}
+		return nil, iferrors.Permission(path, err)
 	}
 
 	return &mfsIOWrapper{f: mfsFile}, nil

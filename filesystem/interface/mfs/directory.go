@@ -6,6 +6,7 @@ import (
 
 	"github.com/ipfs/go-ipfs/filesystem"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
@@ -39,7 +40,7 @@ func (ms *mfsDirectoryStream) SendTo(ctx context.Context, receiver chan<- interf
 		close(receiver)
 		return fmt.Errorf("(Type: %v), %w",
 			mfsNode.Type(),
-			interfaceutils.ErrNotDir(ms.path),
+			iferrors.NotDir(ms.path),
 		)
 	}
 

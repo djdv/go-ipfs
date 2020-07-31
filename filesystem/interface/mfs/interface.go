@@ -7,8 +7,7 @@ import (
 	"os"
 
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
-	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	gomfs "github.com/ipfs/go-mfs"
 )
 
@@ -35,17 +34,14 @@ func (mi *mfsInterface) ID() filesystem.ID { return filesystem.Files } // TODO: 
 func (mi *mfsInterface) Close() error      { return mi.mroot.Close() }
 func (mi *mfsInterface) Rename(oldName, newName string) error {
 	if err := gomfs.Mv(mi.mroot, oldName, newName); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: fserrors.IO}
+		return iferrors.IO(newName, err)
 	}
 	return nil
 }
 
 func mfsLookupErr(path string, err error) error {
 	if errors.Is(err, os.ErrNotExist) {
-		return interfaceutils.ErrNotExist(path)
+		return iferrors.NotExist(path)
 	}
-	return &interfaceutils.Error{
-		Cause: fmt.Errorf("%w: %s", err, path),
-		Type:  fserrors.Other,
-	}
+	return iferrors.Other(path, err)
 }

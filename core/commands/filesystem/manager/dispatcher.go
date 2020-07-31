@@ -17,7 +17,7 @@ type apiMux struct {
 	ctx context.Context
 	log logging.EventLogger
 
-	//TODO: we need to hold the exit channel
+	// TODO: we need to hold the exit channel
 	// when dispatching the last target for something
 	// close it
 	// return the error up to the manager

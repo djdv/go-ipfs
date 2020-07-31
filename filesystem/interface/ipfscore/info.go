@@ -1,11 +1,7 @@
 package ipfscore
 
 import (
-	"fmt"
-
-	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
@@ -26,31 +22,5 @@ func (ci *coreInterface) Info(path string, req filesystem.StatRequest) (*filesys
 }
 
 func (ci *coreInterface) ExtractLink(path string) (string, error) {
-	// make sure the path is actually a link
-	iStat, _, err := ci.Info(path, filesystem.StatRequest{Type: true})
-	if err != nil {
-		return "", err
-	}
-
-	if iStat.Type != coreiface.TSymlink {
-		return "", &interfaceutils.Error{
-			Cause: fmt.Errorf("%q is not a symlink", path),
-			Type:  fserrors.InvalidItem,
-		}
-	}
-
-	// if it is, read it
-	callCtx, callCancel := interfaceutils.CallContext(ci.ctx)
-	defer callCancel()
-	linkNode, err := ci.core.Unixfs().Get(callCtx, ci.joinRoot(path))
-	if err != nil {
-		return "", &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.IO,
-		}
-	}
-
-	// NOTE: the implementation of this does no type checks [2020.06.04]
-	// which is why we check the node's type above
-	return files.ToSymlink(linkNode).Target, nil
+	return ci.core.ExtractLink(ci.joinRoot(path))
 }

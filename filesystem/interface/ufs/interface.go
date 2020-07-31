@@ -6,8 +6,8 @@ import (
 
 	chunk "github.com/ipfs/go-ipfs-chunker"
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	ipld "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-unixfs/mod"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -63,7 +63,7 @@ func (ui *ufsInterface) Open(path string, _ filesystem.IOFlags) (filesystem.File
 		return chunk.NewBuzhash(r) // TODO: maybe switch this back to the default later; buzhash should be faster so we're keeping it temporarily while testing
 	})
 	if err != nil {
-		return nil, &interfaceutils.Error{Cause: err, Type: fserrors.Other}
+		return nil, iferrors.Other(path, err)
 	}
 
 	return &dagRef{DagModifier: dmod, modifiedCallback: ui.modifiedCallback}, nil

@@ -2,14 +2,13 @@ package ipfscore
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 
 	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	cbor "github.com/ipfs/go-ipld-cbor"
 )
 
@@ -19,8 +18,8 @@ type coreFile struct{ f files.File }
 
 func (cio *coreFile) Size() (int64, error)          { return cio.f.Size() }
 func (cio *coreFile) Read(buff []byte) (int, error) { return cio.f.Read(buff) }
-func (cio *coreFile) Write(_ []byte) (int, error)   { return 0, errNotImplemented }
-func (cio *coreFile) Truncate(_ uint64) error       { return errNotImplemented }
+func (cio *coreFile) Write(_ []byte) (int, error)   { return 0, errReadOnly }
+func (cio *coreFile) Truncate(_ uint64) error       { return errReadOnly }
 func (cio *coreFile) Close() error                  { return cio.f.Close() }
 func (cio *coreFile) Seek(offset int64, whence int) (int64, error) {
 	return cio.f.Seek(offset, whence)
@@ -36,8 +35,8 @@ func (cio *cborFile) Size() (int64, error) {
 	return int64(size), err
 }
 func (cio *cborFile) Read(buff []byte) (int, error) { return cio.reader.Read(buff) }
-func (cio *cborFile) Write(_ []byte) (int, error)   { return 0, errNotImplemented }
-func (cio *cborFile) Truncate(_ uint64) error       { return errNotImplemented }
+func (cio *cborFile) Write(_ []byte) (int, error)   { return 0, errReadOnly }
+func (cio *cborFile) Truncate(_ uint64) error       { return errReadOnly }
 func (cio *cborFile) Close() error                  { return nil }
 func (cio *cborFile) Seek(offset int64, whence int) (int64, error) {
 	return cio.reader.Seek(offset, whence)
@@ -45,10 +44,7 @@ func (cio *cborFile) Seek(offset int64, whence int) (int64, error) {
 
 func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem.File, error) {
 	if flags != filesystem.IOReadOnly {
-		return nil, &interfaceutils.Error{
-			Cause: errors.New("read only FS"),
-			Type:  fserrors.ReadOnly,
-		}
+		return nil, iferrors.ReadOnly(path)
 	}
 
 	corePath := ci.joinRoot(path)
@@ -57,10 +53,7 @@ func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem
 	defer callCancel()
 	ipldNode, err := ci.core.ResolveNode(callCtx, corePath)
 	if err != nil {
-		return nil, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.Permission,
-		}
+		return nil, iferrors.Permission(path, err)
 	}
 
 	// special handling for cbor nodes
@@ -80,19 +73,15 @@ func (ci *coreInterface) Open(path string, flags filesystem.IOFlags) (filesystem
 
 	apiNode, err := ci.core.Unixfs().Get(ci.ctx, corePath)
 	if err != nil {
-		return nil, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.Permission,
-		}
+		return nil, iferrors.Permission(path, err)
 	}
 
 	fileNode, ok := apiNode.(files.File)
 	if !ok {
-		err := fmt.Errorf("%q does not appear to be a file: %T", path, apiNode)
-		return nil, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.IsDir,
-		}
+		return nil, fmt.Errorf("(Type: %v), %w",
+			apiNode,
+			iferrors.IsDir(path),
+		)
 	}
 
 	return &coreFile{f: fileNode}, nil

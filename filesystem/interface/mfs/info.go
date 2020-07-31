@@ -1,12 +1,12 @@
 package mfs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
-	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
@@ -20,26 +20,17 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
-		return attr, filled, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.NotExist,
-		}
+		return attr, filled, mfsLookupErr(path, err)
 	}
 
 	ipldNode, err := mfsNode.GetNode()
 	if err != nil {
-		return nil, filled, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.Other,
-		}
+		return attr, filled, iferrors.Other(path, err)
 	}
 
 	ufsNode, err := unixfs.ExtractFSNode(ipldNode)
 	if err != nil {
-		return attr, filled, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.Other,
-		}
+		return attr, filled, iferrors.Other(path, err)
 	}
 
 	if req.Type {
@@ -56,10 +47,9 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 				break
 			}
 
-			return attr, filled, &interfaceutils.Error{
-				Cause: fmt.Errorf("unexpected node type %d", nodeType),
-				Type:  fserrors.Other,
-			}
+			return attr, filled, iferrors.Other(path,
+				fmt.Errorf("unexpected node type %d", nodeType),
+			)
 		}
 	}
 
@@ -86,28 +76,26 @@ func (mi *mfsInterface) Info(path string, req filesystem.StatRequest) (*filesyst
 func (mi *mfsInterface) ExtractLink(path string) (string, error) {
 	mfsNode, err := gomfs.Lookup(mi.mroot, path)
 	if err != nil {
-		// TODO: SUS annotation; error deviates from file/dir standard
-		rErr := &interfaceutils.Error{Cause: err}
-		if err == os.ErrNotExist {
-			rErr.Type = fserrors.NotExist
-			return "", rErr
+		if errors.Is(err, os.ErrNotExist) {
+			return "", iferrors.NotExist(path)
 		}
-		rErr.Type = fserrors.Permission
-		return "", rErr
+		// TODO: SUS annotation; error deviates from file/dir standard
+		err := errors.New("invalid link request")
+		return "", iferrors.Permission(path, err)
 	}
 
 	ipldNode, err := mfsNode.GetNode()
 	if err != nil {
-		return "", &interfaceutils.Error{Cause: err, Type: fserrors.IO}
+		return "", iferrors.IO(path, err)
 	}
 
 	ufsNode, err := unixfs.ExtractFSNode(ipldNode)
 	if err != nil {
-		return "", &interfaceutils.Error{Cause: err, Type: fserrors.IO}
+		return "", iferrors.IO(path, err)
 	}
 	if ufsNode.Type() != unixfs.TSymlink {
-		err := fmt.Errorf("%q is not a link", path)
-		return "", &interfaceutils.Error{Cause: err, Type: fserrors.InvalidItem}
+		err := fmt.Errorf("type %v is not a link", ufsNode.Type())
+		return "", iferrors.UnsupportedItem(path, err)
 	}
 
 	return string(ufsNode.Data()), nil

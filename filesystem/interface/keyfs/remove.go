@@ -1,11 +1,9 @@
 package keyfs
 
 import (
-	"fmt"
-
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	coreiface "github.com/ipfs/interface-go-ipfs-core"
 )
 
@@ -48,29 +46,22 @@ func (ki *keyInterface) RemoveDirectory(path string) error {
 	return fs.RemoveDirectory(fsPath)
 }
 
-func (ki *keyInterface) remove(path string, nodeType coreiface.FileType) error {
-	iStat, _, err := ki.Info(path, filesystem.StatRequest{Type: true})
+func (ki *keyInterface) remove(path string, requestType coreiface.FileType) error {
+	nodeMeta, _, err := ki.Info(path, filesystem.StatRequest{Type: true})
 	if err != nil {
 		return err
 	}
 
-	if iStat.Type != nodeType {
-		switch nodeType {
+	if nodeMeta.Type != requestType {
+		switch requestType {
 		case coreiface.TFile:
-			return &interfaceutils.Error{
-				Cause: fmt.Errorf("%q is not a file", path),
-				Type:  fserrors.IsDir,
-			}
+			return iferrors.IsDir(path)
 		case coreiface.TDirectory:
-			return &interfaceutils.Error{
-				Cause: fmt.Errorf("%q is not a directory", path),
-				Type:  fserrors.NotDir,
-			}
+			return iferrors.NotDir(path)
 		case coreiface.TSymlink:
-			return &interfaceutils.Error{
-				Cause: fmt.Errorf("%q is not a link", path),
-				Type:  fserrors.NotExist, // TODO: [review] SUS doesn't distinguish between files and links in `unlink` so there's no real appropriate value for this
-			}
+			// TODO: [review] SUS doesn't distinguish between files and links in `unlink`
+			// so there's no real appropriate value for this
+			return iferrors.NotExist(path)
 		}
 	}
 
@@ -78,10 +69,7 @@ func (ki *keyInterface) remove(path string, nodeType coreiface.FileType) error {
 	defer cancel()
 	keyName := path[1:]
 	if _, err = ki.core.Key().Remove(callCtx, keyName); err != nil {
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.IO,
-		}
+		return iferrors.IO(path, err)
 	}
 	return nil
 }

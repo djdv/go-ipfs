@@ -7,8 +7,7 @@ import (
 	"os"
 	gopath "path"
 
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
-	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	gomfs "github.com/ipfs/go-mfs"
 	"github.com/ipfs/go-unixfs"
 	unixpb "github.com/ipfs/go-unixfs/pb"
@@ -36,33 +35,37 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 	childNode, err := parentDir.Child(childName)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return interfaceutils.ErrNotExist(path)
+			return iferrors.NotExist(path)
 		}
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.Other,
-		}
+		return iferrors.Other(path, err)
 	}
 
-	// check behavior for specific types
+	// compare MFS node type with the request type
 	switch nodeType {
 	case gomfs.TFile:
-		if !gomfs.IsFile(childNode) {
-			// make sure it's not a (UFS) symlink
-			ipldNode, err := childNode.GetNode()
-			if err != nil {
-				return &interfaceutils.Error{Cause: err, Type: fserrors.Permission}
-			}
-			ufsNode, err := unixfs.ExtractFSNode(ipldNode)
-			if err != nil {
-				return &interfaceutils.Error{Cause: err, Type: fserrors.Permission}
-			}
-			if t := ufsNode.Type(); t != unixpb.Data_Symlink {
-				return &interfaceutils.Error{
-					Cause: fmt.Errorf("%q is not a file or symlink (%q)", path, t),
-					Type:  fserrors.Permission,
-				}
-			}
+		// MFS does not expose link metadata via nodeType
+		// so this is how we distinguish link requests
+		// if we can assert the MFS node as an mfs file, then it's treated as a regular file
+		if gomfs.IsFile(childNode) {
+			break
+		}
+		// otherwise we deduce that it's a symlink, since it's not a directory request
+		// and the node is not a file
+		ipldNode, err := childNode.GetNode()
+		if err != nil {
+			return iferrors.Permission(path, err)
+		}
+		// extract the type from Unix FS directly, bypassing MFS
+		ufsNode, err := unixfs.ExtractFSNode(ipldNode)
+		if err != nil {
+			return iferrors.Permission(path, err)
+		}
+		if t := ufsNode.Type(); t != unixpb.Data_Symlink {
+			// UFS says this node is not a symlink; bail out with posix error
+			return fmt.Errorf("(Type: %v), %w",
+				t,
+				iferrors.IsDir(path),
+			)
 		}
 
 	case gomfs.TDir:
@@ -70,35 +73,30 @@ func (mi *mfsInterface) remove(path string, nodeType gomfs.NodeType) error {
 		if !ok {
 			return fmt.Errorf("(Type: %v), %w",
 				childNode.Type(),
-				interfaceutils.ErrNotDir(path),
+				iferrors.NotDir(path),
 			)
 		}
 
 		ents, err := childDir.ListNames(context.TODO())
 		if err != nil {
-			return &interfaceutils.Error{Cause: err, Type: fserrors.Permission}
+			return iferrors.Permission(path, err)
 		}
 
 		if len(ents) != 0 {
-			return &interfaceutils.Error{
-				Cause: fmt.Errorf("directory %q is not empty", path),
-				Type:  fserrors.NotEmpty,
-			}
+			return iferrors.NotEmpty(path)
 		}
 
 	default:
-		return &interfaceutils.Error{
-			Cause: fmt.Errorf("unexpected node type %v", nodeType),
-			Type:  fserrors.Permission,
-		}
+		return iferrors.Permission(path,
+			fmt.Errorf("unexpected node type: %v", nodeType))
 	}
 
 	// unlink parent and child actually
 	if err := parentDir.Unlink(childName); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: fserrors.Permission}
+		return iferrors.Permission(path, err)
 	}
 	if err := parentDir.Flush(); err != nil {
-		return &interfaceutils.Error{Cause: err, Type: fserrors.Permission}
+		return iferrors.Permission(path, err)
 	}
 
 	return nil
@@ -113,7 +111,7 @@ func splitParentChild(mroot *gomfs.Root, path string) (*gomfs.Directory, string,
 
 	parentDir, ok := parentNode.(*gomfs.Directory)
 	if !ok {
-		return nil, "", interfaceutils.ErrNotDir(parentPath)
+		return nil, "", iferrors.NotDir(parentPath)
 	}
 
 	return parentDir, childName, nil

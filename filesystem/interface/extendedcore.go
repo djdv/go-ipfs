@@ -7,7 +7,7 @@ import (
 
 	files "github.com/ipfs/go-ipfs-files"
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
@@ -57,10 +57,7 @@ func (core *CoreExtended) Stat(ctx context.Context, path corepath.Path, req file
 	case *dag.ProtoNode:
 		ufsNode, err := unixfs.ExtractFSNode(typedNode)
 		if err != nil {
-			return nil, filesystem.StatRequest{}, &Error{
-				Cause: err,
-				Type:  fserrors.Other,
-			}
+			return nil, filesystem.StatRequest{}, iferrors.Other(path.String(), err)
 		}
 		return unixFSAttr(ufsNode, req)
 
@@ -83,19 +80,15 @@ func (core *CoreExtended) ExtractLink(path corepath.Path) (string, error) {
 	}
 
 	if iStat.Type != coreiface.TSymlink {
-		return "", &Error{
-			Cause: fmt.Errorf("%q is not a symlink", path.String()),
-			Type:  fserrors.InvalidItem,
-		}
+		return "", iferrors.UnsupportedItem(path.String(),
+			fmt.Errorf("%q is not a symlink", path.String()),
+		)
 	}
 
 	// if it is, read it
 	linkNode, err := core.Unixfs().Get(callCtx, path)
 	if err != nil {
-		return "", &Error{
-			Cause: err,
-			Type:  fserrors.IO,
-		}
+		return "", iferrors.IO(path.String(), err)
 	}
 
 	// NOTE: the implementation of this does no type checks [2020.06.04]
@@ -108,10 +101,7 @@ func (core *CoreExtended) ResolveNode(ctx context.Context, path corepath.Path) (
 	n, err := core.CoreAPI.ResolveNode(ctx, path)
 	if err != nil {
 		// TODO: inspect error to disambiguate type
-		return nil, &Error{
-			Cause: err,
-			Type:  fserrors.NotExist,
-		}
+		return nil, iferrors.NotExist(path.String())
 	}
 	return n, nil
 }
@@ -121,10 +111,7 @@ func (core *CoreExtended) ResolvePath(ctx context.Context, path corepath.Path) (
 	p, err := core.CoreAPI.ResolvePath(ctx, path)
 	if err != nil {
 		// TODO: inspect error to disambiguate type
-		return nil, &Error{
-			Cause: err,
-			Type:  fserrors.NotExist,
-		}
+		return nil, iferrors.NotExist(path.String())
 	}
 	return p, nil
 }
@@ -146,10 +133,7 @@ func genericAttr(genericNode ipld.Node, req filesystem.StatRequest) (*filesystem
 	if req.Size || req.Blocks {
 		nodeStat, err := genericNode.Stat()
 		if err != nil {
-			return attr, filledAttrs, &Error{
-				Cause: err,
-				Type:  fserrors.IO,
-			}
+			return attr, filledAttrs, iferrors.IO(genericNode.String(), err)
 		}
 
 		if req.Size {

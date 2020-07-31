@@ -5,8 +5,8 @@ import (
 	"errors"
 
 	"github.com/ipfs/go-ipfs/filesystem"
-	fserrors "github.com/ipfs/go-ipfs/filesystem/errors"
 	interfaceutils "github.com/ipfs/go-ipfs/filesystem/interface"
+	iferrors "github.com/ipfs/go-ipfs/filesystem/interface/errors"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs"
@@ -24,10 +24,7 @@ func (ki *keyInterface) createSplit(path string) (self bool, remote filesystem.I
 
 	var coreKey coreiface.Key
 	if coreKey, err = ki.checkKey(keyName); err != nil {
-		err = &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.NotExist,
-		}
+		err = iferrors.NotExist(path)
 		return
 	}
 
@@ -124,18 +121,13 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 		node = unixfs.EmptyDirNode()
 
 	default:
-		return nil, &interfaceutils.Error{
-			Cause: errors.New("unexpected node type"),
-			Type:  fserrors.Other,
-		}
+		err := errors.New("unexpected node type")
+		return nil, iferrors.Other(nodeType.String(), err) // HACK: no path name passed in to use, provide node's type
 	}
 
 	// push it to the datastore
 	if err := dagAPI.Add(ctx, node); err != nil {
-		return nil, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.IO,
-		}
+		return nil, iferrors.Other(node.String(), err)
 	}
 
 	return node, nil
@@ -143,17 +135,11 @@ func makeEmptyNode(ctx context.Context, dagAPI coreiface.APIDagService, nodeType
 
 func makeKeyWithNode(ctx context.Context, core coreiface.CoreAPI, keyName string, node ipld.Node) error {
 	if _, err := core.Key().Generate(ctx, keyName); err != nil {
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.IO,
-		}
+		return iferrors.IO(keyName, err)
 	}
 
 	if err := core.Dag().Add(ctx, node); err != nil {
-		return &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.IO,
-		}
+		return iferrors.IO(keyName, err)
 	}
 
 	return nil
@@ -162,10 +148,8 @@ func makeKeyWithNode(ctx context.Context, core coreiface.CoreAPI, keyName string
 func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarget string) (ipld.Node, error) {
 	dagData, err := unixfs.SymlinkData(linkTarget)
 	if err != nil {
-		return nil, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.Other,
-		}
+		// TODO: no reference name
+		return nil, iferrors.IO("link creation", err)
 	}
 
 	dagNode := dag.NodeWithData(dagData)
@@ -176,10 +160,7 @@ func makeLinkNode(ctx context.Context, dagAPI coreiface.APIDagService, linkTarge
 
 	// push it to the datastore
 	if err := dagAPI.Add(ctx, dagNode); err != nil {
-		return nil, &interfaceutils.Error{
-			Cause: err,
-			Type:  fserrors.IO,
-		}
+		return nil, iferrors.IO(dagNode.String(), err)
 	}
 	return dagNode, nil
 }
