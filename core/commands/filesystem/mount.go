@@ -84,7 +84,7 @@ func listCommand(_ *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter)
 }
 
 func bindCmd(req *cmds.Request, env cmds.Environment, re cmds.ResponseEmitter) error {
-	requests, err := parseRequest(req, env)
+	requests, err := parseRequest(req)
 	if err != nil {
 		return err
 	}

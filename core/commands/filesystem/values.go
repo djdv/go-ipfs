@@ -46,7 +46,7 @@ const (
 	mountListDesc = "List mounted instances."
 
 	aPIKwd         = "system"
-	aPIDesc        = "Selects which file system API to use, defaults to config file value or " + defaultAPIOption + " (on this machine)"
+	aPIDesc        = "Selects which file system API to use, defaults to config file value or " + defaultHostAPISetting + " (on this machine)"
 	daemonFSAPIKwd = daemonCmdsPrefix + aPIKwd
 
 	subsystemKwd       = "subsystem"

@@ -59,7 +59,7 @@ func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		return re.Emit(responses)
 	}
 
-	requests, err := parseRequest(req, env)
+	requests, err := parseRequest(req)
 	if err != nil {
 		return err
 	}

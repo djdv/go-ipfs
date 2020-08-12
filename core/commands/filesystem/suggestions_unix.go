@@ -2,11 +2,16 @@
 
 package fscmds
 
-const (
-	defaultAPIOption     = "fuse"
-	platformMountRoot    = `/`
-	defaultSystemsOption = "pinfs,keyfs,file"
+var defaultTargets = []string{
+	platformMountRoot + "ipfs",
+	platformMountRoot + "ipns",
+	platformMountRoot + "file",
+}
 
+const (
+	platformMountRoot     = `/`
+	defaultHostAPISetting = "fuse"
+	defaultNodeAPISetting = "pinfs,keyfs,file"
 	mountDescWhatAndWhere = `
 By default, mounts IPFS, IPNS, and the Files API,
 under ` + platformMountRoot + ` to /ipfs, /ipns, and /file, respectively
@@ -49,9 +54,3 @@ baz
 baz
 `
 )
-
-var defaultTargets = []string{
-	platformMountRoot + "ipfs",
-	platformMountRoot + "ipns",
-	platformMountRoot + "file",
-}

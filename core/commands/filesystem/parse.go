@@ -30,7 +30,7 @@ var (
 	errConfigNotProviding = errors.New("config does not provide requested value")
 )
 
-/*
+/* TODO: outdated; no longer true
 We parse 3 different sources of strings (in priority order:)
 	-) command line
 	-) config file
@@ -67,8 +67,8 @@ func TranslateToBindRequest(prefix string, sourceReq *cmds.Request) (*cmds.Reque
 		switch {
 		default: // don't copy options that don't apply to us
 		case param == prefix: // don't copy the prefix itself
-		case param == cmds.EncLong || param == cmds.EncShort: // copy encoding option if present
-			bindReq.Options[param] = arg
+		case param == cmds.EncLong || param == cmds.EncShort:
+			bindReq.Options[param] = arg // copy encoding option if present
 		case strings.HasPrefix(param, prefix): // copy prefixed parameters, sans prefix
 			bindReq.Options[strings.TrimPrefix(param, prefix+"-")] = arg // e.g. `superCmd --prefix-ABC=123` => `cmd -ABC=123`
 		}
@@ -77,28 +77,119 @@ func TranslateToBindRequest(prefix string, sourceReq *cmds.Request) (*cmds.Reque
 	return &bindReq, true
 }
 
-func parseRequest(req *cmds.Request, env cmds.Environment) ([]manager.Request, error) {
-	const paramErrStr = "failed to get file system parameter from request: %w"
+func combine(apis []manager.API, systems []filesystem.ID, targets []string) ([]manager.Request, error) {
+	// NOTE: if the argument lists provided don't have the same length
+	// we assume the last argument of parameter X to repeat for parameter Y
+	// e.g. {targ1, targ2, targ3} combined with {system1} results in
+	// {targ1:system1, targ2:system1, targ3:system1}
+	// this allows users on the command line to omit repeating arguments
+	const errMissMatchFmt = "%s API and target count do not match([%d]apis:%v|[%d]targets:%v)"
+
+	targetCount, systemCount := len(targets), len(systems)
+	apiCount := len(apis)
+
+	if systemCount < targetCount {
+		systems = fillInNodeSystem(systems, systems[systemCount-1], targetCount-systemCount)
+		systemCount = len(systems)
+		if systemCount != targetCount {
+			// TODO: should we panic here? this is more of an implementation error than a user error
+			return nil, fmt.Errorf(errMissMatchFmt, "node",
+				systemCount, systems, targetCount, targets)
+		}
+	}
+
+	if apiCount < targetCount {
+		apis = fillInHostSystem(apis, apis[apiCount-1], targetCount-apiCount)
+		apiCount = len(apis)
+		if apiCount != targetCount {
+			return nil, fmt.Errorf(errMissMatchFmt, "host",
+				apiCount, apis, targetCount, targets)
+		}
+	}
+
+	var ( // all re-used in loop
+		requests    = make([]manager.Request, 0, len(targets))
+		hostRequest host.Request
+		err         error
+	)
+
+	for i, target := range targets { // process target requests into API specific requests
+		api := apis[i]
+		sysID := systems[i]
+
+		switch api {
+		default:
+			err = fmt.Errorf("unexpected host API: %v", api)
+		case manager.Plan9Protocol:
+			hostRequest, err = p9fsp.ParseRequest(sysID, target)
+		case manager.Fuse:
+			hostRequest, err = fuse.ParseRequest(sysID, target)
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		requests = append(requests, manager.Request{
+			Header:      manager.Header{API: api, ID: sysID},
+			HostRequest: hostRequest,
+		})
+	}
+
+	return requests, nil
+}
+
+func fillInHostSystem(systems []manager.API, system manager.API, count int) []manager.API {
+	sLen := len(systems)
+
+	filled := make([]manager.API, sLen+count)
+	copy(filled, systems)
+	tail := filled[sLen:]
+
+	for i := range tail {
+		tail[i] = system
+	}
+
+	return filled
+}
+
+func fillInNodeSystem(systems []filesystem.ID, system filesystem.ID, count int) []filesystem.ID {
+	sLen := len(systems)
+
+	filled := make([]filesystem.ID, sLen+count)
+	copy(filled, systems)
+	tail := filled[sLen:]
+
+	for i := range tail {
+		tail[i] = system
+	}
+
+	return filled
+}
+
+// TODO: update the parameter comments when they're finalized
+func parseRequest(req *cmds.Request) ([]manager.Request, error) {
+	const paramErrStr = "failed to get %s parameter arguments from request: %w"
+
+	// --api=
+	hostAPIs, err := parseHostAPIs(req)
+	if err != nil {
+		return nil, fmt.Errorf(paramErrStr, "host API", err)
+	}
 
 	// --subsystem=
-	subsystems, err := parseSubsystem(req, env)
+	nodeAPIs, err := parseNodeAPIs(req)
 	if err != nil {
-		return nil, fmt.Errorf(paramErrStr, err)
+		return nil, fmt.Errorf(paramErrStr, "node API", err)
 	}
 
 	// --target=
-	targets, err := parseTarget(req, env, subsystems)
+	targets, err := parseTargets(req)
 	if err != nil {
-		return nil, fmt.Errorf(paramErrStr, err)
+		return nil, fmt.Errorf(paramErrStr, "target", err)
 	}
 
-	// --api=
-	api, err := parseAPI(req)
-	if err != nil {
-		return nil, fmt.Errorf(paramErrStr, err)
-	}
-
-	return combine(api, subsystems, targets)
+	return combine(hostAPIs, nodeAPIs, targets)
 }
 
 func hasParam(req *cmds.Request, parameterName string) (string, bool) {
@@ -106,29 +197,17 @@ func hasParam(req *cmds.Request, parameterName string) (string, bool) {
 	return subsystemString, found
 }
 
-func parseSubsystem(req *cmds.Request, env cmds.Environment) ([]filesystem.ID, error) {
+func parseNodeAPIs(req *cmds.Request) ([]filesystem.ID, error) {
 	// use args if provided
 	if subsystemString, paramProvided := hasParam(req, subsystemKwd); paramProvided {
-		return subsystemArg(subsystemString)
+		return parseNodeAPIArg(subsystemString)
 	}
 
-	// otherwise pull from config
-	nodeConf, err := cmdenv.GetConfig(env)
-	if err != nil {
-		fmt.Printf("this:\n%#v", err)
-		return nil, fmt.Errorf("failed to get file system's subsystem config from node: %w", err)
-	}
-
-	subsystems, err := subsystemConfig(nodeConf)
-	if err == errConfigNotProviding {
-		//  otherwise fallback to suggestions
-		return subsystemArg(defaultSystemsOption)
-	}
-
-	return subsystems, err
+	//  otherwise fallback to suggestions
+	return parseNodeAPIArg(defaultNodeAPISetting)
 }
 
-func subsystemArg(arg string) ([]filesystem.ID, error) {
+func parseNodeAPIArg(arg string) ([]filesystem.ID, error) {
 	idStrings, err := csv.NewReader(strings.NewReader(arg)).Read()
 	if err != nil {
 		return nil, err
@@ -146,20 +225,15 @@ func subsystemArg(arg string) ([]filesystem.ID, error) {
 	return typedIds, nil
 }
 
-// TODO: config structure around this has not be defined
-func subsystemConfig(nodeConf *config.Config) ([]filesystem.ID, error) {
-	return nil, errConfigNotProviding
-}
-
-func parseAPI(req *cmds.Request) ([]manager.API, error) {
+func parseHostAPIs(req *cmds.Request) ([]manager.API, error) {
 	// use args if provided
 	if apiString, paramProvided := hasParam(req, aPIKwd); paramProvided {
-		return parseAPIArg(apiString)
+		return parseHostAPIArg(apiString)
 	}
-	return parseAPIArg(defaultAPIOption) //  otherwise fallback to suggestions
+	return parseHostAPIArg(defaultHostAPISetting) //  otherwise fallback to suggestions
 }
 
-func parseAPIArg(arg string) ([]manager.API, error) {
+func parseHostAPIArg(arg string) ([]manager.API, error) {
 	apiStrings, err := csv.NewReader(strings.NewReader(arg)).Read()
 	if err != nil {
 		return nil, err
@@ -177,33 +251,12 @@ func parseAPIArg(arg string) ([]manager.API, error) {
 	return apis, nil
 }
 
-func parseTarget(req *cmds.Request, env cmds.Environment, systems []filesystem.ID) ([]string, error) {
+func parseTargets(req *cmds.Request) ([]string, error) {
 	// use args if provided
 	if targetString, paramProvided := hasParam(req, TargetKwd); paramProvided {
 		return parseTargetArg(targetString)
 	}
-
-	// otherwise pull from config
-	nodeConf, err := cmdenv.GetConfig(env)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get file system's target config from node: %w", err)
-	}
-
-	targets, err := parseTargetConfig(nodeConf, systems)
-	switch err {
-	case nil:
-	case errConfigNotProviding:
-		//  fallback to suggestions
-		targets = defaultTargets
-	default:
-		return nil, err
-	}
-
-	if len(targets) != len(systems) {
-		return targets, errors.New("platform target defaults clash with provided namespace, please specify both namespace and target parameters")
-	}
-
-	return targets, nil
+	return defaultTargets, nil // otherwise fallback to suggestions
 }
 
 func parseTargetArg(arg string) ([]string, error) {
@@ -212,6 +265,57 @@ func parseTargetArg(arg string) ([]string, error) {
 		return nil, err
 	}
 	return targets, nil
+}
+
+// TODO: move section to parseconfig.go maybe; split with parserequest.go
+func parseEnvironment(env cmds.Environment) ([]manager.Request, error) {
+	nodeConf, err := cmdenv.GetConfig(env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config from node: %w", err)
+	}
+
+	hostAPIs, err := parseHostAPIConf(nodeConf)
+	switch err {
+	case nil:
+	case errConfigNotProviding: // fall back to defaults if setting doesn't exist in config
+		if hostAPIs, err = parseHostAPIArg(defaultHostAPISetting); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, err
+	}
+
+	nodeAPIs, err := parseNodeAPIConf(nodeConf)
+	switch err {
+	case nil:
+	case errConfigNotProviding: // fall back to defaults if setting doesn't exist in config
+		if nodeAPIs, err = parseNodeAPIArg(defaultNodeAPISetting); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, err
+	}
+
+	targets, err := parseTargetConfig(nodeConf, nodeAPIs)
+	switch err {
+	case nil:
+	case errConfigNotProviding: // fall back to defaults if setting doesn't exist in config
+		targets = defaultTargets
+	default:
+		return nil, err
+	}
+
+	return combine(hostAPIs, nodeAPIs, targets)
+}
+
+// TODO: config structure around this has not be defined
+func parseHostAPIConf(nodeConf *config.Config) ([]manager.API, error) {
+	return nil, errConfigNotProviding
+}
+
+// TODO: config structure around this has not be defined
+func parseNodeAPIConf(nodeConf *config.Config) ([]filesystem.ID, error) {
+	return nil, errConfigNotProviding
 }
 
 func parseTargetConfig(nodeConf *config.Config, systems []filesystem.ID) ([]string, error) {
@@ -257,99 +361,10 @@ func parseTargetConfig(nodeConf *config.Config, systems []filesystem.ID) ([]stri
 			return nil, fmt.Errorf("unexpected host system API: %s", system.String())
 		}
 	}
+
+	if len(targets) == 0 {
+		return nil, errConfigNotProviding
+	}
+
 	return targets, nil
 }
-
-func combine(apis []manager.API, systems []filesystem.ID, targets []string) ([]manager.Request, error) {
-	targetCount, systemCount := len(targets), len(systems)
-
-	// TODO: we should do blank fill-ins here, not in the parserX functions
-	// since there's ambiguity as to whether a value was provided or not
-	// too much magic going on here
-
-	// TODO: [HACK] this prevents the default system vector from causing issues on
-	// single target requests like `ipfs mount --target=/somewhere`
-	// but is magic and bad
-	// also targets need to be the command argument, not flags
-	if targetCount > systemCount {
-		return nil, fmt.Errorf("targets ([%d]system:%v|[%d]targets:%v)", systemCount, systems, targetCount, targets)
-	}
-
-	apiCount := len(apis)
-	if apiCount == 1 && targetCount != 1 { // special case, apply to all
-		api := apis[0]
-		apis = make([]manager.API, targetCount)
-		for apiCount = 0; apiCount != targetCount; apiCount++ {
-			apis[apiCount] = api
-		}
-	}
-	if apiCount != targetCount {
-		return nil, fmt.Errorf("host API and target count do not match([%d]apis:%v|[%d]targets:%v)", apiCount, apis, targetCount, targets)
-	}
-
-	requests := make([]manager.Request, 0, len(targets))
-	for i, target := range targets {
-		api := apis[i]
-		sysID := systems[i]
-
-		// process the target request into an API specific request
-		var (
-			hostRequest host.Request
-			err         error
-		)
-		switch api {
-		default:
-			err = fmt.Errorf("unexpected host API: %v", api)
-		case manager.Plan9Protocol:
-			hostRequest, err = p9fsp.ParseRequest(sysID, target)
-		case manager.Fuse:
-			hostRequest, err = fuse.ParseRequest(sysID, target)
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		requests = append(requests, manager.Request{
-			Header:      manager.Header{API: api, ID: sysID},
-			HostRequest: hostRequest,
-		})
-	}
-
-	return requests, nil
-}
-
-/* TODO: [lint] we likely won't need this; maybe the warning for length would be good to have
-const sun_path_len = 108
-// TODO: multiaddr encapsulation concerns; this is just going to destroy every socket, not just ours
-// it should probably just operate on the final component
-func removeUnixSockets(maddr multiaddr.Multiaddr) error {
-	var retErr error
-
-	multiaddr.ForEach(maddr, func(comp multiaddr.Component) bool {
-		if comp.Protocol().Code == multiaddr.P_UNIX {
-			target := comp.Value()
-			if runtime.GOOS == "windows" {
-				target = strings.TrimLeft(target, "/")
-			}
-			if len(target) >= sun_path_len {
-				// TODO [anyone] this type of check is platform dependant and checks+errors around it should exist in `mulitaddr` when forming the actual structure
-				// e.g. on Windows 1909 and lower, this will always fail when binding
-				// on Linux this can cause problems if applications are not aware of the true addr length and assume `sizeof addr <= 108`
-
-				// FIXME: we lost our logger in the port from plugin; this shouldn't use fmt
-				// logger.Warning("Unix domain socket path is at or exceeds standard length `sun_path[108]` this is likely to cause problems")
-				fmt.Printf("[WARNING] Unix domain socket path %q is at or exceeds standard length `sun_path[108]` this is likely to cause problems\n", target)
-			}
-
-			// discard notexist errors
-			if callErr := os.Remove(target); callErr != nil && !os.IsNotExist(callErr) {
-				retErr = callErr
-				return false // break out of ForEach
-			}
-		}
-		return true // continue
-	})
-
-	return retErr
-}
-*/

@@ -80,6 +80,9 @@ func (mi *mfsInterface) ExtractLink(path string) (string, error) {
 			return "", iferrors.NotExist(path)
 		}
 		// TODO: SUS annotation; error deviates from file/dir standard
+		// TODO: ^ this is likely wrong actually; sus says "file"
+		// which may be the generic use, not implying "regular file"
+		// we need to inspect the value a compliant system returns, it's probably ENOENT, not EINVAL
 		err := errors.New("invalid link request")
 		return "", iferrors.Permission(path, err)
 	}

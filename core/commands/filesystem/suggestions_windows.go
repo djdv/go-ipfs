@@ -1,15 +1,20 @@
 package fscmds
 
+var defaultTargets = []string{
+	platformMountRoot + "ipfs",
+	platformMountRoot + "ipns",
+	platformMountRoot + "file",
+}
+
 const (
-	defaultAPIOption      = "fuse"
 	platformMountRoot     = `\\localhost\`
-	defaultSystemsOption  = "pinfs,keyfs,file"
+	defaultHostAPISetting = "fuse"
+	defaultNodeAPISetting = "pinfs,keyfs,file"
 	mountDescWhatAndWhere = `
 By default, mounts IPFS, IPNS, and the Files API,
 under ` + platformMountRoot + ` to \ipfs, \ipns, and \file, respectively
 All IPFS objects will be accessible under those directories.
 `
-
 	mountDescExample = `
 # Import local FS object into IPFS
 > mkdir foo
@@ -40,9 +45,3 @@ baz
 baz
 `
 )
-
-var defaultTargets = []string{
-	platformMountRoot + "ipfs",
-	platformMountRoot + "ipns",
-	platformMountRoot + "file",
-}
