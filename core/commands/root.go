@@ -5,6 +5,7 @@ import (
 
 	cmdenv "github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	dag "github.com/ipfs/go-ipfs/core/commands/dag"
+	fscmds "github.com/ipfs/go-ipfs/core/commands/filesystem"
 	name "github.com/ipfs/go-ipfs/core/commands/name"
 	ocmd "github.com/ipfs/go-ipfs/core/commands/object"
 	unixfs "github.com/ipfs/go-ipfs/core/commands/unixfs"
@@ -46,7 +47,7 @@ DATA STRUCTURE COMMANDS
 
 ADVANCED COMMANDS
   daemon        Start a long-running daemon process
-  mount         Mount an IPFS read-only mount point
+  mount         Bind IPFS APIs to the host system
   resolve       Resolve any type of name
   name          Publish and resolve IPNS names
   key           Create and list IPNS name keypairs
@@ -133,7 +134,7 @@ var rootSubcommands = map[string]*cmds.Command{
 	"key":       KeyCmd,
 	"log":       LogCmd,
 	"ls":        LsCmd,
-	"mount":     MountCmd,
+	"mount":     fscmds.Mount,
 	"name":      name.NameCmd,
 	"object":    ocmd.ObjectCmd,
 	"pin":       PinCmd,
