@@ -46,6 +46,8 @@ const (
 	initConfigOptionKwd       = "init-config"
 	initProfileOptionKwd      = "init-profile"
 	migrateKwd                = "migrate"
+	mountKwd                  = fscmds.MountParameter
+	mountPathKwd              = fscmds.MountParameter + "-path"
 	offlineKwd                = "offline" // global option
 	routingOptionKwd          = "routing"
 	routingOptionSupernodeKwd = "supernode"
@@ -156,11 +158,13 @@ Headers.
 `,
 	},
 
-	Options: append([]cmds.Option{
+	Options: []cmds.Option{
 		cmds.BoolOption(initOptionKwd, "Initialize ipfs with default settings if not already initialized"),
 		cmds.StringOption(initConfigOptionKwd, "Path to existing configuration file to be loaded during --init"),
 		cmds.StringOption(initProfileOptionKwd, "Configuration profiles to apply for --init. See ipfs init --help for more"),
 		cmds.StringOption(routingOptionKwd, "Overrides the routing option").WithDefault(routingOptionDefaultKwd),
+		cmds.BoolOption(mountKwd, fscmds.MountTagline),
+		cmds.StringsOption(mountPathKwd, fscmds.MountArgumentDescription),
 		cmds.BoolOption(writableKwd, "Enable writing objects (with POST, PUT and DELETE)"),
 		cmds.BoolOption(unrestrictedApiAccessKwd, "Allow API access to unlisted hashes"),
 		cmds.BoolOption(unencryptTransportKwd, "Disable transport encryption (for debugging protocols)"),
@@ -174,7 +178,7 @@ Headers.
 		// TODO: add way to override addresses. tricky part: updating the config if also --init.
 		// cmds.StringOption(apiAddrKwd, "Address for the daemon rpc API (overrides config)"),
 		// cmds.StringOption(swarmAddrKwd, "Address for the swarm socket (overrides config)"),
-	}, fscmds.DaemonOpts...),
+	},
 	Subcommands: map[string]*cmds.Command{},
 	NoRemote:    true,
 	Extra:       commands.CreateCmdExtras(commands.SetDoesNotUseConfigAsInput(true)),
@@ -396,7 +400,7 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	}
 
 	// bind to the host filesystem - if --mount flag is present
-	fsErrc, err := maybeBindFileSystem(req, re, env, node)
+	fsErrc, err := maybeBindFileSystem(req, re, env)
 	if err != nil {
 		return err
 	}
@@ -688,9 +692,39 @@ func serveHTTPGateway(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, e
 	return errc, nil
 }
 
-func maybeBindFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment, node *core.IpfsNode) (errChan <-chan error, err error) {
-	if mountRequested, _ := req.Options["mount"].(bool); mountRequested {
-		err = fscmds.Mount.Run(req, re, env)
+func maybeBindFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) (errChan <-chan error, err error) {
+	var pathArguments []string
+	if mountArgs, provided := req.Options[mountPathKwd].([]string); provided {
+		pathArguments = mountArgs
+
+		// if `--mount-path` was provided `--mount` is implied
+		req.Options[mountKwd] = true
+	}
+
+	if mountFlag, _ := req.Options[mountKwd].(bool); mountFlag {
+		// derive a `mount` sub-request (essentially)
+		req, err = cmds.NewRequest(req.Context,
+			[]string{mountKwd}, cmds.OptMap{cmds.EncLong: cmds.Text},
+			pathArguments,
+			nil, req.Root,
+		)
+		if err != nil {
+			return
+		}
+
+		// TODO: [review] `daemon`'s response emitter seems to print out json
+		// shouldn't it be a `cli.ResponseEmitter` with encoding type `textnl`?
+		// (We'll use our own emitter which has a postrun-formatter for now)
+
+		// derive a `mount` emitter for it to use
+		var daemonEmitter cmds.ResponseEmitter
+		daemonEmitter, err = fscmds.DaemonEmitter(req)
+		if err != nil {
+			return
+		}
+
+		// execute the request
+		err = cmds.NewExecutor(req.Root).Execute(req, daemonEmitter, env)
 	}
 
 	return

@@ -1,32 +1,25 @@
 package fscmds
 
-import cmds "github.com/ipfs/go-ipfs-cmds"
+import (
+	"os"
 
-var DaemonOpts = prependPrefix(mountPrefix, mountTagline, baseOpts)
+	cmds "github.com/ipfs/go-ipfs-cmds"
+	"github.com/ipfs/go-ipfs-cmds/cli"
+)
 
-// prependPrefix returns a copy of the input options,
-// with a "prefix flag" and prefixed parameter names.
-// For example: `program cmd` may have parameters added to it
-// `program cmd --prefix --prefix-parameter=value` inherited from
-// `program cmd2 -parameter=value`
-func prependPrefix(prefix, description string, opts []cmds.Option) []cmds.Option {
-	prefixedOpts := make([]cmds.Option, 0, len(opts)+1)
+const daemonPostRunType cmds.PostRunType = "daemon"
 
-	// add the prefix as a flag itself: `--prefix`
-	prefixedOpts = append(prefixedOpts,
-		cmds.BoolOption(prefix, description),
-	)
+// wraps regular cli emitter but with a distinct PostRunType
+// which formats the responses for the daemon's standard outputs
+type daemonEmitter struct{ cmds.ResponseEmitter }
 
-	// delimiter: `--prefix` -> `--prefix-`
-	paramPrefix := prefix + "-"
+func (daemonEmitter) Type() cmds.PostRunType { return daemonPostRunType }
 
-	for _, opt := range opts { // generate an option instance from the string definition
-		prefixedOpts = append(prefixedOpts,
-			cmds.NewOption(opt.Type(),
-				paramPrefix+opt.Name(),                        // prefix it's `Name`; `--prefix-$Name`
-				"(if using --"+prefix+") "+opt.Description()), // prefix the helptext with its message as well
-		)
+func DaemonEmitter(req *cmds.Request) (em cmds.ResponseEmitter, err error) {
+	em, err = cli.NewResponseEmitter(os.Stdout, os.Stderr, req)
+	if err != nil {
+		return
 	}
-
-	return prefixedOpts
+	em = daemonEmitter{em}
+	return
 }
