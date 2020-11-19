@@ -3,7 +3,7 @@
 package fscmds
 
 const (
-	mountTagline          = "Binds IPFS APIs to the host system."
+	MountTagline          = "Binds IPFS APIs to the host system."
 	mountDescWhatAndWhere = `
 By default, mounts IPFS and IPNS under /ipfs and /ipns.
 All IPFS objects will be accessible under those directories.
@@ -30,10 +30,8 @@ baz
 # mount
 > ipfs daemon &
 > ipfs mount
-binding file systems to host:
-/fuse/file/host/file
-/fuse/pinfs/host/ipfs
-/fuse/keyfs/host/ipns
+/fuse/ipfs/path/ipfs
+/fuse/ipns/path/ipns
 > cd /ipfs/QmSh5e7S6fdcu75LAbXNZAFY2nGyZUJXyLCJDvn2zRkWyC
 > ls
 bar
