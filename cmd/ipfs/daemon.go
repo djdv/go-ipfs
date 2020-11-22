@@ -13,8 +13,8 @@ import (
 	"sync"
 
 	multierror "github.com/hashicorp/go-multierror"
-
 	version "github.com/ipfs/go-ipfs"
+	cmds "github.com/ipfs/go-ipfs-cmds"
 	config "github.com/ipfs/go-ipfs-config"
 	cserial "github.com/ipfs/go-ipfs-config/serialize"
 	utilmain "github.com/ipfs/go-ipfs/cmd/ipfs/util"
@@ -27,12 +27,10 @@ import (
 	libp2p "github.com/ipfs/go-ipfs/core/node/libp2p"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 	migrate "github.com/ipfs/go-ipfs/repo/fsrepo/migrations"
-	sockets "github.com/libp2p/go-socket-activation"
-
-	cmds "github.com/ipfs/go-ipfs-cmds"
 	mprome "github.com/ipfs/go-metrics-prometheus"
 	options "github.com/ipfs/interface-go-ipfs-core/options"
 	goprocess "github.com/jbenet/goprocess"
+	sockets "github.com/libp2p/go-socket-activation"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	prometheus "github.com/prometheus/client_golang/prometheus"
@@ -62,8 +60,6 @@ const (
 	enablePubSubKwd           = "enable-pubsub-experiment"
 	enableIPNSPubSubKwd       = "enable-namesys-pubsub"
 	enableMultiplexKwd        = "enable-mplex-experiment"
-	// apiAddrKwd    = "address-api"
-	// swarmAddrKwd  = "address-swarm"
 )
 
 var daemonCmd = &cmds.Command{
@@ -238,9 +234,11 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	// running in an uninitialized state.
 	initialize, _ := req.Options[initOptionKwd].(bool)
 	if initialize && !fsrepo.IsInitialized(cctx.ConfigRoot) {
-		cfgLocation, _ := req.Options[initConfigOptionKwd].(string)
-		profiles, _ := req.Options[initProfileOptionKwd].(string)
-		var conf *config.Config
+		var (
+			conf           *config.Config
+			cfgLocation, _ = req.Options[initConfigOptionKwd].(string)
+			profiles, _    = req.Options[initProfileOptionKwd].(string)
+		)
 
 		if cfgLocation != "" {
 			if conf, err = cserial.Load(cfgLocation); err != nil {
@@ -263,13 +261,10 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	// acquire the repo lock _before_ constructing a node. we need to make
 	// sure we are permitted to access the resources (datastore, etc.)
 	repo, err := fsrepo.Open(cctx.ConfigRoot)
-	switch err {
-	default:
-		return err
-	case fsrepo.ErrNeedMigration:
-		domigrate, found := req.Options[migrateKwd].(bool)
+	if errors.Is(err, fsrepo.ErrNeedMigration) {
 		fmt.Println("Found outdated fs-repo, migrations need to be run.")
 
+		domigrate, found := req.Options[migrateKwd].(bool)
 		if !found {
 			domigrate = YesNoPrompt("Run migrations now? [y/N]")
 		}
@@ -290,11 +285,10 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		}
 
 		repo, err = fsrepo.Open(cctx.ConfigRoot)
-		if err != nil {
-			return err
-		}
-	case nil:
-		break
+	}
+
+	if err != nil {
+		return err
 	}
 
 	// The node will also close the repo but there are many places we could
@@ -400,10 +394,7 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	}
 
 	// repo blockstore GC - if --enable-gc flag is present
-	gcErrc, err := maybeRunGC(req, node)
-	if err != nil {
-		return err
-	}
+	gcErrc := maybeRunGC(req, node)
 
 	// construct http gateway
 	gwErrc, err := serveHTTPGateway(req, cctx)
@@ -453,12 +444,12 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 func serveHTTPApi(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, error) {
 	cfg, err := cctx.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("serveHTTPApi: GetConfig() failed: %s", err)
+		return nil, fmt.Errorf("serveHTTPApi: GetConfig() failed: %w", err)
 	}
 
 	listeners, err := sockets.TakeListeners("io.ipfs.api")
 	if err != nil {
-		return nil, fmt.Errorf("serveHTTPApi: socket activation failed: %s", err)
+		return nil, fmt.Errorf("serveHTTPApi: socket activation failed: %w", err)
 	}
 
 	apiAddrs := make([]string, 0, 2)
@@ -477,7 +468,7 @@ func serveHTTPApi(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, error
 	for _, addr := range apiAddrs {
 		apiMaddr, err := ma.NewMultiaddr(addr)
 		if err != nil {
-			return nil, fmt.Errorf("serveHTTPApi: invalid API address: %q (err: %s)", addr, err)
+			return nil, fmt.Errorf("serveHTTPApi: invalid API address: %q (err: %w)", addr, err)
 		}
 		if listenerAddrs[string(apiMaddr.Bytes())] {
 			continue
@@ -485,7 +476,7 @@ func serveHTTPApi(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, error
 
 		apiLis, err := manet.Listen(apiMaddr)
 		if err != nil {
-			return nil, fmt.Errorf("serveHTTPApi: manet.Listen(%s) failed: %s", apiMaddr, err)
+			return nil, fmt.Errorf("serveHTTPApi: manet.Listen(%s) failed: %w", apiMaddr, err)
 		}
 
 		listenerAddrs[string(apiMaddr.Bytes())] = true
@@ -564,11 +555,12 @@ func printSwarmAddrs(node *core.IpfsNode) {
 		return
 	}
 
-	var lisAddrs []string
 	ifaceAddrs, err := node.PeerHost.Network().InterfaceListenAddresses()
 	if err != nil {
 		log.Errorf("failed to read listening addresses: %s", err)
 	}
+
+	lisAddrs := make([]string, 0, len(ifaceAddrs))
 	for _, addr := range ifaceAddrs {
 		lisAddrs = append(lisAddrs, addr.String())
 	}
@@ -577,15 +569,15 @@ func printSwarmAddrs(node *core.IpfsNode) {
 		fmt.Printf("Swarm listening on %s\n", addr)
 	}
 
-	var addrs []string
-	for _, addr := range node.PeerHost.Addrs() {
+	hostAddrs := node.PeerHost.Addrs()
+	addrs := make([]string, 0, len(hostAddrs))
+	for _, addr := range hostAddrs {
 		addrs = append(addrs, addr.String())
 	}
 	sort.Strings(addrs)
 	for _, addr := range addrs {
 		fmt.Printf("Swarm announcing %s\n", addr)
 	}
-
 }
 
 // serveHTTPGateway collects options, creates listener, prints status message and starts serving requests
@@ -720,10 +712,10 @@ func maybeBindFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.En
 	return
 }
 
-func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {
+func maybeRunGC(req *cmds.Request, node *core.IpfsNode) <-chan error {
 	enableGC, _ := req.Options[enableGCKwd].(bool)
 	if !enableGC {
-		return nil, nil
+		return nil
 	}
 
 	errc := make(chan error)
@@ -731,7 +723,7 @@ func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {
 		errc <- corerepo.PeriodicGC(req.Context, node)
 		close(errc)
 	}()
-	return errc, nil
+	return errc
 }
 
 // merge does fan-in of multiple read-only error channels
