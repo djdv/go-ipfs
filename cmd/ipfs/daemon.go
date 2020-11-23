@@ -13,26 +13,24 @@ import (
 	"sync"
 
 	multierror "github.com/hashicorp/go-multierror"
-
 	version "github.com/ipfs/go-ipfs"
+	cmds "github.com/ipfs/go-ipfs-cmds"
 	config "github.com/ipfs/go-ipfs-config"
 	cserial "github.com/ipfs/go-ipfs-config/serialize"
 	utilmain "github.com/ipfs/go-ipfs/cmd/ipfs/util"
 	oldcmds "github.com/ipfs/go-ipfs/commands"
 	"github.com/ipfs/go-ipfs/core"
 	commands "github.com/ipfs/go-ipfs/core/commands"
+	fscmds "github.com/ipfs/go-ipfs/core/commands/filesystem"
 	corehttp "github.com/ipfs/go-ipfs/core/corehttp"
 	corerepo "github.com/ipfs/go-ipfs/core/corerepo"
 	libp2p "github.com/ipfs/go-ipfs/core/node/libp2p"
-	nodeMount "github.com/ipfs/go-ipfs/fuse/node"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 	migrate "github.com/ipfs/go-ipfs/repo/fsrepo/migrations"
-	sockets "github.com/libp2p/go-socket-activation"
-
-	cmds "github.com/ipfs/go-ipfs-cmds"
 	mprome "github.com/ipfs/go-metrics-prometheus"
 	options "github.com/ipfs/interface-go-ipfs-core/options"
 	goprocess "github.com/jbenet/goprocess"
+	sockets "github.com/libp2p/go-socket-activation"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	prometheus "github.com/prometheus/client_golang/prometheus"
@@ -45,10 +43,9 @@ const (
 	initOptionKwd             = "init"
 	initConfigOptionKwd       = "init-config"
 	initProfileOptionKwd      = "init-profile"
-	ipfsMountKwd              = "mount-ipfs"
-	ipnsMountKwd              = "mount-ipns"
 	migrateKwd                = "migrate"
-	mountKwd                  = "mount"
+	mountKwd                  = fscmds.MountParameter
+	mountPathKwd              = fscmds.MountParameter + "-path"
 	offlineKwd                = "offline" // global option
 	routingOptionKwd          = "routing"
 	routingOptionSupernodeKwd = "supernode"
@@ -63,8 +60,6 @@ const (
 	enablePubSubKwd           = "enable-pubsub-experiment"
 	enableIPNSPubSubKwd       = "enable-namesys-pubsub"
 	enableMultiplexKwd        = "enable-mplex-experiment"
-	// apiAddrKwd    = "address-api"
-	// swarmAddrKwd  = "address-swarm"
 )
 
 var daemonCmd = &cmds.Command{
@@ -164,10 +159,9 @@ Headers.
 		cmds.StringOption(initConfigOptionKwd, "Path to existing configuration file to be loaded during --init"),
 		cmds.StringOption(initProfileOptionKwd, "Configuration profiles to apply for --init. See ipfs init --help for more"),
 		cmds.StringOption(routingOptionKwd, "Overrides the routing option").WithDefault(routingOptionDefaultKwd),
-		cmds.BoolOption(mountKwd, "Mounts IPFS to the filesystem"),
+		cmds.BoolOption(mountKwd, fscmds.MountTagline),
+		cmds.StringsOption(mountPathKwd, fscmds.MountArgumentDescription),
 		cmds.BoolOption(writableKwd, "Enable writing objects (with POST, PUT and DELETE)"),
-		cmds.StringOption(ipfsMountKwd, "Path to the mountpoint for IPFS (if using --mount). Defaults to config setting."),
-		cmds.StringOption(ipnsMountKwd, "Path to the mountpoint for IPNS (if using --mount). Defaults to config setting."),
 		cmds.BoolOption(unrestrictedApiAccessKwd, "Allow API access to unlisted hashes"),
 		cmds.BoolOption(unencryptTransportKwd, "Disable transport encryption (for debugging protocols)"),
 		cmds.BoolOption(enableGCKwd, "Enable automatic periodic repo garbage collection"),
@@ -240,9 +234,11 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	// running in an uninitialized state.
 	initialize, _ := req.Options[initOptionKwd].(bool)
 	if initialize && !fsrepo.IsInitialized(cctx.ConfigRoot) {
-		cfgLocation, _ := req.Options[initConfigOptionKwd].(string)
-		profiles, _ := req.Options[initProfileOptionKwd].(string)
-		var conf *config.Config
+		var (
+			conf           *config.Config
+			cfgLocation, _ = req.Options[initConfigOptionKwd].(string)
+			profiles, _    = req.Options[initProfileOptionKwd].(string)
+		)
 
 		if cfgLocation != "" {
 			if conf, err = cserial.Load(cfgLocation); err != nil {
@@ -265,13 +261,10 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	// acquire the repo lock _before_ constructing a node. we need to make
 	// sure we are permitted to access the resources (datastore, etc.)
 	repo, err := fsrepo.Open(cctx.ConfigRoot)
-	switch err {
-	default:
-		return err
-	case fsrepo.ErrNeedMigration:
-		domigrate, found := req.Options[migrateKwd].(bool)
+	if errors.Is(err, fsrepo.ErrNeedMigration) {
 		fmt.Println("Found outdated fs-repo, migrations need to be run.")
 
+		domigrate, found := req.Options[migrateKwd].(bool)
 		if !found {
 			domigrate = YesNoPrompt("Run migrations now? [y/N]")
 		}
@@ -292,11 +285,10 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		}
 
 		repo, err = fsrepo.Open(cctx.ConfigRoot)
-		if err != nil {
-			return err
-		}
-	case nil:
-		break
+	}
+
+	if err != nil {
+		return err
 	}
 
 	// The node will also close the repo but there are many places we could
@@ -395,22 +387,14 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		return err
 	}
 
-	// construct fuse mountpoints - if the user provided the --mount flag
-	mount, _ := req.Options[mountKwd].(bool)
-	if mount && offline {
-		return cmds.Errorf(cmds.ErrClient, "mount is not currently supported in offline mode")
-	}
-	if mount {
-		if err := mountFuse(req, cctx); err != nil {
-			return err
-		}
-	}
-
-	// repo blockstore GC - if --enable-gc flag is present
-	gcErrc, err := maybeRunGC(req, node)
+	// bind to the host filesystem - if --mount flag is present
+	fsErrc, err := maybeBindFileSystem(req, re, env)
 	if err != nil {
 		return err
 	}
+
+	// repo blockstore GC - if --enable-gc flag is present
+	gcErrc := maybeRunGC(req, node)
 
 	// construct http gateway
 	gwErrc, err := serveHTTPGateway(req, cctx)
@@ -446,9 +430,8 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	}()
 
 	// collect long-running errors and block for shutdown
-	// TODO(cryptix): our fuse currently doesn't follow this pattern for graceful shutdown
 	var errs error
-	for err := range merge(apiErrc, gwErrc, gcErrc) {
+	for err := range merge(apiErrc, gwErrc, gcErrc, fsErrc) {
 		if err != nil {
 			errs = multierror.Append(errs, err)
 		}
@@ -461,12 +444,12 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 func serveHTTPApi(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, error) {
 	cfg, err := cctx.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("serveHTTPApi: GetConfig() failed: %s", err)
+		return nil, fmt.Errorf("serveHTTPApi: GetConfig() failed: %w", err)
 	}
 
 	listeners, err := sockets.TakeListeners("io.ipfs.api")
 	if err != nil {
-		return nil, fmt.Errorf("serveHTTPApi: socket activation failed: %s", err)
+		return nil, fmt.Errorf("serveHTTPApi: socket activation failed: %w", err)
 	}
 
 	apiAddrs := make([]string, 0, 2)
@@ -485,7 +468,7 @@ func serveHTTPApi(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, error
 	for _, addr := range apiAddrs {
 		apiMaddr, err := ma.NewMultiaddr(addr)
 		if err != nil {
-			return nil, fmt.Errorf("serveHTTPApi: invalid API address: %q (err: %s)", addr, err)
+			return nil, fmt.Errorf("serveHTTPApi: invalid API address: %q (err: %w)", addr, err)
 		}
 		if listenerAddrs[string(apiMaddr.Bytes())] {
 			continue
@@ -493,7 +476,7 @@ func serveHTTPApi(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, error
 
 		apiLis, err := manet.Listen(apiMaddr)
 		if err != nil {
-			return nil, fmt.Errorf("serveHTTPApi: manet.Listen(%s) failed: %s", apiMaddr, err)
+			return nil, fmt.Errorf("serveHTTPApi: manet.Listen(%s) failed: %w", apiMaddr, err)
 		}
 
 		listenerAddrs[string(apiMaddr.Bytes())] = true
@@ -572,11 +555,12 @@ func printSwarmAddrs(node *core.IpfsNode) {
 		return
 	}
 
-	var lisAddrs []string
 	ifaceAddrs, err := node.PeerHost.Network().InterfaceListenAddresses()
 	if err != nil {
 		log.Errorf("failed to read listening addresses: %s", err)
 	}
+
+	lisAddrs := make([]string, 0, len(ifaceAddrs))
 	for _, addr := range ifaceAddrs {
 		lisAddrs = append(lisAddrs, addr.String())
 	}
@@ -585,15 +569,15 @@ func printSwarmAddrs(node *core.IpfsNode) {
 		fmt.Printf("Swarm listening on %s\n", addr)
 	}
 
-	var addrs []string
-	for _, addr := range node.PeerHost.Addrs() {
+	hostAddrs := node.PeerHost.Addrs()
+	addrs := make([]string, 0, len(hostAddrs))
+	for _, addr := range hostAddrs {
 		addrs = append(addrs, addr.String())
 	}
 	sort.Strings(addrs)
 	for _, addr := range addrs {
 		fmt.Printf("Swarm announcing %s\n", addr)
 	}
-
 }
 
 // serveHTTPGateway collects options, creates listener, prints status message and starts serving requests
@@ -690,41 +674,48 @@ func serveHTTPGateway(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, e
 	return errc, nil
 }
 
-//collects options and opens the fuse mountpoint
-func mountFuse(req *cmds.Request, cctx *oldcmds.Context) error {
-	cfg, err := cctx.GetConfig()
-	if err != nil {
-		return fmt.Errorf("mountFuse: GetConfig() failed: %s", err)
+func maybeBindFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) (errChan <-chan error, err error) {
+	var pathArguments []string
+	if mountArgs, provided := req.Options[mountPathKwd].([]string); provided {
+		pathArguments = mountArgs
+
+		// if `--mount-path` was provided `--mount` is implied
+		req.Options[mountKwd] = true
 	}
 
-	fsdir, found := req.Options[ipfsMountKwd].(string)
-	if !found {
-		fsdir = cfg.Mounts.IPFS
+	if mountFlag, _ := req.Options[mountKwd].(bool); mountFlag {
+		// derive a `mount` sub-request (essentially)
+		req, err = cmds.NewRequest(req.Context,
+			[]string{mountKwd}, cmds.OptMap{cmds.EncLong: cmds.Text},
+			pathArguments,
+			nil, req.Root,
+		)
+		if err != nil {
+			return
+		}
+
+		// TODO: [review] `daemon`'s response emitter seems to print out json
+		// shouldn't it be a `cli.ResponseEmitter` with encoding type `textnl`?
+		// (We'll use our own emitter which has a postrun-formatter for now)
+
+		// derive a `mount` emitter for it to use
+		var daemonEmitter cmds.ResponseEmitter
+		daemonEmitter, err = fscmds.DaemonEmitter(req)
+		if err != nil {
+			return
+		}
+
+		// execute the request
+		err = cmds.NewExecutor(req.Root).Execute(req, daemonEmitter, env)
 	}
 
-	nsdir, found := req.Options[ipnsMountKwd].(string)
-	if !found {
-		nsdir = cfg.Mounts.IPNS
-	}
-
-	node, err := cctx.ConstructNode()
-	if err != nil {
-		return fmt.Errorf("mountFuse: ConstructNode() failed: %s", err)
-	}
-
-	err = nodeMount.Mount(node, fsdir, nsdir)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("IPFS mounted at: %s\n", fsdir)
-	fmt.Printf("IPNS mounted at: %s\n", nsdir)
-	return nil
+	return
 }
 
-func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {
+func maybeRunGC(req *cmds.Request, node *core.IpfsNode) <-chan error {
 	enableGC, _ := req.Options[enableGCKwd].(bool)
 	if !enableGC {
-		return nil, nil
+		return nil
 	}
 
 	errc := make(chan error)
@@ -732,7 +723,7 @@ func maybeRunGC(req *cmds.Request, node *core.IpfsNode) (<-chan error, error) {
 		errc <- corerepo.PeriodicGC(req.Context, node)
 		close(errc)
 	}()
-	return errc, nil
+	return errc
 }
 
 // merge does fan-in of multiple read-only error channels
