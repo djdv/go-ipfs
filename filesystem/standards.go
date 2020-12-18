@@ -58,7 +58,7 @@ func init() {
 // (wrapped) multiaddr error values if this is encountered
 const errDecodeNodeAPI = "could not decode node-API varint"
 
-var ErrInvalidNodeAPI = errors.New("unknown node-API value requested")
+var ErrInvalidNodeAPI = errors.New("unknown node-API value")
 
 func registerStandardProtocols() error {
 	return multiaddr.AddProtocol(multiaddr.Protocol{
@@ -74,13 +74,15 @@ func registerStandardProtocols() error {
 	})
 }
 
+// registers API's withing the mutliaddr hierarchy
 func registerAPIProtocols(apis ...API) (err error) {
 	for _, api := range apis {
 		err = multiaddr.AddProtocol(multiaddr.Protocol{
 			Name:  api.String(),
 			Code:  int(api),
 			VCode: multiaddr.CodeToVarint(int(api)),
-			Size:  32, // TODO: const; sizeof (API) or args should be a struct {API, Size, ErrorTemplate}...
+			//Size:  32, // TODO: const? sizeof (API)
+			Size: multiaddr.LengthPrefixedVarSize,
 			Transcoder: multiaddr.NewTranscoderFromFunctions( // TODO: generator T = g(ErrorTemplateValue)
 				apiStringToBytes, nodeAPIBytesToString,
 				nil),
@@ -92,16 +94,26 @@ func registerAPIProtocols(apis ...API) (err error) {
 	return
 }
 
-var ( // TODO: [immutable] we should literally inline these into a lookup function, not register in pkg scope
+var ( // TODO: [immutable?] we could literally inline these vs register in pkg scope
 	stringToID = make(map[string]ID)
-	IDToString = make(map[ID]string)
+	idToString = make(map[ID]string)
 )
 
+// populates the StringToID name registry
 func registerSystemIDs(ids ...ID) {
 	for _, id := range ids {
 		stringToID[id.String()] = id
-		IDToString[id] = id.String()
+		idToString[id] = id.String()
 	}
+}
+
+// StringToID retrieves an id registered under the provided name, if any.
+func StringToID(systemName string) (ID, error) {
+	id, ok := stringToID[systemName]
+	if !ok {
+		return 0, fmt.Errorf("%w: %s", ErrInvalidNodeAPI, systemName)
+	}
+	return id, nil
 }
 
 func apiStringToBytes(systemName string) (buf []byte, err error) {
@@ -110,9 +122,10 @@ func apiStringToBytes(systemName string) (buf []byte, err error) {
 			err = errors.New(fmt.Sprintf("%s", r))
 		}
 	}()
-	id, ok := stringToID[systemName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidNodeAPI, systemName)
+
+	id, err := StringToID(systemName)
+	if err != nil {
+		return nil, err
 	}
 
 	return multiaddr.CodeToVarint(int(id)), nil
@@ -127,7 +140,7 @@ func nodeAPIBytesToString(buffer []byte) (value string, err error) {
 	}
 
 	var ok bool
-	if value, ok = IDToString[ID(id)]; !ok {
+	if value, ok = idToString[ID(id)]; !ok {
 		err = fmt.Errorf("%w: %#x", ErrInvalidNodeAPI, id)
 	}
 

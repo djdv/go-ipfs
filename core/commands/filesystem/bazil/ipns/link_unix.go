@@ -1,4 +1,5 @@
-// +build !nofuse,!openbsd,!netbsd,!plan9
+//go:build bazilfuse && !nofuse && !(windows || plan9 || netbsd || openbsd)
+// +build bazilfuse,!nofuse,!windows,!plan9,!netbsd,!openbsd
 
 package ipns
 
@@ -7,22 +8,21 @@ import (
 	"os"
 
 	"bazil.org/fuse"
-	"bazil.org/fuse/fs"
+	logging "github.com/ipfs/go-log"
 )
 
 type Link struct {
 	Target string
+	log    logging.EventLogger
 }
 
 func (l *Link) Attr(ctx context.Context, a *fuse.Attr) error {
-	log.Debug("Link attr.")
+	l.log.Debug("Link attr.")
 	a.Mode = os.ModeSymlink | 0555
 	return nil
 }
 
 func (l *Link) Readlink(ctx context.Context, req *fuse.ReadlinkRequest) (string, error) {
-	log.Debugf("ReadLink: %s", l.Target)
+	l.log.Debugf("ReadLink: %s", l.Target)
 	return l.Target, nil
 }
-
-var _ fs.NodeReadlinker = (*Link)(nil)

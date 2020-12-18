@@ -1,4 +1,5 @@
-// +build !nofuse,!openbsd,!netbsd,!plan9
+//go:build bazilfuse && !nofuse && !(windows || plan9 || netbsd || openbsd)
+// +build bazilfuse,!nofuse,!windows,!plan9,!netbsd,!openbsd
 
 package readonly
 
@@ -22,6 +23,7 @@ import (
 	coreapi "github.com/ipfs/go-ipfs/core/coreapi"
 	coremock "github.com/ipfs/go-ipfs/core/mock"
 
+	fs "bazil.org/fuse/fs"
 	fstest "bazil.org/fuse/fs/fstestutil"
 	chunker "github.com/ipfs/go-ipfs-chunker"
 	files "github.com/ipfs/go-ipfs-files"
@@ -32,6 +34,22 @@ import (
 	uio "github.com/ipfs/go-unixfs/io"
 	ipath "github.com/ipfs/interface-go-ipfs-core/path"
 	ci "github.com/libp2p/go-libp2p-testing/ci"
+)
+
+var ( // compile time interface implementation checks
+	_ interface {
+		fs.Node
+		fs.HandleReadDirAller
+		fs.NodeStringLookuper
+	} = (*Root)(nil)
+	_ interface {
+		fs.HandleReadDirAller
+		fs.HandleReader
+		fs.Node
+		fs.NodeStringLookuper
+		fs.NodeReadlinker
+		fs.NodeGetxattrer
+	} = (*Node)(nil)
 )
 
 func maybeSkipFuseTests(t *testing.T) {

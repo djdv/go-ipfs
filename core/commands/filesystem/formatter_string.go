@@ -8,10 +8,10 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[hAPI-0]
-	_ = x[nAPI-1]
-	_ = x[binding-2]
-	_ = x[options-3]
+	_ = x[thHAPI-0]
+	_ = x[thNAPI-1]
+	_ = x[thBinding-2]
+	_ = x[thExtra-3]
 	_ = x[tableWidth-4]
 }
 

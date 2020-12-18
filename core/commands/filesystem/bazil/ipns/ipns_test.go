@@ -1,4 +1,5 @@
-// +build !nofuse,!openbsd,!netbsd,!plan9
+//go:build bazilfuse && !nofuse && !(windows || plan9 || netbsd || openbsd)
+// +build bazilfuse,!nofuse,!windows,!plan9,!netbsd,!openbsd
 
 package ipns
 
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	mrand "math/rand"
 	"os"
 	"sync"
@@ -16,12 +18,41 @@ import (
 	"bazil.org/fuse"
 
 	core "github.com/ipfs/go-ipfs/core"
-	coreapi "github.com/ipfs/go-ipfs/core/coreapi"
 
+	fs "bazil.org/fuse/fs"
 	fstest "bazil.org/fuse/fs/fstestutil"
 	racedet "github.com/ipfs/go-detect-race"
 	u "github.com/ipfs/go-ipfs-util"
 	ci "github.com/libp2p/go-libp2p-testing/ci"
+)
+
+var ( // compile time interface implementation checks
+	_ interface {
+		fs.Node
+		fs.HandleReadDirAller
+		fs.NodeStringLookuper
+	} = (*Root)(nil)
+	_ interface {
+		fs.HandleReadDirAller
+		fs.Node
+		fs.NodeCreater
+		fs.NodeMkdirer
+		fs.NodeRemover
+		fs.NodeRenamer
+		fs.NodeStringLookuper
+	} = (*Directory)(nil)
+	_ interface {
+		fs.Node
+		fs.NodeFsyncer
+		fs.NodeOpener
+	} = (*FileNode)(nil)
+	_ interface {
+		fs.HandleFlusher
+		fs.HandleReader
+		fs.HandleWriter
+		fs.HandleReleaser
+	} = (*File)(nil)
+	_ fs.NodeReadlinker = (*Link)(nil)
 )
 
 func maybeSkipFuseTests(t *testing.T) {
@@ -116,12 +147,7 @@ func setupIpnsTest(t *testing.T, node *core.IpfsNode) (*core.IpfsNode, *mountWra
 		}
 	}
 
-	coreApi, err := coreapi.NewCoreAPI(node)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fs, err := NewFileSystem(node.Context(), coreApi, "", "")
+	fs, err := NewFileSystem(node, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

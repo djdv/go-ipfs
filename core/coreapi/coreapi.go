@@ -19,11 +19,11 @@ import (
 	"fmt"
 
 	bserv "github.com/ipfs/go-blockservice"
-	"github.com/ipfs/go-ipfs-blockstore"
-	"github.com/ipfs/go-ipfs-exchange-interface"
+	blockstore "github.com/ipfs/go-ipfs-blockstore"
+	exchange "github.com/ipfs/go-ipfs-exchange-interface"
 	offlinexch "github.com/ipfs/go-ipfs-exchange-offline"
-	"github.com/ipfs/go-ipfs-pinner"
-	"github.com/ipfs/go-ipfs-provider"
+	pin "github.com/ipfs/go-ipfs-pinner"
+	provider "github.com/ipfs/go-ipfs-provider"
 	offlineroute "github.com/ipfs/go-ipfs-routing/offline"
 	ipld "github.com/ipfs/go-ipld-format"
 	dag "github.com/ipfs/go-merkledag"
@@ -191,9 +191,11 @@ func (api *CoreAPI) WithOptions(opts ...options.ApiOption) (coreiface.CoreAPI, e
 	}
 
 	subApi.checkPublishAllowed = func() error {
-		if n.Mounts.Ipns != nil && n.Mounts.Ipns.IsActive() {
-			return errors.New("cannot manually publish while IPNS is mounted")
-		}
+		/*
+			if n.Mounts.Ipns != nil && n.Mounts.Ipns.IsActive() {
+				return errors.New("cannot manually publish while IPNS is mounted")
+			}
+		*/
 		return nil
 	}
 

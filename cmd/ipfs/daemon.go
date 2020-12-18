@@ -15,6 +15,7 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 	version "github.com/ipfs/go-ipfs"
 	cmds "github.com/ipfs/go-ipfs-cmds"
+	"github.com/ipfs/go-ipfs-cmds/cli"
 	config "github.com/ipfs/go-ipfs-config"
 	cserial "github.com/ipfs/go-ipfs-config/serialize"
 	utilmain "github.com/ipfs/go-ipfs/cmd/ipfs/util"
@@ -25,6 +26,7 @@ import (
 	corehttp "github.com/ipfs/go-ipfs/core/corehttp"
 	corerepo "github.com/ipfs/go-ipfs/core/corerepo"
 	libp2p "github.com/ipfs/go-ipfs/core/node/libp2p"
+	"github.com/ipfs/go-ipfs/filesystem/manager"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 	migrate "github.com/ipfs/go-ipfs/repo/fsrepo/migrations"
 	mprome "github.com/ipfs/go-metrics-prometheus"
@@ -175,6 +177,7 @@ Headers.
 		// cmds.StringOption(apiAddrKwd, "Address for the daemon rpc API (overrides config)"),
 		// cmds.StringOption(swarmAddrKwd, "Address for the swarm socket (overrides config)"),
 	},
+	Encoders:    cmds.Encoders,
 	Subcommands: map[string]*cmds.Command{},
 	NoRemote:    true,
 	Extra:       commands.CreateCmdExtras(commands.SetDoesNotUseConfigAsInput(true)),
@@ -393,8 +396,9 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 		return err
 	}
 
-	// bind to the host filesystem - if --mount flag is present
-	fsErrc, err := maybeBindFileSystem(req, re, env)
+	// construct the file system service
+	// if mount flags are present, a `mount` command is also executed
+	fsErrc, err := serveFileSystem(req, re, env, node)
 	if err != nil {
 		return err
 	}
@@ -684,39 +688,48 @@ func serveHTTPGateway(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, e
 	return errc, nil
 }
 
-func maybeBindFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) (errChan <-chan error, err error) {
-	var pathArguments []string
-	if mountArgs, provided := req.Options[mountPathKwd].([]string); provided {
-		pathArguments = mountArgs
-
-		// if `--mount-path` was provided `--mount` is implied
-		req.Options[mountKwd] = true
+// Sets up the file system interface, and connects it with the node.
+// Also relays requests to `ipfs mount` if arguments for it are provided in the `ipfs daemon` request.
+func serveFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment, node *core.IpfsNode) (errChan <-chan error, err error) {
+	var fsi manager.Interface
+	if fsi, errChan, err = fscmds.NewDaemonInterface(req.Context, re, node); err != nil {
+		return
 	}
+	node.FileSystem = fsi // attach manager interface to the node
 
-	if mountFlag, _ := req.Options[mountKwd].(bool); mountFlag {
-		// derive a `mount` sub-request (essentially)
-		req, err = cmds.NewRequest(req.Context,
-			[]string{mountKwd}, cmds.OptMap{cmds.EncLong: cmds.Text},
-			pathArguments,
+	var (
+		callMount     bool
+		systemTargets []string // if nil, defaults/config are used rather than arguments
+	)
+	if mountFlag, _ := req.Options[mountKwd].(bool); mountFlag { // `--mount`
+		callMount = true
+	}
+	if mountArgs, provided := req.Options[mountPathKwd]; provided {
+		callMount = true // if `--mount-path` was provided, `--mount` becomes implied
+		var ok bool
+		if systemTargets, ok = mountArgs.([]string); !ok { // use cli provided arguments
+			err = cmds.Errorf(cmds.ErrClient, "mount target parameter's argument (%v) is type %T, expecting type %T", mountArgs, mountArgs, systemTargets)
+			return
+		}
+	}
+	if callMount { // derive a `mount` sub-request and execute it
+		var mountRequest *cmds.Request
+		if mountRequest, err = cmds.NewRequest(req.Context,
+			[]string{mountKwd}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong]}, // "mount" `Command`, inherit encoding
+			systemTargets, // possibly with arguments
 			nil, req.Root,
-		)
-		if err != nil {
-			return
+		); err == nil {
+			// FIXME: `mount` will implicitly close the emitter when it's done
+			// we don't want to do that
+			// there may be a more elegant way to clone the emitter, or not close it
+			// but I'm lazy right now
+			var subEmitter cli.ResponseEmitter
+			if subEmitter, err = cli.NewResponseEmitter(os.Stdout, os.Stderr, mountRequest); err != nil {
+				return
+			}
+
+			err = cmds.NewExecutor(req.Root).Execute(mountRequest, subEmitter, env)
 		}
-
-		// TODO: [review] `daemon`'s response emitter seems to print out json
-		// shouldn't it be a `cli.ResponseEmitter` with encoding type `textnl`?
-		// (We'll use our own emitter which has a postrun-formatter for now)
-
-		// derive a `mount` emitter for it to use
-		var daemonEmitter cmds.ResponseEmitter
-		daemonEmitter, err = fscmds.DaemonEmitter(req)
-		if err != nil {
-			return
-		}
-
-		// execute the request
-		err = cmds.NewExecutor(req.Root).Execute(req, daemonEmitter, env)
 	}
 
 	return
