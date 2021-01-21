@@ -6,14 +6,21 @@ import (
 	"sync"
 )
 
+// TODO: scrutinize these functions
+// they're small, but important for synchronizing
+
 type Stream = <-chan error
 
 func Combine(errorStreams ...Stream) Stream {
-	if len(errorStreams) == 1 {
+
+	switch len(errorStreams) {
+	case 0: // this is most likely a logical error caller side, don't allow it
+		panic("errors.Combine: no arguments provided; won't combine nothing")
+	case 1: // TODO: justify 0 being disallowed and 1 being allowed; or rethink pipeline sink construction
 		return errorStreams[0]
 	}
 
-	mergedStream := make(chan error, len(errorStreams))
+	mergedStream := make(chan error)
 
 	var wg sync.WaitGroup
 	mergeFrom := func(errors Stream) {
@@ -65,27 +72,24 @@ func WaitForAny(ctx context.Context, errors ...Stream) (err error) {
 }
 
 func WaitFor(ctx context.Context, errors ...Stream) (err error) {
+	maybeWrap := func(precedent, secondary error) error {
+		if precedent == nil {
+			return secondary
+		} else if secondary != nil {
+			return fmt.Errorf("%w - %s", precedent, secondary)
+		}
+		return nil
+	}
 	for {
 		select {
 		case e, ok := <-Combine(errors...):
 			if !ok {
 				return
 			}
-			err = MaybeWrap(err, e)
-
+			err = maybeWrap(err, e)
 		case <-ctx.Done():
-			err = MaybeWrap(err, ctx.Err())
+			err = maybeWrap(err, ctx.Err())
 			return
 		}
 	}
-}
-
-func MaybeWrap(precedent, secondary error) error {
-	if precedent == nil {
-		return secondary
-	}
-	if secondary == nil {
-		return precedent
-	}
-	return fmt.Errorf("%w:%s", precedent, secondary)
 }

@@ -96,40 +96,6 @@ func cloneRequestStream(ctx context.Context, input manager.Requests) (_, _ manag
 	return out1, out2
 }
 
-/*
-// TODO: review + name (semantics re:"clone"<->(a-)sequence)
-func cloneRequestStream(ctx context.Context, input manager.Requests) (_, _ manager.Requests) {
-	out1, out2 := make(chan manager.Request), make(chan manager.Request)
-	go func() {
-		defer close(out1)
-		defer close(out2)
-		// relay the value in either order, but preserve the sequence
-		// TODO: there's probably a conventional way to do this
-		disp1, disp2 := out1, out2
-		for request := range input { // FIXME: ref d12bd32c-bc7a-49d7-ab2d-d161972b924b
-			select {
-			case disp1 <- request:
-				disp1 = nil
-			case disp2 <- request:
-				disp2 = nil
-			case <-ctx.Done():
-				return
-			}
-			select {
-			case disp1 <- request:
-				disp1 = nil
-			case disp2 <- request:
-				disp2 = nil
-			case <-ctx.Done():
-				return
-			}
-			disp1, disp2 = out1, out2
-		}
-	}()
-	return out1, out2
-}
-*/
-
 // outputs sequential series: IPFS, IPNS, IPFS, IPNS, ...
 func spliceIpfsIpnsRequests(ctx context.Context, ipfsSource manager.Requests, ipnsSource manager.Requests) manager.Requests {
 	requests := make(chan manager.Request)

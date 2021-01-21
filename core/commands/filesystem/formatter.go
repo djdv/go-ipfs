@@ -6,11 +6,9 @@ import (
 	"io"
 	"strings"
 
-	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs-cmds/cli"
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
-	"github.com/ipfs/go-ipfs/filesystem/manager/errors"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/olekukonko/tablewriter"
@@ -84,10 +82,13 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 				// XXX: quick 9P formatting hacks; make formal and break out of here
 				_, tail := multiaddr.SplitFirst(maddr)       // strip fs header
 				hopefullyNet, _ := multiaddr.SplitLast(tail) // strip path tail
+				if hopefullyNet == nil {
+					break
+				}
 				if addr, err := manet.ToNetAddr(hopefullyNet); err == nil {
 					row[thExtra] = fmt.Sprintf("Listening on: %s://%s", addr.Network(), addr.String())
 				} else {
-					resp.Error = errors.MaybeWrap(resp.Error, err)
+					resp.Error = maybeWrap(resp.Error, err)
 				}
 
 			case int(filesystem.PathProtocol):
@@ -96,7 +97,7 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 			return true
 		})
 	} else {
-		resp.Error = errors.MaybeWrap(resp.Error, err)
+		resp.Error = maybeWrap(resp.Error, err)
 	}
 
 	// create the corresponding color values for the table's row
@@ -123,6 +124,33 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 	return row, rowColors
 }
 
+// drawResponses renders the response stream to this console's output,
+// and relays the stream as it's received.
+func drawResponses(ctx context.Context, console cli.ResponseEmitter, responses manager.Responses) manager.Responses {
+	var (
+		relay = make(chan manager.Response)
+
+		scrollBack   int
+		renderBuffer = console.Stdout()
+		graphics     = newTableFormatter(renderBuffer)
+	)
+
+	go func() {
+		defer close(relay)
+		for response := range responses { // (re)render response to the console, as a formatted table
+			scrollBack = graphics.NumLines() // start drawing this many lines above the current line
+			drawResponse(graphics, response)
+			//overdrawResponse(renderBuffer, scrollBack, graphics, response)
+			select {
+			case relay <- response:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return relay
+}
+
 func drawResponse(graphics *tablewriter.Table, response manager.Response) {
 	graphics.Rich(responseAsTableRow(response)) // adds the row to the table
 	graphics.Render()                           // draws the entire table
@@ -141,174 +169,12 @@ func overdrawResponse(console io.Writer, scrollBack int, graphics *tablewriter.T
 	return
 }
 
-// TODO: support `--enc`; if request encoding type is not "text", don't print extra messages or render the table
-// just write responses directly to stdout
-//
-// formats responses for CLI/terminal displays
-func mountFormatConsole(res cmds.Response, re cmds.ResponseEmitter) (err error) {
-	// NOTE: We expect console requests to output to a terminal,
-	// but that's not inherent. The user could request `--enc=not-text`, perhaps in a pipeline.
-	// In which case we ignore our terminal rendering functions and just encode responses to stdout
-	encType := cmds.GetEncoding(res.Request(), "")
-
-	// if the request was made in the foreground (no existing daemon instance)
-	// we'll block until we receive an interrupt (if no init errors are encountered)
-	var (
-		foregroundRequest               bool
-		foregroundInstances             []manager.Response
-		foregroundCtx, foregroundCancel = context.WithCancel(res.Request().Context)
-	)
-	if v, ok := res.Request().Root.Extra.GetValue("debug-foreground"); ok {
-		foregroundRequest, _ = v.(bool)
+// TODO: move this somewhere else
+func maybeWrap(precedent, secondary error) error {
+	if precedent == nil {
+		return secondary
+	} else if secondary != nil {
+		return fmt.Errorf("%w - %s", precedent, secondary)
 	}
-
-	defer func() {
-		if err != nil {
-			err = errors.MaybeWrap(err, re.CloseWithError(err))
-			foregroundCancel()
-		}
-		if foregroundRequest {
-			if err == nil && encType == cmds.Text {
-				if err = re.Emit("Waiting in foreground, send interrupt to cancel\n"); err != nil {
-					err = errors.MaybeWrap(err,
-						fmt.Errorf("emitter encountered an error, exiting early: %w", err))
-					return
-				}
-			}
-
-			<-foregroundCtx.Done() // wait ...
-			foregroundCancel()
-
-			// close any instances we received from the emitter
-			instanceChan := make(chan manager.Response, len(foregroundInstances))
-			for _, instance := range foregroundInstances {
-				instanceChan <- instance
-			}
-			close(instanceChan)
-			for range closeAll(re, instanceChan) { // HACK: lol, no dude
-			}
-		}
-	}()
-
-	if encType != cmds.Text {
-		err = mountFormatConsoleEncoded(res, re)
-		return
-	}
-
-	var (
-		console      = re.(cli.ResponseEmitter)
-		scrollBack   int
-		renderBuffer = console.Stdout()
-		graphics     = newTableFormatter(renderBuffer)
-		gotResponse  bool
-
-		options          = res.Request().Options
-		isListRequest, _ = options[listOptionKwd].(bool) // type-checked in pre-run
-	)
-
-	for {
-		// show a preamble for attach requests
-		// before we start waiting for attach responses
-		if !gotResponse && !isListRequest {
-			requests := res.Request().Arguments
-			if len(requests) != 0 {
-				if err = re.Emit(fmt.Sprintf("Attempting to bind to host system: %s...\n",
-					strings.Join(requests, ", "),
-				)); err != nil {
-					return
-				}
-			}
-		}
-
-		// get request responses emitted from `Command.Run`
-		// no order guaranteed, no length known
-		var untypedResponse interface{}
-		if untypedResponse, err = res.Next(); err != nil {
-			if err == io.EOF { // no more responses
-				err = nil
-				break
-			}
-			return // some kind of emitter error was encountered
-		}
-
-		// TODO: I don't know if this is actually intentional or not
-		// Emit will return a pointer to us if the command was executed remotely
-		// and a non-pointer if local; regardless of the `Command.Type`'s type and what was actually passed to `Emit`
-		// maybe a cmds-lib bug?
-		var response manager.Response
-		switch v := untypedResponse.(type) {
-		case manager.Response:
-			response = v
-		case *manager.Response:
-			response = *v
-		case string: // TODO: reconsider the validity of this in regards to cmds-lib emitter expectations
-			console.Stdout().Write([]byte(v)) // this might be fine, there may be a better way
-			continue                          // to pass text messages between run and cli-postrun
-		default:
-			return fmt.Errorf("formatter received unexpected type+value: %#v", untypedResponse)
-		}
-		gotResponse = true // TODO: cleanup
-		if foregroundRequest {
-			if response.Error == nil {
-				foregroundInstances = append(foregroundInstances, response)
-			} else {
-				foregroundCancel()
-			}
-		}
-
-		// TODO: request options for overdraw and sort table
-		// (re)render response to the console, as a formatted table
-		//drawResponse(graphics, response)
-		scrollBack = graphics.NumLines() // start drawing this many lines above the current line
-		if err = overdrawResponse(renderBuffer, scrollBack, graphics, response); err != nil {
-			return
-		}
-
-		// TODO: hardcoded async stdout printing ruins our output :^(
-		// the logger gets a better error than the caller too...
-		// https://github.com/bazil/fuse/blob/371fbbdaa8987b715bdd21d6adc4c9b20155f748/mount_linux.go#L98-L99
-
-	}
-
-	if isListRequest && !gotResponse {
-		err = re.Emit("No active instances\n")
-	}
-
-	return
-}
-
-func mountFormatConsoleEncoded(res cmds.Response, re cmds.ResponseEmitter) (err error) {
-	for {
-		var v interface{}
-		if v, err = res.Next(); err != nil {
-			if err == io.EOF { // no more responses
-				err = nil
-				break
-			}
-			return // some kind of emitter error was encountered
-		}
-		// in this context, Emit will use the command's encoder map to encode the value
-		// and send it to its writer (stdout in our case)
-		if err = re.Emit(v); err != nil {
-			return
-		}
-	}
-	return
-}
-
-func closeAll(emitter cmds.ResponseEmitter, instances manager.Responses) errors.Stream {
-	errors := make(chan error, len(instances))
-	defer close(errors)
-	// TODO: emitter could always fail; handle
-	for instance := range instances {
-		emitter.Emit(fmt.Sprintf("closing 📖 %v ...\n", instance))
-		switch err := instance.Close(); err {
-		case nil:
-			emitter.Emit(fmt.Sprintf("closed 📗 %v\n", instance))
-		default:
-			emitter.Emit(fmt.Sprintf("failed to detach 📕 %v from host: %v\n", instance, err))
-			errors <- err
-		}
-	}
-	return errors
+	return nil
 }

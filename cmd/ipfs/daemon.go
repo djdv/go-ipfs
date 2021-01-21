@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	_ "expvar"
 	"fmt"
@@ -11,11 +12,11 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
 	version "github.com/ipfs/go-ipfs"
 	cmds "github.com/ipfs/go-ipfs-cmds"
-	"github.com/ipfs/go-ipfs-cmds/cli"
 	config "github.com/ipfs/go-ipfs-config"
 	cserial "github.com/ipfs/go-ipfs-config/serialize"
 	utilmain "github.com/ipfs/go-ipfs/cmd/ipfs/util"
@@ -691,45 +692,74 @@ func serveHTTPGateway(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, e
 // Sets up the file system interface, and connects it with the node.
 // Also relays requests to `ipfs mount` if arguments for it are provided in the `ipfs daemon` request.
 func serveFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment, node *core.IpfsNode) (errChan <-chan error, err error) {
-	var fsi manager.Interface
-	if fsi, errChan, err = fscmds.NewDaemonInterface(req.Context, re, node); err != nil {
+	// parse the request's fs related flags
+	const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
+
+	var doMount bool // `--mount`
+	if mountFlag, provided := req.Options[mountKwd]; provided {
+		if flag, ok := mountFlag.(bool); ok {
+			doMount = flag
+		}
+		err = cmds.Errorf(cmds.ErrClient,
+			"mount "+errParameterTypeFmt,
+			mountFlag, mountFlag, doMount)
 		return
 	}
-	node.FileSystem = fsi // attach manager interface to the node
 
-	var (
-		callMount     bool
-		systemTargets []string // if nil, defaults/config are used rather than arguments
-	)
-	if mountFlag, _ := req.Options[mountKwd].(bool); mountFlag { // `--mount`
-		callMount = true
-	}
+	var mountTargets []string // if `--mount-path` is provided, `--mount` becomes implied
 	if mountArgs, provided := req.Options[mountPathKwd]; provided {
-		callMount = true // if `--mount-path` was provided, `--mount` becomes implied
-		var ok bool
-		if systemTargets, ok = mountArgs.([]string); !ok { // use cli provided arguments
-			err = cmds.Errorf(cmds.ErrClient, "mount target parameter's argument (%v) is type %T, expecting type %T", mountArgs, mountArgs, systemTargets)
+		if mountTargets, doMount = mountArgs.([]string); !doMount {
+			err = cmds.Errorf(cmds.ErrClient,
+				"mount "+errParameterTypeFmt,
+				mountArgs, mountArgs, mountTargets)
 			return
 		}
 	}
-	if callMount { // derive a `mount` sub-request and execute it
-		var mountRequest *cmds.Request
-		if mountRequest, err = cmds.NewRequest(req.Context,
-			[]string{mountKwd}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong]}, // "mount" `Command`, inherit encoding
-			systemTargets, // possibly with arguments
-			nil, req.Root,
-		); err == nil {
-			// FIXME: `mount` will implicitly close the emitter when it's done
-			// we don't want to do that
-			// there may be a more elegant way to clone the emitter, or not close it
-			// but I'm lazy right now
-			var subEmitter cli.ResponseEmitter
-			if subEmitter, err = cli.NewResponseEmitter(os.Stdout, os.Stderr, mountRequest); err != nil {
-				return
-			}
 
-			err = cmds.NewExecutor(req.Root).Execute(mountRequest, subEmitter, env)
+	// construct the actual manager instance
+	var fsi manager.Interface
+	if fsi, err = fscmds.NewNodeInterface(req.Context, node); err != nil {
+		return
+	}
+
+	// spawn the cleanup routine
+	daemonChan := make(chan error)
+	errChan = daemonChan
+	go func() {
+		<-node.Context().Done() // wait until node shutdown
+		timeout, cancel := context.WithTimeout(req.Context, 60*time.Second)
+		defer cancel()
+		for instance := range fsi.List(timeout) {
+			re.Emit(fmt.Sprintf("closing 📖 %v ...\n", instance))
+			switch err := instance.Close(); err {
+			case nil:
+				re.Emit(fmt.Sprintf("closed 📗 %v\n", instance))
+			default:
+				re.Emit(fmt.Sprintf("failed to detach 📕 %v from host: %v\n", instance, err))
+				daemonChan <- err
+			}
 		}
+		close(daemonChan)
+	}()
+
+	node.FileSystem = fsi
+	if !doMount { // only set up the interface, don't call it
+		return
+	}
+
+	// derive a `mount` sub-request and execute it
+	var mountRequest *cmds.Request
+	if mountRequest, err = cmds.NewRequest(req.Context,
+		[]string{mountKwd}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong]}, // "mount" `Command`, inherit encoding
+		mountTargets, // possibly with arguments
+		nil, req.Root,
+	); err == nil {
+		//var subEmitter cli.ResponseEmitter
+		//if subEmitter, err = cli.NewResponseEmitter(os.Stdout, os.Stderr, mountRequest); err != nil {
+		//return
+		//}
+		//err = cmds.NewExecutor(req.Root).Execute(mountRequest, subEmitter, env)
+		err = cmds.NewExecutor(req.Root).Execute(mountRequest, re, env)
 	}
 
 	return

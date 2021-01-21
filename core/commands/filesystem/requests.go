@@ -32,33 +32,42 @@ func splitRequest(request manager.Request) (hostAPI filesystem.API, nodeAPI file
 			err = fmt.Errorf("splitRequest panicked: %v - %v", request, grace)
 		}
 	}()
-	apiPair, maddrRemainder := multiaddr.SplitFirst(multiaddr.Cast(request))
-	protocol := apiPair.Protocol()
+
+	var ( // decapsulation
+		header, maddrRemainder = multiaddr.SplitFirst(multiaddr.Cast(request))
+		hostProtocol           = header.Protocol().Code
+		nodeProtocol           int
+	)
 	if maddrRemainder != nil {
 		remainder = manager.Request(maddrRemainder.Bytes())
 	}
+	if nodeProtocol, _, err = multiaddr.ReadVarintCode(header.RawValue()); err != nil {
+		return
+	}
 
-	var understood bool
-	for _, hostAPI = range []filesystem.API{ // we compare our list of supported host APIs ...
+	// disambiguation
+	// Note the direct use of the return variables in the range clauses.
+	// If both values being inspected appear in our supported list, we'll return them.
+	for _, hostAPI = range []filesystem.API{
 		filesystem.Fuse,
 	} {
-		if hostAPI == filesystem.API(protocol.Code) { // ... against the input's value
-			// we don't care what node API is being requested, just that it's a valid one
-			if nodeAPI, err = filesystem.StringToID(apiPair.Value()); err == nil {
-				understood = true
-				break
+		if hostAPI == filesystem.API(hostProtocol) {
+			for _, nodeAPI = range []filesystem.ID{
+				filesystem.IPFS,
+				filesystem.IPNS,
+			} {
+				if nodeAPI == filesystem.ID(nodeProtocol) {
+					return
+				}
 			}
-			err = fmt.Errorf("request %v: %w", request, err)
-			return
 		}
 	}
-	if !understood {
-		err = fmt.Errorf("request %v: contains unsupported API pair: %v", request, apiPair)
-	}
 
-	return // note the direct assignments in the range above
+	err = fmt.Errorf("unsupported API pair: %v in request %v", header, request)
+	return
 }
 
+// TODO: still needs a review pass
 // splitRequests takes in a stream of requests and returns a channel for each unique request header it finds
 func splitRequests(ctx context.Context, requests manager.Requests) (sectionStream, errors.Stream) {
 	sections, errors := make(chan section), make(chan error)

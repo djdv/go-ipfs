@@ -63,7 +63,11 @@ func prefixResponses(ctx context.Context, header requestHeader, responses manage
 	go func() {
 		defer close(respChan)
 		for response := range responses {
-			response.Request = base.Encapsulate(multiaddr.Cast(response.Request)).Bytes()
+			if response.Request != nil {
+				response.Request = base.Encapsulate(multiaddr.Cast(response.Request)).Bytes()
+			} else {
+				response.Request = base.Bytes()
+			}
 			select {
 			case respChan <- response:
 			case <-ctx.Done():

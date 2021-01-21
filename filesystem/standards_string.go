@@ -37,18 +37,19 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[IPFS-5]
-	_ = x[IPNS-6]
+	_ = x[IPFS-4]
+	_ = x[IPNS-5]
+	_ = x[buildDBG-6]
 }
 
-const _ID_name = "ipfsipns"
+const _ID_name = "ipfsipnswut"
 
-var _ID_index = [...]uint8{0, 4, 8}
+var _ID_index = [...]uint8{0, 4, 8, 11}
 
 func (i ID) String() string {
-	i -= 5
+	i -= 4
 	if i < 0 || i >= ID(len(_ID_index)-1) {
-		return "ID(" + strconv.FormatInt(int64(i+5), 10) + ")"
+		return "ID(" + strconv.FormatInt(int64(i+4), 10) + ")"
 	}
 	return _ID_name[_ID_index[i]:_ID_index[i+1]]
 }

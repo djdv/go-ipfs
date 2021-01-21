@@ -8,39 +8,36 @@ import (
 )
 
 type (
-	protocolCode int32 // identification tokens
+	protocolCode int32 // multiaddr identification tokens
 
 	API protocolCode // represents a particular host API (e.g. 9P, Fuse, et al.)
 	ID  protocolCode // represents a particular file system implementation (e.g. IPFS, IPNS, et al.)
 )
 
+//go:generate stringer -type=API,ID -linecomment -output standards_string.go
 const (
+	_ API = API(^uint32(0)>>1) - iota
+
+	// NOTE: values are currently experimental/unstable
 	// For now, we use the max value supported, decrementing; acting as our private range of protocol values
 	// (internally: go-multiaddr/d18c05e0e1635f8941c93f266beecaedd4245b9f/varint.go:10)
-	_ API = API(^uint32(0)>>1) - iota
-	// NOTE: these values are for development only and may change as the
-	// multicodec table values and API is decided on.
 	//
-	//go:generate stringer -type=API,ID -linecomment -output standards_string.go
-	//
-	// Multiaddr protocol names (host-APIs):
-	// The multiaddr paths used, create a binding between a host-API and a node-API,
-	// typically paired with a socket, path, etc.
-	// e.g. `/fuse/ipfs/path/mnt/ipfs`, `/9p/ipfs/ip4/127.0.0.1/tcp/564/path/n/ipfs`
+	// Stringer values correspond to a namespace registered within the Multiaddr library.
 	Fuse          // fuse
 	Plan9Protocol // 9p
 
+	_        ID = iota
+	IPFS        // ipfs
+	IPNS        // ipns
+	buildDBG    // wut
+
 	// Existing Multicodec standards:
-	// NOTE: this protocol may be defined in another package
-	// we should use it or create one it if it doesn't exist.
-	// (go-multiaddr itself should register `/path`?)
-	// For now we're exporting our own constant for it.
+	// TODO [review]: this protocol may be defined in another package
+	// we should use it or add it if it doesn't exist.
+	// (^go-multiaddr itself should register `/path`?)
+	// For now we use the standard multicodec value with a non-standard implementation.
 	PathProtocol API = 0x2f // path
 
-	_ ID = iota
-	// Multiaddr protocol values (node-APIs):
-	IPFS // ipfs
-	IPNS // ipns
 )
 
 func init() {
@@ -54,11 +51,7 @@ func init() {
 	registerSystemIDs(IPFS, IPNS)
 }
 
-// this is just a context string, the caller should check for
-// (wrapped) multiaddr error values if this is encountered
-const errDecodeNodeAPI = "could not decode node-API varint"
-
-var ErrInvalidNodeAPI = errors.New("unknown node-API value")
+var ErrUnexpectedID = errors.New("unexpected ID value")
 
 func registerStandardProtocols() error {
 	return multiaddr.AddProtocol(multiaddr.Protocol{
@@ -74,7 +67,7 @@ func registerStandardProtocols() error {
 	})
 }
 
-// registers API's withing the mutliaddr hierarchy
+// registers API names within the mutliaddr hierarchy
 func registerAPIProtocols(apis ...API) (err error) {
 	for _, api := range apis {
 		err = multiaddr.AddProtocol(multiaddr.Protocol{
@@ -83,7 +76,7 @@ func registerAPIProtocols(apis ...API) (err error) {
 			VCode: multiaddr.CodeToVarint(int(api)),
 			//Size:  32, // TODO: const? sizeof (API)
 			Size: multiaddr.LengthPrefixedVarSize,
-			Transcoder: multiaddr.NewTranscoderFromFunctions( // TODO: generator T = g(ErrorTemplateValue)
+			Transcoder: multiaddr.NewTranscoderFromFunctions(
 				apiStringToBytes, nodeAPIBytesToString,
 				nil),
 		})
@@ -94,7 +87,7 @@ func registerAPIProtocols(apis ...API) (err error) {
 	return
 }
 
-var ( // TODO: [immutable?] we could literally inline these vs register in pkg scope
+var (
 	stringToID = make(map[string]ID)
 	idToString = make(map[ID]string)
 )
@@ -107,15 +100,6 @@ func registerSystemIDs(ids ...ID) {
 	}
 }
 
-// StringToID retrieves an id registered under the provided name, if any.
-func StringToID(systemName string) (ID, error) {
-	id, ok := stringToID[systemName]
-	if !ok {
-		return 0, fmt.Errorf("%w: %s", ErrInvalidNodeAPI, systemName)
-	}
-	return id, nil
-}
-
 func apiStringToBytes(systemName string) (buf []byte, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -123,9 +107,9 @@ func apiStringToBytes(systemName string) (buf []byte, err error) {
 		}
 	}()
 
-	id, err := StringToID(systemName)
-	if err != nil {
-		return nil, err
+	id, ok := stringToID[systemName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrUnexpectedID, systemName)
 	}
 
 	return multiaddr.CodeToVarint(int(id)), nil
@@ -135,13 +119,13 @@ func nodeAPIBytesToString(buffer []byte) (value string, err error) {
 	var id int
 	id, _, err = multiaddr.ReadVarintCode(buffer)
 	if err != nil {
-		err = fmt.Errorf("%s: %w", errDecodeNodeAPI, err)
+		err = fmt.Errorf("could not decode node-API varint: %w", err)
 		return
 	}
 
 	var ok bool
 	if value, ok = idToString[ID(id)]; !ok {
-		err = fmt.Errorf("%w: %#x", ErrInvalidNodeAPI, id)
+		err = fmt.Errorf("%w: %#x", ErrUnexpectedID, id)
 	}
 
 	return

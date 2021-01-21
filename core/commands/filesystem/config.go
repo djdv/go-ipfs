@@ -11,8 +11,6 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-//FIXME: fillFromConfig's section requests might be returning double?
-
 // TODO: too many words, it just splits and fills in empties, relaying unknowns, basically.
 // move some of the section header documentation stuff
 //
@@ -26,13 +24,17 @@ import (
 // e.g. input `/namespace1/namespace2` results in `Request(nil)`
 // when reading from `<-Header{namespace1;namespace2}.Requests`.
 // (since the input request was valid, but contained no sub portion such as `/path/somewhere`)
-func fillFromConfig(ctx context.Context, config *config.Config, requests manager.Requests) (sectionStream, errors.Stream) {
+func fillFromConfig(ctx context.Context,
+	config *config.Config, requests manager.Requests) (sectionStream, errors.Stream) {
+
 	relay, combinedErrors := make(chan section), make(chan errors.Stream, 1)
 	sections, sectionErrors := splitRequests(ctx, requests)
 	combinedErrors <- sectionErrors
+
 	go func() {
 		defer close(relay)
 		defer close(combinedErrors)
+
 		for section := range sections {
 			switch section.API {
 			// send sub-request value through a specific config section handler
@@ -59,11 +61,15 @@ func fillFromConfig(ctx context.Context, config *config.Config, requests manager
 }
 
 // provides values for requests, from config
-func fillFuseConfig(ctx context.Context, nodeConf *config.Config, nodeAPI filesystem.ID, requests manager.Requests) (manager.Requests, errors.Stream) {
+func fillFuseConfig(ctx context.Context, nodeConf *config.Config,
+	nodeAPI filesystem.ID, requests manager.Requests) (manager.Requests, errors.Stream) {
+
 	relay, errors := make(chan manager.Request), make(chan error)
+
 	go func() {
 		defer close(relay)
 		defer close(errors)
+
 		for request := range requests { // NOTE: request variable is re-used as the response value at end of loop
 			var err error
 			if request == nil { // request contains no (body) value (header only), use default value below
@@ -107,5 +113,6 @@ func fillFuseConfig(ctx context.Context, nodeConf *config.Config, nodeAPI filesy
 			}
 		}
 	}()
+
 	return relay, errors
 }

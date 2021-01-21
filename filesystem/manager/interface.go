@@ -13,15 +13,10 @@ import (
 )
 
 type (
-	// Request is a Multiaddr that has been formatted for use in this file system API.
-	// It is intended to be used directly as a `multiaddr.Multiaddr`, and is defined concretely as `[]byte` for type encoding reasons only.
-	// TODO: if we can use `Multiaddr` directly, we should. But I think it might complicate cmds-rpc and pb-rpc.
-	//
-	// Specific Multiaddr value's are expected to be agreed upon by the `multiaddr` package itself.
-	// But an example standard one could imagine is seeing
-	// `/fuse/ipfs/path/ipfs` effectively translating to  some abstract meaning `manager.fuse.mount(ipfs, "/ipfs")`.
-	Request []byte
-	// Requests is simply a series of requests
+	// Request is a Multiaddr formatted message, containing file system relevant values
+	// (such as a file system API, target, etc.)
+	Request []byte // TODO: if we can use `Multiaddr` directly, we should. But I think we need a concrete implementation for RPC encoding.
+	// Requests is simply a series of requests.
 	Requests = <-chan Request
 
 	// Response contains the request that initiated it,
@@ -31,7 +26,7 @@ type (
 		Error     error      `json:"error,omitempty"`
 		io.Closer `json:"-"` // local only field, do not try to send/receive from an encoder
 	}
-	// Responses is simply a series of responses
+	// Responses is simply a series of responses.
 	Responses = <-chan Response
 )
 
@@ -43,29 +38,25 @@ func (r Request) String() string {
 }
 
 type (
-	// Interface is the top level file system management interface,
-	// containing methods which fulfil and respond to client requests.
+	// Interface accepts bind `Request`s,
+	// and typically stores relevant `Response`s within its `Index`.
 	Interface interface {
 		Binder
 		Index
 	}
 
-	//
-	// Binder takes in a series of API requests,
-	// and returns a series of responses for this handler.
-	// e.g. consider `Bind` requests:
-	//
-	// 	fuseIPFSBinder.Bind("/path/mnt/target") - binds IPFS (via FUSE), to mount path `/mnt/target`
-	// 	plan9MFSBinder.Bind("/ip4/127.0.0.1/tcp/564") - binds MFS, to a 9P listener socket `tcp://127.0.0.1:564`
+	// Binder takes in a series of requests,
+	// and returns a series of responses.
+	// Responses should contain the request that initiated it,
+	// along with either its closer, or an error.
 	Binder interface {
-		Bind(context.Context, <-chan Request) <-chan Response
+		Bind(context.Context, Requests) Responses
 	}
 
-	// Index maintains a `List` of instances.
+	// Index maintains a `List` of Responses.
+	// Typically corresponding to a range of responses from `Bind`.
 	Index interface {
-		List(context.Context) <-chan Response
-		// Close should close all instances in the index.
-		//io.Closer
+		List(context.Context) Responses
 	}
 )
 
@@ -138,5 +129,5 @@ func (resp *Response) UnmarshalJSON(b []byte) (err error) {
 }
 
 // TODO: move this or export it; duplicated across pkgs currently
-// even better to obviate it and abstract marshalling on the error type so they can cast themselves
+// we may need a string type that maps to concrete errors via Unwrap or something
 var errUnwound = fmt.Errorf("binding undone")
