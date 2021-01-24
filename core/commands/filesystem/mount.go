@@ -2,12 +2,14 @@ package fscmds
 
 import (
 	"context"
+	goerrors "errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"strings"
 	"time"
 
+	fslock "github.com/ipfs/go-fs-lock"
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs-cmds/cli"
 	"github.com/ipfs/go-ipfs/core"
@@ -21,6 +23,8 @@ const (
 	MountParameter           = "mount"
 	MountArgumentDescription = "Multiaddr style targets to bind with host. (/fuse/ipfs/path/ipfs)"
 	listOptionKwd            = "list"
+
+	errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
 )
 
 var Mount = &cmds.Command{
@@ -164,7 +168,7 @@ func waitAndTeardown(fsi manager.Interface) postRunFunc {
 					}
 				default:
 					errs <- err
-					if err = decoWrite(fmt.Sprintf("failed to detach 📕 %v from host: %v\n", instance, err)); err != nil {
+					if err = decoWrite(fmt.Sprintf("failed to detach %v from host: %v\n", instance, err)); err != nil {
 						errs <- err
 					}
 				}
@@ -185,28 +189,54 @@ func waitAndTeardown(fsi manager.Interface) postRunFunc {
 
 // special handling for things like local-only requests
 func maybeSetPostRunFunc(request *cmds.Request, env cmds.Environment) (err error) {
+	// HACK: we need to do this, but properly
+	// if the daemon already has the lock, don't do anything
+	// otherwise, make the fsi and attach it to the node
+	// figure out when/where our commands lock and do the check there instead of here
+	// if we do it here we might not be able to gaurantee who is holding the lock
+	// and just assume it's the daemon (bad)
 	var node *core.IpfsNode
 	if node, err = cmdenv.GetNode(env); err != nil {
+		if goerrors.As(err, new(fslock.LockedError)) {
+			err = nil
+		}
 		return
 	}
 	// `ipfs daemon` will set up the fsi for us, and close it when it's done.
 	// But if the daemon isn't running, it won't exist on the node.
 	// So we spawn one that will close when this request is done (after PostRun returns).
 	if !node.IsDaemon && node.FileSystem == nil {
+		var isList bool // `--list` TODO: de-dupe
+		if listFlag, provided := request.Options[listOptionKwd]; provided {
+			if flag, isBool := listFlag.(bool); isBool {
+				isList = flag
+			} else {
+				err = cmds.Errorf(cmds.ErrClient,
+					"list "+errParameterTypeFmt,
+					listFlag, listFlag, isList)
+				return
+			}
+		}
+
+		if isList {
+			err = cmds.Errorf(cmds.ErrNormal, "no active file system manager instances - nothing to list")
+			return
+		}
+
 		var fsi manager.Interface
 		if fsi, err = NewNodeInterface(request.Context, node); err != nil {
 			err = fmt.Errorf("failed to construct file system interface: %w", err)
 			return
 		}
 
+		node.FileSystem = fsi
+
 		var postFunc postRunFunc = func(ctx context.Context, res cmds.Response, re cmds.ResponseEmitter) errors.Stream {
 			node.FileSystem = nil
 			return waitAndTeardown(fsi)(ctx, res, re)
 		}
-
-		//request.Root.Extra = request.Root.Extra.SetValue(postRunFuncKey, waitAndTeardown(fsi))
 		request.Root.Extra = request.Root.Extra.SetValue(postRunFuncKey, postFunc)
-		node.FileSystem = fsi
+
 	}
 	return
 }
@@ -219,28 +249,23 @@ func mountPreRun(request *cmds.Request, env cmds.Environment) (err error) {
 		}
 	}
 
-	//TODO [current]: init fsi here, set in extra
-	// if it exist, and not `isList`, call close(responses) from postrun.extra.fsi
-	// more succinct, make sure fsi.Close is called (in postrun) if spawned (in prerun)
-	// ^close must be a closure, not a method, but yes
-
 	err = maybeSetPostRunFunc(request, env)
 	return
 }
 
 func mountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Environment) (err error) {
 	log.SetFlags(log.Lshortfile) // TODO: dbg lint
-	const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
 
 	var doList bool // `--list`
 	if listFlag, provided := request.Options[listOptionKwd]; provided {
 		if flag, isBool := listFlag.(bool); isBool {
 			doList = flag
+		} else {
+			err = cmds.Errorf(cmds.ErrClient,
+				"list "+errParameterTypeFmt,
+				listFlag, listFlag, doList)
+			return
 		}
-		err = cmds.Errorf(cmds.ErrClient,
-			"list "+errParameterTypeFmt,
-			listFlag, listFlag, doList)
-		return
 	}
 
 	defer func() {
@@ -315,7 +340,6 @@ func responsesToEmitter(ctx context.Context, emitter cmds.ResponseEmitter, respo
 //
 // formats responses for CLI/terminal displays
 func mountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err error) {
-	const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
 	// NOTE: We expect CLI encoding to be text.
 	// If it is, we'll format output for a terminal.
 	// Otherwise, we'll pass values through to the emitter.
@@ -323,13 +347,14 @@ func mountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err 
 
 	var isList bool // `--list`
 	if listFlag, provided := response.Request().Options[listOptionKwd]; provided {
-		if flag, ok := listFlag.(bool); ok {
+		if flag, isBool := listFlag.(bool); isBool {
 			isList = flag
+		} else {
+			err = cmds.Errorf(cmds.ErrClient,
+				"list "+errParameterTypeFmt,
+				listFlag, listFlag, isList)
+			return
 		}
-		err = cmds.Errorf(cmds.ErrClient,
-			"list "+errParameterTypeFmt,
-			listFlag, listFlag, isList)
-		return
 	}
 
 	defer func() {
@@ -345,15 +370,14 @@ func mountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err 
 			return
 		}
 
-		postFunc, isFunc := postRunFuncArg.(postRunFunc)
-		if !isFunc { // TODO: sloppy copy paste
-			const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
+		if postFunc, isFunc := postRunFuncArg.(postRunFunc); isFunc {
+			postFunc(response.Request().Context, response, emitter)
+		} else {
 			err = cmds.Errorf(cmds.ErrClient,
 				"postRun "+errParameterTypeFmt,
 				postRunFuncArg, postRunFuncArg, postFunc)
 			return
 		}
-		postFunc(response.Request().Context, response, emitter)
 	}()
 
 	// FIXME: names, should be doList, doBind, where drawing is implicit depending on re's type
@@ -471,8 +495,10 @@ func cmdsResponseToManagerResponse(ctx context.Context, response cmds.Response) 
 			case *manager.Response:
 				response = *v
 			default: // TODO: better solution, server/run can trigger a client panic if they emit bad types
-				log.Println("bout to panic:", untypedResponse)
-				panic(fmt.Errorf("formatter received unexpected type+value from emitter: %#v", untypedResponse))
+				//log.Println("bout to panic:", untypedResponse)
+				//panic(fmt.Errorf("formatter received unexpected type+value from emitter: %#v", untypedResponse))
+				// TODO: dbg remove
+				fmt.Printf("formatter received unexpected type+value from emitter: %#v", untypedResponse)
 			}
 			select {
 			case responses <- response:
