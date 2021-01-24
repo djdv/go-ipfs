@@ -16,7 +16,6 @@ func (ci *commandDispatcher) Bind(ctx context.Context, requests <-chan manager.R
 	sections, errors := generatePipeline(ctx, ci.IpfsNode, requests)
 	subResponses := make(chan manager.Responses, len(sections)+1)
 	go func() {
-		defer close(subResponses)
 		var wg sync.WaitGroup
 		for sections != nil || errors != nil {
 			select {
@@ -66,6 +65,7 @@ func (ci *commandDispatcher) Bind(ctx context.Context, requests <-chan manager.R
 				return
 			}
 		}
+		go func() { wg.Wait(); close(subResponses) }()
 	}()
 
 	return handleResponses(ctx, ci.index, mergeResponseStreams(ctx, subResponses))

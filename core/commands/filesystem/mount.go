@@ -3,9 +3,10 @@ package fscmds
 import (
 	"context"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"log"
 	"strings"
+	"time"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs-cmds/cli"
@@ -43,7 +44,7 @@ var Mount = &cmds.Command{
 	Type: manager.Response{},
 }
 
-// TODO: english pass
+// TODO: English pass; try to break appart code too, this is gross
 // construct subcommand groups from supported API/ID pairs
 // e.g. make these invocations equal
 // 1) `ipfs mount /fuse/ipfs/path/mountpoint /fuse/ipfs/path/mountpoint2 ...
@@ -81,13 +82,15 @@ func registerSubcommands(parent *cmds.Command) {
 			*com = *template
 			// TODO: filtered --list + helptext (use some fmt tmpl)
 			com.PreRun = func(request *cmds.Request, env cmds.Environment) (err error) {
-				foregroundHacks(request, env)
+				if err = maybeSetPostRunFunc(request, env); err != nil {
+					return
+				}
 				for i, arg := range request.Arguments {
 					// TODO: special case per host-API (hard coded `/path/` for now)
 					// 9P should probably be raw value to accept path or tcp or both
 					request.Arguments[i] = fmt.Sprintf("/%s/%s/path/%s", hostName, nodeName, strings.TrimPrefix(arg, "/"))
 				}
-				return nil
+				return
 			}
 			subsystems[nodeName] = com
 		}
@@ -95,11 +98,13 @@ func registerSubcommands(parent *cmds.Command) {
 		com := new(cmds.Command)
 		*com = *template
 		com.PreRun = func(request *cmds.Request, env cmds.Environment) (err error) {
-			foregroundHacks(request, env)
+			if err = maybeSetPostRunFunc(request, env); err != nil {
+				return
+			}
 			for i, arg := range request.Arguments {
 				request.Arguments[i] = fmt.Sprintf("/%s/%s", hostName, strings.TrimPrefix(arg, "/"))
 			}
-			return nil
+			return
 		}
 		com.Subcommands = subsystems
 		subcommands[hostName] = com
@@ -109,16 +114,101 @@ func registerSubcommands(parent *cmds.Command) {
 	return
 }
 
-// TODO: this but properly
-func foregroundHacks(request *cmds.Request, env cmds.Environment) {
-	if node, envErr := cmdenv.GetNode(env); envErr == nil {
-		if !node.IsDaemon { // tell postrun to block
-			request.Root.Extra = request.Root.Extra.SetValue("debug-foreground", true)
-			log.Println("setting foreground")
-		} else {
-			log.Println("not setting foreground:", node.IsDaemon)
+// TODO: emitter should probably be typecast inside of postrun, accepting the general cmds.RE instead
+type postRunFunc func(context.Context, cmds.Response, cmds.ResponseEmitter) errors.Stream
+
+const postRunFuncKey = "👻" // arbitrary index value that's smaller than its description
+
+// try to come up with exposable compliment; e.g. something that stacks {daemonPart;fmtCloseAll}, {mountPart;fmtCloseAll}
+func waitAndTeardown(fsi manager.Interface) postRunFunc {
+	return func(ctx context.Context, res cmds.Response, re cmds.ResponseEmitter) errors.Stream {
+		var (
+			errs               = make(chan error, 1)
+			out                = ioutil.Discard
+			emit               = re.Emit
+			console, isConsole = re.(cli.ResponseEmitter)
+			encType            = cmds.GetEncoding(res.Request(), "")
+			decorate           = isConsole && encType == cmds.Text
+			decoWrite          = func(s string) (err error) { _, err = out.Write([]byte(s)); return }
+		)
+		defer close(errs)
+
+		if decorate {
+			out = console.Stdout()
+			emit = func(interface{}) error { return nil }
+			if err := decoWrite("Waiting in foreground, send interrupt to cancel\n"); err != nil {
+				errs <- fmt.Errorf("emitter encountered an error, exiting early: %w", err)
+				return errs
+			}
 		}
+
+		<-ctx.Done()
+
+		go func() {
+			// TODO: arbitrary time duration
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			var err error
+			for instance := range fsi.List(ctx) { // TODO: timeout ctx
+				if err = decoWrite(fmt.Sprintf("closing %v ...\n", instance)); err != nil {
+					errs <- err
+				}
+
+				err = instance.Close() // NOTE: we're (re-)using the fs output value
+				instance.Error = err   // as/for the emitter's input value
+
+				switch err {
+				case nil:
+					if err = decoWrite(fmt.Sprintf("closed %v\n", instance)); err != nil {
+						errs <- err
+					}
+				default:
+					errs <- err
+					if err = decoWrite(fmt.Sprintf("failed to detach 📕 %v from host: %v\n", instance, err)); err != nil {
+						errs <- err
+					}
+				}
+
+				// [magic] cmds-lib
+				// if the emitter passed to us isn't a text-console
+				// the emitter will likely use the command's encoder map to encode the value
+				// to whatever non-plaintext format it requested (e.g. JSON, XML, et al.)
+				if err = emit(instance); err != nil {
+					errs <- err
+				}
+			}
+			return
+		}()
+		return errs
 	}
+}
+
+// special handling for things like local-only requests
+func maybeSetPostRunFunc(request *cmds.Request, env cmds.Environment) (err error) {
+	var node *core.IpfsNode
+	if node, err = cmdenv.GetNode(env); err != nil {
+		return
+	}
+	// `ipfs daemon` will set up the fsi for us, and close it when it's done.
+	// But if the daemon isn't running, it won't exist on the node.
+	// So we spawn one that will close when this request is done (after PostRun returns).
+	if !node.IsDaemon && node.FileSystem == nil {
+		var fsi manager.Interface
+		if fsi, err = NewNodeInterface(request.Context, node); err != nil {
+			err = fmt.Errorf("failed to construct file system interface: %w", err)
+			return
+		}
+
+		var postFunc postRunFunc = func(ctx context.Context, res cmds.Response, re cmds.ResponseEmitter) errors.Stream {
+			node.FileSystem = nil
+			return waitAndTeardown(fsi)(ctx, res, re)
+		}
+
+		//request.Root.Extra = request.Root.Extra.SetValue(postRunFuncKey, waitAndTeardown(fsi))
+		request.Root.Extra = request.Root.Extra.SetValue(postRunFuncKey, postFunc)
+		node.FileSystem = fsi
+	}
+	return
 }
 
 func mountPreRun(request *cmds.Request, env cmds.Environment) (err error) {
@@ -128,18 +218,23 @@ func mountPreRun(request *cmds.Request, env cmds.Environment) (err error) {
 			"/fuse/ipns",
 		}
 	}
-	foregroundHacks(request, env)
 
+	//TODO [current]: init fsi here, set in extra
+	// if it exist, and not `isList`, call close(responses) from postrun.extra.fsi
+	// more succinct, make sure fsi.Close is called (in postrun) if spawned (in prerun)
+	// ^close must be a closure, not a method, but yes
+
+	err = maybeSetPostRunFunc(request, env)
 	return
 }
 
-func mountRun(request *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) (err error) {
+func mountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Environment) (err error) {
 	log.SetFlags(log.Lshortfile) // TODO: dbg lint
 	const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
 
 	var doList bool // `--list`
 	if listFlag, provided := request.Options[listOptionKwd]; provided {
-		if flag, ok := listFlag.(bool); ok {
+		if flag, isBool := listFlag.(bool); isBool {
 			doList = flag
 		}
 		err = cmds.Errorf(cmds.ErrClient,
@@ -151,7 +246,7 @@ func mountRun(request *cmds.Request, re cmds.ResponseEmitter, env cmds.Environme
 	defer func() {
 		if err != nil {
 			err = cmds.Errorf(cmds.ErrNormal, "%s", err)
-			if emitterErr := re.CloseWithError(err); emitterErr != nil {
+			if emitterErr := emitter.CloseWithError(err); emitterErr != nil {
 				err = cmds.Errorf(cmds.ErrNormal, "%s - additionally an emitter error was encountered: %s", err, emitterErr)
 			}
 		}
@@ -163,27 +258,21 @@ func mountRun(request *cmds.Request, re cmds.ResponseEmitter, env cmds.Environme
 		return
 	}
 
-	var fsi manager.Interface
-	if node.FileSystem != nil { // use the node's interface if it has one
-		fsi = node.FileSystem // otherwise construct one for this run only
-	} else if fsi, err = NewNodeInterface(request.Context, node); err != nil {
-		err = fmt.Errorf("failed to construct file system interface: %w", err)
-		return
-	}
+	fsi := node.FileSystem
 
 	ctx, cancel := context.WithCancel(request.Context)
 	defer cancel()
 
 	if doList {
 		err = errors.WaitFor(ctx,
-			responsesToEmitter(ctx, re,
+			responsesToEmitter(ctx, emitter,
 				fsi.List(ctx)))
 		return
 	}
 
 	requests, requestErrors := manager.ParseRequests(ctx, request.Arguments...)
 	err = errors.WaitForAny(ctx, requestErrors,
-		responsesToEmitter(ctx, re,
+		responsesToEmitter(ctx, emitter,
 			fsi.Bind(ctx, requests)))
 
 	return
@@ -225,16 +314,15 @@ func responsesToEmitter(ctx context.Context, emitter cmds.ResponseEmitter, respo
 // just write responses directly to stdout
 //
 // formats responses for CLI/terminal displays
-func mountPostRunCLI(res cmds.Response, re cmds.ResponseEmitter) (err error) {
+func mountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err error) {
 	const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
 	// NOTE: We expect CLI encoding to be text.
 	// If it is, we'll format output for a terminal.
 	// Otherwise, we'll pass values through to the emitter.
 	// (which is likely: encoderMap(value) => stdout)
-	encType := cmds.GetEncoding(res.Request(), "")
 
 	var isList bool // `--list`
-	if listFlag, provided := res.Request().Options[listOptionKwd]; provided {
+	if listFlag, provided := response.Request().Options[listOptionKwd]; provided {
 		if flag, ok := listFlag.(bool); ok {
 			isList = flag
 		}
@@ -244,72 +332,49 @@ func mountPostRunCLI(res cmds.Response, re cmds.ResponseEmitter) (err error) {
 		return
 	}
 
-	var console = re.(cli.ResponseEmitter)
-	if foregroundArg, ok := res.Request().Root.Extra.GetValue("debug-foreground"); ok {
-		if isForeground, _ := foregroundArg.(bool); isForeground {
-			log.Println("foreground baybee:", isForeground)
-			foregroundCtx, foregroundCancel := context.WithCancel(res.Request().Context)
-			foregroundInstances := make([]manager.Response, 0, len(res.Request().Arguments))
-			// if this request spawned the node,
-			// block until we receive an error or an interrupt
-			defer func() {
-				log.Println("foreground run returned: ", err)
-				if err == nil {
-					if encType == cmds.Text {
-						if _, err = console.Stdout().Write([]byte("Waiting in foreground, send interrupt to cancel\n")); err != nil {
-							err = fmt.Errorf("emitter encountered an error, exiting early: %w", err)
-							return
-						}
-					}
-				} else {
-					foregroundCancel()
-				}
-
-				<-foregroundCtx.Done()
-				log.Println("foreground closing...")
-
-				// TODO: currently this is empty and the process zombies mounts in mtab
-				// we need to intercept between bind
-
-				// TODO: bail on write errors or something
-				for _, instance := range foregroundInstances {
-					console.Stdout().Write([]byte((fmt.Sprintf("closing 📖 %v ...\n", instance))))
-					switch err := instance.Close(); err {
-					case nil:
-						console.Stdout().Write([]byte((fmt.Sprintf("closed 📗 %v\n", instance))))
-					default:
-						console.Stdout().Write([]byte((fmt.Sprintf("failed to detach 📕 %v from host: %v\n", instance, err))))
-					}
-				}
-			}()
-		}
-	}
-
 	defer func() {
 		if err != nil {
 			err = cmds.Errorf(cmds.ErrNormal, "%s", err)
-			if emitterErr := re.CloseWithError(err); emitterErr != nil {
+			if emitterErr := emitter.CloseWithError(err); emitterErr != nil {
 				err = fmt.Errorf("%s - additionally an emitter error was encountered: %w", err, emitterErr)
 			}
+			return
 		}
+		postRunFuncArg, provided := response.Request().Root.Extra.GetValue(postRunFuncKey)
+		if !provided {
+			return
+		}
+
+		postFunc, isFunc := postRunFuncArg.(postRunFunc)
+		if !isFunc { // TODO: sloppy copy paste
+			const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
+			err = cmds.Errorf(cmds.ErrClient,
+				"postRun "+errParameterTypeFmt,
+				postRunFuncArg, postRunFuncArg, postFunc)
+			return
+		}
+		postFunc(response.Request().Context, response, emitter)
 	}()
 
-	if encType != cmds.Text {
-		err = mountPostRunRaw(res, re)
-		return
-	}
-
-	ctx := res.Request().Context
+	// FIXME: names, should be doList, doBind, where drawing is implicit depending on re's type
+	// NOT dependant on stdout being available
+	// e.g. pass in out and emit,
+	ctx := response.Request().Context
 	if isList {
-		err = drawList(ctx, console, res)
+		err = drawList(ctx, emitter, response)
 	} else {
-		err = drawBind(ctx, console, res)
+		err = drawBind(ctx, emitter, response)
 	}
 
 	return
 }
 
-func drawBind(ctx context.Context, console cli.ResponseEmitter, response cmds.Response) error {
+func drawBind(ctx context.Context, emitter cmds.ResponseEmitter, response cmds.Response) error {
+	console, isConsole := emitter.(cli.ResponseEmitter)
+	if !isConsole {
+		panic("output to this endpoint is not supported yet")
+	}
+
 	stringArgs := response.Request().Arguments
 	if len(stringArgs) != 0 {
 		msg := fmt.Sprintf("Attempting to bind to host system: %s...\n", strings.Join(stringArgs, ", "))
@@ -319,7 +384,7 @@ func drawBind(ctx context.Context, console cli.ResponseEmitter, response cmds.Re
 	}
 
 	// hax do better
-	responses := consoleResponseToManager(ctx, console, response)
+	responses := cmdsResponseToManagerResponse(ctx, response)
 	relay := make(chan manager.Response, len(responses))
 	var lastError error
 	//
@@ -344,10 +409,14 @@ func drawBind(ctx context.Context, console cli.ResponseEmitter, response cmds.Re
 	return lastError
 }
 
-func drawList(ctx context.Context, console cli.ResponseEmitter, response cmds.Response) error {
+func drawList(ctx context.Context, emitter cmds.ResponseEmitter, response cmds.Response) error {
 	var gotResponse bool
+	console, isConsole := emitter.(cli.ResponseEmitter)
+	if !isConsole {
+		panic("output to this endpoint is not supported yet")
+	}
 
-	responses := consoleResponseToManager(ctx, console, response)
+	responses := cmdsResponseToManagerResponse(ctx, response)
 	relay := make(chan manager.Response, len(responses))
 
 	go func() {
@@ -369,41 +438,15 @@ func drawList(ctx context.Context, console cli.ResponseEmitter, response cmds.Re
 	return err
 }
 
-// just passes responses to the emitter as-is
-// TODO: English pass
-// [magic; cmds-lib]
-// if the encoding type isn't text,
-// we don't insert any terminal-specific data in our output.
-// Instead we just relay values as-is,
-// allowing the emitter to handle them however it wants to.
-// (in this context, it's most likely going to do `cmd.EncoderMap[...](value) => stdout`)
-// This allows things like `ipfs mount --enc=json | jq ...` to work.
-func mountPostRunRaw(res cmds.Response, re cmds.ResponseEmitter) (err error) {
-	for {
-		var v interface{}
-		if v, err = res.Next(); err != nil {
-			if err == io.EOF { // no more responses
-				err = nil
-				break
-			}
-			return // some kind of emitter error was encountered
-		}
-		if err = re.Emit(v); err != nil {
-			return
-		}
-	}
-	return
-}
-
 //TODO: English
-// emitterToResponses relays emitter responses as manager.Responses,
+// cmdsResponseToManagerResponse relays emitter responses as manager.Responses,
 // if the emitter encounters an error, the response stream is closed.
-func consoleResponseToManager(ctx context.Context, console cli.ResponseEmitter, res cmds.Response) manager.Responses {
+func cmdsResponseToManagerResponse(ctx context.Context, response cmds.Response) manager.Responses {
 	responses := make(chan manager.Response)
 	go func() {
 		defer close(responses)
 		for {
-			untypedResponse, err := res.Next()
+			untypedResponse, err := response.Next()
 			if err != nil {
 				return
 				/* TODO: maybe return these in a separate error channel

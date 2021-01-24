@@ -139,8 +139,8 @@ func drawResponses(ctx context.Context, console cli.ResponseEmitter, responses m
 		defer close(relay)
 		for response := range responses { // (re)render response to the console, as a formatted table
 			scrollBack = graphics.NumLines() // start drawing this many lines above the current line
-			drawResponse(graphics, response)
-			//overdrawResponse(renderBuffer, scrollBack, graphics, response)
+			//drawResponse(graphics, response)
+			overdrawResponse(renderBuffer, scrollBack, graphics, response)
 			select {
 			case relay <- response:
 			case <-ctx.Done():
