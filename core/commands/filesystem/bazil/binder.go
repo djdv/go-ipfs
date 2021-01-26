@@ -1,5 +1,5 @@
-//go:build bazilfuse && !nofuse && !(windows || plan9 || netbsd || openbsd)
-// +build bazilfuse,!nofuse,!windows,!plan9,!netbsd,!openbsd
+//go:build !nofuse && !(windows || plan9 || netbsd || openbsd)
+// +build !nofuse,!windows,!plan9,!netbsd,!openbsd
 
 package bazil
 
@@ -15,7 +15,6 @@ import (
 	rofs "github.com/ipfs/go-ipfs/core/commands/filesystem/bazil/readonly"
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
-	"github.com/multiformats/go-multiaddr"
 )
 
 // nodeBinder mounts requests in the host FS via the Fuse API
@@ -69,8 +68,7 @@ func (ca *bazilAttacher) Bind(ctx context.Context, requests manager.Requests) ma
 			)
 
 			if ca.ID == filesystem.IPNS && len(ipfsMountpoint) == 0 { // legacy hacks from above
-				if ipfsMountpoint, err = multiaddr.Cast(request).ValueForProtocol(
-					int(filesystem.PathProtocol)); err != nil {
+				if ipfsMountpoint, err = request.ValueForProtocol(int(filesystem.PathProtocol)); err != nil {
 					goto respond
 				}
 				if len(ipfsMountpoint) == 0 {
@@ -80,7 +78,7 @@ func (ca *bazilAttacher) Bind(ctx context.Context, requests manager.Requests) ma
 				continue // ipfsPath looks valid, proceed to the next request (will be interpreted as IPNS)
 			}
 
-			mountpoint, err = multiaddr.Cast(request).ValueForProtocol(int(filesystem.PathProtocol))
+			mountpoint, err = request.ValueForProtocol(int(filesystem.PathProtocol))
 			if err != nil {
 				goto respond
 			}

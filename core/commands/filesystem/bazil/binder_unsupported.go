@@ -1,5 +1,4 @@
-//go:build bazilfuse && (windows || plan9 || netbsd || openbsd)
-// +build bazilfuse
+//go:build (windows || plan9 || netbsd || openbsd)
 // +build windows plan9 netbsd openbsd
 
 package bazil
@@ -20,9 +19,20 @@ func NewBinder(context.Context, filesystem.ID, *core.IpfsNode, bool) (manager.Bi
 
 type unsupportedBinder struct{}
 
-func (*unsupportedBinder) Bind(context.Context, manager.Requests) manager.Responses {
-	responses := make(chan manager.Response, 1)
-	responses <- manager.Response{Error: fmt.Errorf("Bazil Fuse not supported in this build")}
-	close(responses)
+func (*unsupportedBinder) Bind(ctx context.Context, requests manager.Requests) manager.Responses {
+	responses := make(chan manager.Response, len(requests))
+	go func() {
+		defer close(responses)
+		for request := range requests {
+			select {
+			case responses <- manager.Response{
+				Request: request,
+				Error:   fmt.Errorf("Bazil Fuse not supported in this build"),
+			}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	return responses
 }

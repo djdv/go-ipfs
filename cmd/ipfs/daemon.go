@@ -722,6 +722,7 @@ func serveFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Enviro
 		return
 	}
 
+	// TODO [current]: merge with mount postrun
 	// spawn the cleanup routine
 	daemonChan := make(chan error)
 	errChan = daemonChan
@@ -730,12 +731,12 @@ func serveFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Enviro
 		timeout, cancel := context.WithTimeout(req.Context, 60*time.Second)
 		defer cancel()
 		for instance := range fsi.List(timeout) {
-			re.Emit(fmt.Sprintf("closing 📖 %v ...\n", instance))
+			re.Emit(fmt.Sprintf("closing %v ...\n", instance))
 			switch err := instance.Close(); err {
 			case nil:
-				re.Emit(fmt.Sprintf("closed 📗 %v\n", instance))
+				re.Emit(fmt.Sprintf("✔ closed: %v\n", instance))
 			default:
-				re.Emit(fmt.Sprintf("failed to detach 📕 %v from host: %v\n", instance, err))
+				re.Emit(fmt.Sprintf("⚠ failed to close: %v - %v\n", instance, err))
 				daemonChan <- err
 			}
 		}

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/ipfs/go-ipfs/filesystem/manager/errors"
 	"github.com/multiformats/go-multiaddr"
@@ -15,27 +14,20 @@ import (
 type (
 	// Request is a Multiaddr formatted message, containing file system relevant values
 	// (such as a file system API, target, etc.)
-	Request []byte // TODO: if we can use `Multiaddr` directly, we should. But I think we need a concrete implementation for RPC encoding.
+	Request multiaddr.Multiaddr
 	// Requests is simply a series of requests.
 	Requests = <-chan Request
 
 	// Response contains the request that initiated it,
 	// along with an error (if encountered).
 	Response struct {
-		Request   `json:"request"`
-		Error     error      `json:"error,omitempty"`
-		io.Closer `json:"-"` // local only field, do not try to send/receive from an encoder
+		Request
+		Error error
+		io.Closer
 	}
 	// Responses is simply a series of responses.
 	Responses = <-chan Response
 )
-
-func (r Request) String() string {
-	if len(r) == 0 {
-		return "FIXME-VALUE: multiaddr was empty" // TODO: change when done testing
-	}
-	return multiaddr.Cast(r).String()
-}
 
 type (
 	// Interface accepts bind `Request`s,
@@ -78,7 +70,7 @@ func ParseRequests(ctx context.Context, arguments ...string) (Requests, errors.S
 				return
 			}
 			select {
-			case requests <- Request(ma.Bytes()):
+			case requests <- ma:
 			case <-ctx.Done():
 				return
 			}
@@ -87,44 +79,37 @@ func ParseRequests(ctx context.Context, arguments ...string) (Requests, errors.S
 	return requests, errors
 }
 
-func (resp Response) MarshalJSON() ([]byte, error) {
-	var errStr string
-	if resp.Error != nil {
-		errStr = resp.Error.Error()
+type encodableResponse struct {
+	Request []byte `json:"request"`
+	Error   string `json:"error,omitempty" xml:",omitempty"`
+}
+
+func (response Response) MarshalJSON() ([]byte, error) {
+	if response.Request == nil {
+		return nil, fmt.Errorf("response's Request field must be populated")
 	}
 
-	return json.Marshal(struct {
-		Request `json:"request"`
-		Error   string `json:"error,omitempty"`
-	}{
-		Request: resp.Request,
-		Error:   errStr,
-	})
+	encoded := encodableResponse{Request: response.Bytes()}
+	if response.Error != nil {
+		encoded.Error = response.Error.Error()
+	}
+
+	return json.Marshal(encoded)
 }
 
 func (resp *Response) UnmarshalJSON(b []byte) (err error) {
 	if len(b) < 2 || bytes.Equal(b, []byte("{}")) {
+		err = fmt.Errorf("response was empty or short")
 		return
 	}
 
-	var mock struct {
-		Request `json:"request"`
-		Error   string `json:"error,omitempty"`
-	}
+	decoded := new(encodableResponse)
+	json.Unmarshal(b, decoded)
 
-	if err = json.Unmarshal(b, &mock); err != nil {
-		return
+	if decoded.Error != "" {
+		resp.Error = fmt.Errorf(decoded.Error)
 	}
-	resp.Request = mock.Request
-
-	switch errStr := mock.Error; {
-	case errStr == "":
-	case strings.Contains(errStr, errUnwound.Error()):
-		resp.Error = errUnwound
-	default:
-		resp.Error = fmt.Errorf(errStr)
-	}
-
+	resp.Request, err = multiaddr.NewMultiaddrBytes(decoded.Request)
 	return
 }
 

@@ -54,9 +54,6 @@ func (ci indices) List(ctx context.Context) <-chan manager.Response {
 	return respChan
 }
 
-// TODO: dangerous(trusting) and gross
-// either fix this up or delete it
-// we may also use an alternate method of dispatching requests and returning their responses
 func prefixResponses(ctx context.Context, header requestHeader, responses manager.Responses) manager.Responses {
 	respChan := make(chan manager.Response)
 	base, _ := multiaddr.NewComponent(header.API.String(), header.ID.String())
@@ -64,9 +61,9 @@ func prefixResponses(ctx context.Context, header requestHeader, responses manage
 		defer close(respChan)
 		for response := range responses {
 			if response.Request != nil {
-				response.Request = base.Encapsulate(multiaddr.Cast(response.Request)).Bytes()
+				response.Request = base.Encapsulate(response.Request)
 			} else {
-				response.Request = base.Bytes()
+				response.Request = base
 			}
 			select {
 			case respChan <- response:
@@ -154,7 +151,7 @@ func commitResponsesTo(index index) responseHandlerFunc {
 			instance := responses[i]
 			// TODO: we need a standard `request=>indexKey` hashing function
 			// anything to prevent duplicate entries
-			key, _ := multiaddr.Cast(instance.Request).ValueForProtocol(int(filesystem.PathProtocol))
+			key, _ := instance.Request.ValueForProtocol(int(filesystem.PathProtocol))
 			index.store(key, &instance)
 		}
 		return noResponse

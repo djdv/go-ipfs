@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ipfs/go-ipfs-cmds/cli"
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
 	"github.com/multiformats/go-multiaddr"
@@ -64,11 +63,15 @@ func newTableFormatter(writer io.Writer) *tablewriter.Table {
 	return table
 }
 
+// XXX: sloppy
 func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) {
 	row := make([]string, tableWidth)
-	if maddr, err := multiaddr.NewMultiaddrBytes(resp.Request); err == nil {
-		// retrieve row data from the multiaddr (if any)
-		multiaddr.ForEach(multiaddr.Cast(resp.Request), func(com multiaddr.Component) bool {
+	maddr := resp.Request
+
+	if maddr == nil {
+		resp.Error = maybeWrap(fmt.Errorf("response request field is empty"), resp.Error)
+	} else { // retrieve row data from the multiaddr (if any)
+		multiaddr.ForEach(maddr, func(com multiaddr.Component) bool {
 			proto := com.Protocol()
 			switch proto.Code {
 			case int(filesystem.Fuse):
@@ -96,8 +99,6 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 			}
 			return true
 		})
-	} else {
-		resp.Error = maybeWrap(resp.Error, err)
 	}
 
 	// create the corresponding color values for the table's row
@@ -124,21 +125,22 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 	return row, rowColors
 }
 
-// drawResponses renders the response stream to this console's output,
+// drawResponses renders the response stream to a CLI response emitter.
+// If the emitter passed in is not a console, or the encoding is not text, the stream will be relayed.
+//and the encoding is
 // and relays the stream as it's received.
-func drawResponses(ctx context.Context, console cli.ResponseEmitter, responses manager.Responses) manager.Responses {
+func drawResponses(ctx context.Context, renderBuffer io.Writer, responses manager.Responses) manager.Responses {
 	var (
-		relay = make(chan manager.Response)
-
-		scrollBack   int
-		renderBuffer = console.Stdout()
-		graphics     = newTableFormatter(renderBuffer)
+		relay      = make(chan manager.Response)
+		graphics   = newTableFormatter(renderBuffer)
+		scrollBack int
 	)
 
 	go func() {
 		defer close(relay)
 		for response := range responses { // (re)render response to the console, as a formatted table
 			scrollBack = graphics.NumLines() // start drawing this many lines above the current line
+			// NOTE: when debugging you probably want to comment out one or both of these
 			//drawResponse(graphics, response)
 			overdrawResponse(renderBuffer, scrollBack, graphics, response)
 			select {

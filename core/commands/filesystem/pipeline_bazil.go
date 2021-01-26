@@ -1,5 +1,5 @@
-//go:build bazilfuse && !nofuse
-// +build bazilfuse,!nofuse
+//go:build !nofuse
+// +build !nofuse
 
 package fscmds
 

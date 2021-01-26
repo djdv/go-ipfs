@@ -34,13 +34,11 @@ func splitRequest(request manager.Request) (hostAPI filesystem.API, nodeAPI file
 	}()
 
 	var ( // decapsulation
-		header, maddrRemainder = multiaddr.SplitFirst(multiaddr.Cast(request))
-		hostProtocol           = header.Protocol().Code
-		nodeProtocol           int
+		header                     *multiaddr.Component
+		hostProtocol, nodeProtocol int
 	)
-	if maddrRemainder != nil {
-		remainder = manager.Request(maddrRemainder.Bytes())
-	}
+	header, remainder = multiaddr.SplitFirst(request)
+	hostProtocol = header.Protocol().Code
 	if nodeProtocol, _, err = multiaddr.ReadVarintCode(header.RawValue()); err != nil {
 		return
 	}

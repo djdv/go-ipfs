@@ -3,7 +3,6 @@ module github.com/ipfs/go-ipfs
 require (
 	bazil.org/fuse v0.0.0-20200117225306-7b5117fecadc
 	contrib.go.opencensus.io/exporter/prometheus v0.2.0
-	github.com/blang/semver v3.5.1+incompatible
 	github.com/bren2010/proquint v0.0.0-20160323162903-38337c27106d
 	github.com/cheggaaa/pb v1.0.29
 	github.com/coreos/go-systemd/v22 v22.1.0
@@ -113,3 +112,7 @@ require (
 )
 
 go 1.14
+
+replace github.com/ipfs/go-fs-lock => github.com/djdv/go-fs-lock v0.0.7-0.20210125082851-589884c5a58c
+
+replace go4.org => github.com/djdv/go4 v0.0.0-20210128053858-2ef2978747da

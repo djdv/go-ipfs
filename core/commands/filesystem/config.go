@@ -75,7 +75,7 @@ func fillFuseConfig(ctx context.Context, nodeConf *config.Config,
 			if request == nil { // request contains no (body) value (header only), use default value below
 				err = multiaddr.ErrProtocolNotFound
 			} else { //  request may contain the value we expect, check for it and handle error below
-				_, err = multiaddr.Cast(request).ValueForProtocol(int(filesystem.PathProtocol))
+				_, err = request.ValueForProtocol(int(filesystem.PathProtocol))
 			}
 
 			switch err {
@@ -91,18 +91,15 @@ func fillFuseConfig(ctx context.Context, nodeConf *config.Config,
 					err = fmt.Errorf("protocol %v has no config value", nodeAPI)
 					goto respond // I'll argue about the label being on L:97 via goto vs L:77 via break
 				}
-				var configComponent *multiaddr.Component // marshal string -> request
-				if configComponent, err = multiaddr.NewComponent(filesystem.PathProtocol.String(), requestMountpoint); err != nil {
-					break
-				}
-				request = configComponent.Bytes() // output request is ready to be sent
+				// marshal strings -> maddr/request
+				request, err = multiaddr.NewComponent(filesystem.PathProtocol.String(), requestMountpoint)
 			}
 
 		respond:
 			if err != nil {
 				select {
-				case <-ctx.Done():
 				case errors <- err:
+				case <-ctx.Done():
 				}
 				return
 			}

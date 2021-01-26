@@ -1,5 +1,5 @@
-//go:build bazilfuse && !nofuse && !(windows || plan9 || netbsd || openbsd)
-// +build bazilfuse,!nofuse,!windows,!plan9,!netbsd,!openbsd
+//go:build !nofuse && !(windows || plan9 || netbsd || openbsd)
+// +build !nofuse,!windows,!plan9,!netbsd,!openbsd
 
 // package fuse/ipns implements a fuse filesystem that interfaces
 // with ipns, the naming system for ipfs.
