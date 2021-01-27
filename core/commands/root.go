@@ -136,6 +136,7 @@ var rootSubcommands = map[string]*cmds.Command{
 	"log":       LogCmd,
 	"ls":        LsCmd,
 	"mount":     fscmds.Mount,
+	"unmount":   fscmds.Unmount,
 	"name":      name.NameCmd,
 	"object":    ocmd.ObjectCmd,
 	"pin":       pin.PinCmd,

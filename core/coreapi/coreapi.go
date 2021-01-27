@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	bserv "github.com/ipfs/go-blockservice"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
@@ -36,9 +37,11 @@ import (
 	routing "github.com/libp2p/go-libp2p-core/routing"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	record "github.com/libp2p/go-libp2p-record"
+	"github.com/multiformats/go-multiaddr"
 
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/node"
+	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/namesys"
 	"github.com/ipfs/go-ipfs/repo"
 )
@@ -191,11 +194,24 @@ func (api *CoreAPI) WithOptions(opts ...options.ApiOption) (coreiface.CoreAPI, e
 	}
 
 	subApi.checkPublishAllowed = func() error {
-		/*
-			if n.Mounts.Ipns != nil && n.Mounts.Ipns.IsActive() {
-				return errors.New("cannot manually publish while IPNS is mounted")
+		if n.FileSystem == nil {
+			return nil
+		}
+		var ipnsTargets []string
+		for instance := range n.FileSystem.List(n.Context()) { // TODO: implicit ctx timeout?
+			header, _ := multiaddr.SplitFirst(instance.Request)
+			nodeProtocol, _, err := multiaddr.ReadVarintCode(header.RawValue())
+			if err != nil {
+				return err
 			}
-		*/
+			if filesystem.ID(nodeProtocol) == filesystem.IPNS {
+				ipnsTargets = append(ipnsTargets, instance.String())
+			}
+		}
+		if len(ipnsTargets) != 0 {
+			return fmt.Errorf("cannot publish while IPNS is mounted: %s",
+				strings.Join(ipnsTargets, ", "))
+		}
 		return nil
 	}
 

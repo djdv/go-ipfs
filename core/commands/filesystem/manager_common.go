@@ -36,9 +36,19 @@ type (
 	indices map[indexKey]*manager.Response
 )
 
-func newIndex() index                                          { return make(indices) }
-func (ci indices) fetch(key indexKey) *manager.Response        { return ci[key] }
-func (ci indices) store(key indexKey, value *manager.Response) { ci[key] = value }
+type closer func() error      // io.Closer closure wrapper
+func (f closer) Close() error { return f() }
+
+func newIndex() index                                   { return make(indices) }
+func (ci indices) fetch(key indexKey) *manager.Response { return ci[key] }
+func (ci indices) store(key indexKey, value *manager.Response) {
+	ci[key] = value
+	original := value.Closer
+	value.Closer = closer(func() error {
+		delete(ci, key)         //FIXME: this isn't concurrent safe and will crash;
+		return original.Close() // index needs a rwmutex or some sempahore
+	})
+}
 func (ci indices) List(ctx context.Context) <-chan manager.Response {
 	respChan := make(chan manager.Response)
 	go func() {
@@ -158,6 +168,7 @@ func commitResponsesTo(index index) responseHandlerFunc {
 	}
 }
 
+// TODO: lint?
 func closeResponses(responses []manager.Response) manager.Responses {
 	undoneStatusMessages := make(chan manager.Response, len(responses))
 	for i := len(responses) - 1; i != -1; i-- {
