@@ -55,7 +55,7 @@ type (
 // ParseRequests inspects the input strings and transforms them into a series of typed `Request`s if possible.
 // Closing the output streams on cancel or an encountered error.
 func ParseRequests(ctx context.Context, arguments ...string) (Requests, errors.Stream) {
-	requests, errors := make(chan Request), make(chan error)
+	requests, errors := make(chan Request, len(arguments)), make(chan error)
 	go func() {
 		defer close(requests)
 		defer close(errors)
@@ -69,6 +69,7 @@ func ParseRequests(ctx context.Context, arguments ...string) (Requests, errors.S
 				}
 				return
 			}
+
 			select {
 			case requests <- ma:
 			case <-ctx.Done():
@@ -112,7 +113,3 @@ func (resp *Response) UnmarshalJSON(b []byte) (err error) {
 	resp.Request, err = multiaddr.NewMultiaddrBytes(decoded.Request)
 	return
 }
-
-// TODO: move this or export it; duplicated across pkgs currently
-// we may need a string type that maps to concrete errors via Unwrap or something
-var errUnwound = fmt.Errorf("binding undone")

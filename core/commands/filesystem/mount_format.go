@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"strings"
+	"time"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs-cmds/cli"
@@ -153,5 +154,31 @@ func emitList(ctx context.Context, emitter cmds.ResponseEmitter, response cmds.R
 		err = decoWrite("No active instances\n")
 	}
 
+	return
+}
+
+func emitBindPostrun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Environment) (err error) {
+	encType := cmds.GetEncoding(request, "")
+	consoleOut, _ := printXorRelay(encType, emitter)
+	decoWrite := func(s string) (err error) { _, err = consoleOut.Write([]byte(s)); return }
+
+	if err := decoWrite("Waiting in foreground, send interrupt to cancel\n"); err != nil {
+		return fmt.Errorf("emitter encountered an error, exiting early: %w", err)
+	}
+	<-request.Context.Done()
+
+	// derive an `unmount` sub-request and execute it with an independant context
+	var unmountRequest *cmds.Request
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel() // TODO: duration value is arbitrary; should be const somewhere too
+
+	unmountRequest, err = cmds.NewRequest(ctx,
+		[]string{UnmountParameter}, cmds.OptMap{cmds.EncLong: request.Options[cmds.EncLong], // inherit encoding
+			unmountAllOptionKwd: true}, // detach all
+		nil, nil,
+		request.Root)
+	if err == nil {
+		err = cmds.NewExecutor(request.Root).Execute(unmountRequest, emitter, env)
+	}
 	return
 }

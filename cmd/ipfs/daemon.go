@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	_ "expvar"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"runtime"
 	"sort"
 	"sync"
-	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
 	version "github.com/ipfs/go-ipfs"
@@ -391,15 +389,15 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	}
 	node.Process.AddChild(goprocess.WithTeardown(cctx.Plugins.Close))
 
-	// construct api endpoint - every time
-	apiErrc, err := serveHTTPApi(req, cctx)
+	// construct the file system service - every time
+	// if mount flags are present, a `mount` command is also executed
+	fsErrc, err := serveFileSystem(req, re, env, node)
 	if err != nil {
 		return err
 	}
 
-	// construct the file system service
-	// if mount flags are present, a `mount` command is also executed
-	fsErrc, err := serveFileSystem(req, re, env, node)
+	// construct api endpoint - every time
+	apiErrc, err := serveHTTPApi(req, cctx)
 	if err != nil {
 		return err
 	}
@@ -693,25 +691,20 @@ func serveHTTPGateway(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, e
 // Also relays requests to `ipfs mount` if arguments for it are provided in the `ipfs daemon` request.
 func serveFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment, node *core.IpfsNode) (errChan <-chan error, err error) {
 	// parse the request's fs related flags
-	const errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
-
 	var doMount bool // `--mount`
 	if mountFlag, provided := req.Options[mountKwd]; provided {
-		if flag, ok := mountFlag.(bool); ok {
+		if flag, isBool := mountFlag.(bool); isBool {
 			doMount = flag
+		} else {
+			err = paramError(mountKwd, mountFlag, doMount)
+			return
 		}
-		err = cmds.Errorf(cmds.ErrClient,
-			"mount "+errParameterTypeFmt,
-			mountFlag, mountFlag, doMount)
-		return
 	}
 
 	var mountTargets []string // if `--mount-path` is provided, `--mount` becomes implied
 	if mountArgs, provided := req.Options[mountPathKwd]; provided {
 		if mountTargets, doMount = mountArgs.([]string); !doMount {
-			err = cmds.Errorf(cmds.ErrClient,
-				"mount "+errParameterTypeFmt,
-				mountArgs, mountArgs, mountTargets)
+			err = paramError(mountKwd, mountArgs, mountTargets)
 			return
 		}
 	}
@@ -722,48 +715,48 @@ func serveFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Enviro
 		return
 	}
 
-	// TODO [current]: merge with mount postrun
-	// spawn the cleanup routine
+	// spawn its cleanup routine
 	daemonChan := make(chan error)
 	errChan = daemonChan
 	go func() {
+		defer close(daemonChan)
 		<-node.Context().Done() // wait until node shutdown
-		timeout, cancel := context.WithTimeout(req.Context, 60*time.Second)
-		defer cancel()
-		for instance := range fsi.List(timeout) {
-			re.Emit(fmt.Sprintf("closing %v ...\n", instance))
-			switch err := instance.Close(); err {
-			case nil:
-				re.Emit(fmt.Sprintf("✔ closed: %v\n", instance))
-			default:
-				re.Emit(fmt.Sprintf("⚠ failed to close: %v - %v\n", instance, err))
-				daemonChan <- err
-			}
+
+		// derive an `unmount` sub-request and execute it
+		var unmountRequest *cmds.Request
+		if unmountRequest, err = cmds.NewRequest(req.Context,
+			[]string{fscmds.UnmountParameter}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong], // inherit encoding
+				"all": true}, // detach all
+			nil, nil,
+			req.Root); err == nil {
+			err = cmds.NewExecutor(req.Root).Execute(unmountRequest, re, env)
 		}
-		close(daemonChan)
+		if err != nil {
+			daemonChan <- err
+		}
+		return
 	}()
 
-	node.FileSystem = fsi
-	if !doMount { // only set up the interface, don't call it
+	node.FileSystem = fsi // bind the service to the node
+	if !doMount {         // returning if mount wasn't also requested
 		return
 	}
 
 	// derive a `mount` sub-request and execute it
 	var mountRequest *cmds.Request
 	if mountRequest, err = cmds.NewRequest(req.Context,
-		[]string{mountKwd}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong]}, // "mount" `Command`, inherit encoding
-		mountTargets, // possibly with arguments
-		nil, req.Root,
-	); err == nil {
-		//var subEmitter cli.ResponseEmitter
-		//if subEmitter, err = cli.NewResponseEmitter(os.Stdout, os.Stderr, mountRequest); err != nil {
-		//return
-		//}
-		//err = cmds.NewExecutor(req.Root).Execute(mountRequest, subEmitter, env)
+		[]string{mountKwd}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong]}, // inherit encoding
+		mountTargets, // possibly inherit arguments
+		nil, req.Root); err == nil {
 		err = cmds.NewExecutor(req.Root).Execute(mountRequest, re, env)
 	}
-
 	return
+}
+
+func paramError(parameterName string, argument interface{}, expectedType interface{}) error {
+	return cmds.Errorf(cmds.ErrClient,
+		parameterName+" argument (%v) is type: %T, expecting type: %T",
+		argument, argument, expectedType)
 }
 
 func maybeRunGC(req *cmds.Request, node *core.IpfsNode) <-chan error {

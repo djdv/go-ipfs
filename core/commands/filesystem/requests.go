@@ -3,6 +3,7 @@ package fscmds
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
@@ -65,35 +66,33 @@ func splitRequest(request manager.Request) (hostAPI filesystem.API, nodeAPI file
 	return
 }
 
-// TODO: still needs a review pass
-// splitRequests takes in a stream of requests and returns a channel for each unique request header it finds
+// splitRequests divides the request stream into a series of sections,
+// deliniated by request header data.
 func splitRequests(ctx context.Context, requests manager.Requests) (sectionStream, errors.Stream) {
 	sections, errors := make(chan section), make(chan error)
-	sectionIndex := make(map[requestHeader]chan manager.Request)
+	sectionIndex := make(map[requestHeader]chan manager.Request) // TODO: aloc:cIDStart-cEnd
+
 	go func() {
 		defer close(sections)
 		defer close(errors)
+		var requestsWg sync.WaitGroup
 		for request := range requests {
-			hostAPI, nodeAPI, apiRequest, err := splitRequest(request)
+			hostAPI, nodeAPI, body, err := splitRequest(request)
 			if err != nil {
 				select {
 				case errors <- err:
 				case <-ctx.Done():
 				}
-				return // bail in either case
+				return
 			}
 
 			header := requestHeader{API: hostAPI, ID: nodeAPI}
+			requestDestination, alreadyMade := sectionIndex[header]
 
-			// create a stream to send this request on
-			// or use an existing one we made before
-			requestDestination, exists := sectionIndex[header]
-			if !exists {
-				requestDestination = make(chan manager.Request, 1)
+			if !alreadyMade {
+				requestDestination = make(chan manager.Request)
 				sectionIndex[header] = requestDestination
-
-				requestDestination <- apiRequest // buffer the (sub-)request
-				select {                         // and block on the section send
+				select { // send the (new) section to the caller
 				case sections <- section{
 					requestHeader: header,
 					Requests:      requestDestination,
@@ -101,18 +100,25 @@ func splitRequests(ctx context.Context, requests manager.Requests) (sectionStrea
 				case <-ctx.Done():
 					return
 				}
-			} else { // section is already in the hands of the caller
-				select { // block on (sub-)request send
-				case requestDestination <- apiRequest:
+			}
+
+			// send this request body to its specific section
+			requestsWg.Add(1)
+			go func() {
+				defer requestsWg.Done()
+				select {
+				case requestDestination <- body:
 				case <-ctx.Done():
 					return
 				}
+			}()
+		}
+		go func() { // wait for all requests to be sent before closing substreams
+			requestsWg.Wait()
+			for _, sectionStream := range sectionIndex {
+				close(sectionStream)
 			}
-		}
-
-		for _, sectionStream := range sectionIndex {
-			close(sectionStream)
-		}
+		}()
 	}()
 
 	return sections, errors

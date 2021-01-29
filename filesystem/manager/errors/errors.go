@@ -6,20 +6,17 @@ import (
 	"sync"
 )
 
-// TODO: scrutinize these functions
-// they're small, but important for synchronizing
-
 type Stream = <-chan error
 
 func Combine(errorStreams ...Stream) Stream {
-
 	switch len(errorStreams) {
-	case 0: // this is most likely a logical error caller side, don't allow it
-		panic("errors.Combine: no arguments provided; won't combine nothing")
-	case 1: // TODO: justify 0 being disallowed and 1 being allowed; or rethink pipeline sink construction
+	case 0:
+		empty := make(chan error)
+		close(empty)
+		return empty
+	case 1:
 		return errorStreams[0]
 	}
-
 	mergedStream := make(chan error)
 
 	var wg sync.WaitGroup
@@ -40,8 +37,9 @@ func Combine(errorStreams ...Stream) Stream {
 }
 
 func Merge(ctx context.Context, errorStreams <-chan Stream) Stream {
+	mergedStream := make(chan error, len(errorStreams))
+
 	var wg sync.WaitGroup
-	mergedStream := make(chan error)
 	mergeFrom := func(errors Stream) {
 		defer wg.Done()
 		for err := range errors {
@@ -52,12 +50,14 @@ func Merge(ctx context.Context, errorStreams <-chan Stream) Stream {
 			}
 		}
 	}
+
 	go func() {
 		for errors := range errorStreams {
 			wg.Add(1)
-			mergeFrom(errors)
+			go mergeFrom(errors)
 		}
-		go func() { wg.Wait(); close(mergedStream) }()
+		wg.Wait()
+		close(mergedStream)
 	}()
 	return mergedStream
 }

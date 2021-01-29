@@ -16,9 +16,10 @@ import (
 // higher the better
 // terminology needs to be checked (lisp magic)
 
-// NOTE/TODO: we trust there to be no duplicate sections in the stream
+// NOTE: we trust there to be no duplicate sections in the stream
+// (run through a request filter before us)
 func interlaceIPNSRequests(ctx context.Context, sections sectionStream) sectionStream {
-	relay := make(chan section)
+	relay := make(chan section, len(sections))
 	go func() {
 		defer close(relay)
 
@@ -63,8 +64,8 @@ func interlaceIPNSRequests(ctx context.Context, sections sectionStream) sectionS
 			case <-ctx.Done():
 				return
 			}
-			fallthrough // the next case will use the cloned future value if we fallthrough
-		case promises.ipfs != nil: // or the original promise value otherwise
+			fallthrough // The next case will use the cloned future values^ if we fallthrough
+		case promises.ipfs != nil: // or the original promise values otherwise.
 			select {
 			case relay <- *promises.ipfs:
 			case <-ctx.Done():

@@ -13,7 +13,6 @@ import (
 )
 
 func NewBinder(context.Context, filesystem.ID, *core.IpfsNode, bool) (manager.Binder, error) {
-	//return nil, errors.New("bazil Fuse support is not built into this binary")
 	return new(unsupportedBinder), nil
 }
 

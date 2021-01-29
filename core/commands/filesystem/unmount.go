@@ -14,15 +14,17 @@ import (
 const (
 	UnmountParameter           = "unmount"
 	UnmountArgumentDescription = "Multiaddr style targets to bind with host. (/fuse/ipfs/path/ipfs)"
+	unmountAllOptionKwd        = "all"
 )
 
 var Unmount = &cmds.Command{
-	//TODO Options: append(sharedOpts,
-	//	cmds.BoolOption(unmountAllKwd, "a", unmountAllDesc)),
-	Arguments: []cmds.Argument{
-		cmds.StringArg("targets", true, true, MountArgumentDescription),
+	Options: []cmds.Option{
+		cmds.BoolOption(unmountAllOptionKwd, "a", "close all active instances"),
 	},
-	//PreRun: unmountPreRun,
+	Arguments: []cmds.Argument{
+		cmds.StringArg("targets", false, true, MountArgumentDescription),
+	},
+	//PreRun: unmountPreRun, // TODO: make sure len(targets) == 0 if -a provided, otherwise error
 	Run: unmountRun,
 	PostRun: cmds.PostRunMap{
 		cmds.CLI: unmountPostRunCLI,
@@ -38,27 +40,48 @@ var Unmount = &cmds.Command{
 
 // TODO: whole file is quick hacks to get working
 
-func unmountRun(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) error {
+func unmountRun(request *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) error {
 	node, err := cmdenv.GetNode(env)
 	if err != nil {
 		return err
 	}
 
+	var closeAll bool // `--all`
+	if allFlag, provided := request.Options[unmountAllOptionKwd]; provided {
+		if flag, isBool := allFlag.(bool); isBool {
+			closeAll = flag
+		} else {
+			return paramError(unmountAllOptionKwd, allFlag, closeAll)
+		}
+	}
+
+	var match func(instance manager.Response) bool
+	if closeAll {
+		match = func(manager.Response) bool { return true }
+	} else {
+		match = func(instance manager.Response) bool {
+			for _, instanceTarget := range request.Arguments {
+				if instance.String() == instanceTarget {
+					return true
+				}
+			}
+			return false
+		}
+	}
+
 	var wg sync.WaitGroup
-	for instance := range node.FileSystem.List(req.Context) {
+	for instance := range node.FileSystem.List(request.Context) {
 		wg.Add(1)
 		go func(instance manager.Response) {
 			defer wg.Done()
-			for _, instanceTarget := range req.Arguments {
-				if instance.String() == instanceTarget {
-					instance.Error = instance.Close()
-					re.Emit(instance) // TODO err
-				}
+			if match(instance) {
+				instance.Error = instance.Close()
+				err = re.Emit(instance) // TODO emitter's error
 			}
 		}(instance)
 	}
 	wg.Wait()
-	return nil
+	return err
 }
 
 func unmountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err error) {
@@ -66,7 +89,8 @@ func unmountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (er
 	consoleOut, emit := printXorRelay(encType, emitter)
 	decoWrite := func(s string) (err error) { _, err = consoleOut.Write([]byte(s)); return }
 
-	decoWrite(fmt.Sprintf("Closing: %s\n",
+	// TODO: different message for closeAll
+	decoWrite(fmt.Sprintf("closing: %s\n",
 		strings.Join(response.Request().Arguments, ", ")))
 
 	ctx := response.Request().Context

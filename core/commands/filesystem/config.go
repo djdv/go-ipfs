@@ -11,19 +11,10 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-// TODO: too many words, it just splits and fills in empties, relaying unknowns, basically.
-// move some of the section header documentation stuff
-//
-// fillFromConfig separates a request from its header,
-// and compares sub-request input values, with corresponding settings in the config.
-// (filling in missing sub-request value's if the config has one, and the request does not)
-//
-// Returns a stream of request headers, which map to a stream of sub-requests.
-// If a request has a valid header that the config does not,
-// the sub-request values are relayed unmodified;
-// e.g. input `/namespace1/namespace2` results in `Request(nil)`
-// when reading from `<-Header{namespace1;namespace2}.Requests`.
-// (since the input request was valid, but contained no sub portion such as `/path/somewhere`)
+// fillFromConfig checks requests against sections in the config.
+// If the request is missing values and the config has a section for it,
+// the value is substituted with the config's in the output streams.
+// Unrecognized requests with valid headers are relayed as-is in their section stream.
 func fillFromConfig(ctx context.Context,
 	config *config.Config, requests manager.Requests) (sectionStream, errors.Stream) {
 
@@ -34,11 +25,8 @@ func fillFromConfig(ctx context.Context,
 	go func() {
 		defer close(relay)
 		defer close(combinedErrors)
-
 		for section := range sections {
 			switch section.API {
-			// send sub-request value through a specific config section handler
-			// mapping the sub-request stream, and merging the sub-error stream into ours
 			case filesystem.Fuse:
 				fuseRequests, fuseErrors := fillFuseConfig(ctx, config, section.ID, section.Requests)
 				section.Requests = fuseRequests
@@ -63,39 +51,32 @@ func fillFromConfig(ctx context.Context,
 // provides values for requests, from config
 func fillFuseConfig(ctx context.Context, nodeConf *config.Config,
 	nodeAPI filesystem.ID, requests manager.Requests) (manager.Requests, errors.Stream) {
-
 	relay, errors := make(chan manager.Request), make(chan error)
 
 	go func() {
 		defer close(relay)
 		defer close(errors)
-
-		for request := range requests { // NOTE: request variable is re-used as the response value at end of loop
-			var err error
+		var err error
+		for request := range requests {
 			if request == nil { // request contains no (body) value (header only), use default value below
 				err = multiaddr.ErrProtocolNotFound
 			} else { //  request may contain the value we expect, check for it and handle error below
 				_, err = request.ValueForProtocol(int(filesystem.PathProtocol))
 			}
-
 			switch err {
 			case nil: // request has expected values, proceed
 			case multiaddr.ErrProtocolNotFound: // request is missing a target value
-				var requestMountpoint string
 				switch nodeAPI { // supply one from the config's value
 				case filesystem.IPFS:
-					requestMountpoint = nodeConf.Mounts.IPFS
+					request, err = multiaddr.NewComponent(filesystem.PathProtocol.String(),
+						nodeConf.Mounts.IPFS)
 				case filesystem.IPNS:
-					requestMountpoint = nodeConf.Mounts.IPNS
-				default: // self explanatory
+					request, err = multiaddr.NewComponent(filesystem.PathProtocol.String(),
+						nodeConf.Mounts.IPNS)
+				default:
 					err = fmt.Errorf("protocol %v has no config value", nodeAPI)
-					goto respond // I'll argue about the label being on L:97 via goto vs L:77 via break
 				}
-				// marshal strings -> maddr/request
-				request, err = multiaddr.NewComponent(filesystem.PathProtocol.String(), requestMountpoint)
 			}
-
-		respond:
 			if err != nil {
 				select {
 				case errors <- err:

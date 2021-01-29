@@ -5,7 +5,6 @@ import (
 	goerrors "errors"
 	"fmt"
 	"strings"
-	"time"
 
 	fslock "github.com/ipfs/go-fs-lock"
 	cmds "github.com/ipfs/go-ipfs-cmds"
@@ -20,8 +19,6 @@ const (
 	MountParameter           = "mount"
 	MountArgumentDescription = "Multiaddr style targets to bind with host. (/fuse/ipfs/path/ipfs)"
 	listOptionKwd            = "list"
-
-	errParameterTypeFmt = "argument (%v) is type: %T, expecting type: %T"
 )
 
 var Mount = &cmds.Command{
@@ -117,11 +114,13 @@ func registerSubcommands(parent *cmds.Command) {
 	parent.Subcommands = subcommands
 }
 
-// TODO: emitter should probably be typecast inside of postrun, accepting the general cmds.RE instead
-type postRunFunc func(context.Context, cmds.Response, cmds.ResponseEmitter) errors.Stream
-
 // TODO: this is for debugging and is about to be blown away; everything we do in post-post run should happen directly in post-run (next-commit)
-const postRunFuncKey = "👻" // arbitrary index value that's smaller than its description
+const postRunKey = "👻" // arbitrary index value that's smaller than its description
+type mountExtra struct {
+	manager.Interface
+	cmds.Environment
+}
+type postRunFunc func(context.Context, cmds.Response, cmds.ResponseEmitter) errors.Stream
 
 func mountPreRun(request *cmds.Request, env cmds.Environment) (err error) {
 	if len(request.Arguments) == 0 {
@@ -131,12 +130,12 @@ func mountPreRun(request *cmds.Request, env cmds.Environment) (err error) {
 		}
 	}
 
-	err = maybeSetPostRunFunc(request, env)
+	err = maybeSetPostRunExtra(request, env)
 	return
 }
 
 // special handling for things like local-only requests
-func maybeSetPostRunFunc(request *cmds.Request, env cmds.Environment) (err error) {
+func maybeSetPostRunExtra(request *cmds.Request, env cmds.Environment) (err error) {
 	// HACK: we need to do this, but properly
 	// if the daemon already has the lock, don't do anything
 	// otherwise, make the fsi and attach it to the node
@@ -159,9 +158,7 @@ func maybeSetPostRunFunc(request *cmds.Request, env cmds.Environment) (err error
 			if flag, isBool := listFlag.(bool); isBool {
 				isList = flag
 			} else {
-				err = cmds.Errorf(cmds.ErrClient,
-					"list "+errParameterTypeFmt,
-					listFlag, listFlag, isList)
+				err = paramError(listOptionKwd, listFlag, isList)
 				return
 			}
 		}
@@ -178,62 +175,9 @@ func maybeSetPostRunFunc(request *cmds.Request, env cmds.Environment) (err error
 		}
 
 		node.FileSystem = fsi
-		request.Root.Extra = request.Root.Extra.SetValue(postRunFuncKey, waitAndTeardown(fsi))
+		request.Root.Extra = request.Root.Extra.SetValue(postRunKey, mountExtra{Interface: fsi, Environment: env})
 	}
 	return
-}
-
-// e.g. something that stacks {daemonPart;fmtCloseAll}, {mountPart;fmtCloseAll}
-func waitAndTeardown(fsi manager.Interface) postRunFunc {
-	return func(ctx context.Context, res cmds.Response, re cmds.ResponseEmitter) errors.Stream {
-		errs := make(chan error, 1)
-
-		encType := cmds.GetEncoding(res.Request(), "")
-		consoleOut, emit := printXorRelay(encType, re)
-		decoWrite := func(s string) (err error) { _, err = consoleOut.Write([]byte(s)); return }
-
-		if err := decoWrite("Waiting in foreground, send interrupt to cancel\n"); err != nil {
-			errs <- fmt.Errorf("emitter encountered an error, exiting early: %w", err)
-			return errs
-		}
-		go func() {
-			defer close(errs)
-			<-ctx.Done() // TODO: arbitrary const duration
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			var err error
-			for instance := range fsi.List(ctx) { // TODO: timeout ctx
-				if err = decoWrite(fmt.Sprintf("closing: %v ...\n", instance)); err != nil {
-					errs <- err
-				}
-
-				err = instance.Close() // NOTE: we're (re-)using the fs output value
-				instance.Error = err   // as/for the emitter's input value
-
-				switch err {
-				case nil:
-					if err = decoWrite(fmt.Sprintf("✔ closed: %v\n", instance)); err != nil {
-						errs <- err
-					}
-				default:
-					errs <- err
-					if err = decoWrite(fmt.Sprintf("⚠ failed to close: %v - %v\n", instance, err)); err != nil {
-						errs <- err
-					}
-				}
-
-				// [magic] cmds-lib
-				// if the emitter passed to us isn't a text-console
-				// the emitter will likely use the command's encoder map to encode the value
-				// to whatever non-plaintext format it requested (e.g. JSON, XML, et al.)
-				if err = emit(instance); err != nil {
-					errs <- err
-				}
-			}
-			return
-		}()
-		return errs
-	}
 }
 
 func mountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Environment) (err error) {
@@ -242,9 +186,7 @@ func mountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Envi
 		if flag, isBool := listFlag.(bool); isBool {
 			doList = flag
 		} else {
-			err = cmds.Errorf(cmds.ErrClient,
-				"list "+errParameterTypeFmt,
-				listFlag, listFlag, doList)
+			err = paramError(listOptionKwd, listFlag, doList)
 			return
 		}
 	}
@@ -252,12 +194,6 @@ func mountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Envi
 	defer func() {
 		if err != nil {
 			err = cmds.Errorf(cmds.ErrNormal, "%s", err)
-			/*
-				log.Println("closing emitter from run with:", err)
-					if emitterErr := emitter.CloseWithError(err); emitterErr != nil {
-						err = fmt.Errorf("%s - additionally an emitter error was encountered: %w", err, emitterErr)
-					}
-			*/
 		}
 	}()
 
@@ -272,9 +208,6 @@ func mountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Envi
 	ctx, cancel := context.WithCancel(request.Context)
 	defer cancel()
 
-	// TODO: quick hacks, needs lookover re: consturct and combine
-	// ^this was caused by list deadlocking because it provides requests which are never consumed
-	// we shouldn't do that (either no send, or do something in List with the args)
 	var responses manager.Responses
 	errorStreams := make([]errors.Stream, 0, 2)
 	if doList {
@@ -311,9 +244,7 @@ func mountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err 
 		if flag, isBool := listFlag.(bool); isBool {
 			isList = flag
 		} else {
-			err = cmds.Errorf(cmds.ErrClient,
-				"list "+errParameterTypeFmt,
-				listFlag, listFlag, isList)
+			err = paramError(listOptionKwd, listFlag, isList)
 			return
 		}
 	}
@@ -322,26 +253,19 @@ func mountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err 
 	if isList {
 		err = emitList(ctx, emitter, response)
 	} else {
+		extra, setInPreRun := response.Request().Root.Extra.GetValue(postRunKey)
+		if setInPreRun {
+			mountExtra := extra.(mountExtra)
+			//defer waitAndTeardown(res.Request(), re, mountExtra.Environment)
+			defer emitBindPostrun(response.Request(), emitter, mountExtra.Environment)
+		}
 		err = emitBind(ctx, emitter, response)
 	}
-
-	if err != nil {
-		return
-	}
-
-	// XXX: post-post run should be inlined, nice 3AM logic
-	if postRunFuncArg, provided := response.Request().Root.Extra.GetValue(postRunFuncKey); provided {
-		if postFunc, isFunc := postRunFuncArg.(postRunFunc); isFunc {
-			for err = range postFunc(response.Request().Context, response, emitter) {
-				// TODO: accumulate; except this is going away lol
-			}
-		} else {
-			err = cmds.Errorf(cmds.ErrClient,
-				"postRun "+errParameterTypeFmt,
-				postRunFuncArg, postRunFuncArg, postFunc)
-			return
-		}
-	}
-
 	return
+}
+
+func paramError(parameterName string, argument interface{}, expectedType interface{}) error {
+	return cmds.Errorf(cmds.ErrClient,
+		parameterName+" argument (%v) is type: %T, expecting type: %T",
+		argument, argument, expectedType)
 }
