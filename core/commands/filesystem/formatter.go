@@ -125,10 +125,8 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 	return row, rowColors
 }
 
-// drawResponses renders the response stream to a CLI response emitter.
-// If the emitter passed in is not a console, or the encoding is not text, the stream will be relayed.
-//and the encoding is
-// and relays the stream as it's received.
+// drawResponses renders the response stream to the buffer as a text stream for terminal displays,
+// and relays the input stream.
 func drawResponses(ctx context.Context, renderBuffer io.Writer, responses manager.Responses) manager.Responses {
 	var (
 		relay      = make(chan manager.Response)

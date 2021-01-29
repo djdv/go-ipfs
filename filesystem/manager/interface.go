@@ -85,6 +85,8 @@ type encodableResponse struct {
 	Error   string `json:"error,omitempty" xml:",omitempty"`
 }
 
+// TODO: needs text encoder for error values e.g. `--enc=textnl` shows request only
+// output should be `[request\n`|`request\terrorstring\n]`
 func (response Response) MarshalJSON() ([]byte, error) {
 	if response.Request == nil {
 		return nil, fmt.Errorf("response's Request field must be populated")

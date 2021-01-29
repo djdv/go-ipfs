@@ -17,7 +17,6 @@ import (
 // Unrecognized requests with valid headers are relayed as-is in their section stream.
 func fillFromConfig(ctx context.Context,
 	config *config.Config, requests manager.Requests) (sectionStream, errors.Stream) {
-
 	relay, combinedErrors := make(chan section), make(chan errors.Stream, 1)
 	sections, sectionErrors := splitRequests(ctx, requests)
 	combinedErrors <- sectionErrors
@@ -45,7 +44,7 @@ func fillFromConfig(ctx context.Context,
 		}
 	}()
 
-	return relay, errors.Merge(ctx, combinedErrors)
+	return relay, errors.Splice(ctx, combinedErrors)
 }
 
 // provides values for requests, from config

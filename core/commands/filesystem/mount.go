@@ -53,13 +53,10 @@ var Mount = &cmds.Command{
 // run re-executes `mount` with each arg prefixed `subreq.Args += api/id.String+arg`
 func init() { registerSubcommands(Mount); return }
 
+// TODO: simplify and document
+// prefix arguments with constants to make the CLI experience a little nicer to use
+// TODO: filtered --list + helptext (use some fmt tmpl)
 func registerSubcommands(parent *cmds.Command) {
-
-	// TODO: simplify and document
-	// prefix arguments with constants to make the CLI experience a little nicer to use
-
-	// TODO: filtered --list + helptext (use some fmt tmpl)
-
 	template := &cmds.Command{
 		Arguments: []cmds.Argument{
 			cmds.StringArg("targets", false, true, MountArgumentDescription),
@@ -114,13 +111,8 @@ func registerSubcommands(parent *cmds.Command) {
 	parent.Subcommands = subcommands
 }
 
-// TODO: this is for debugging and is about to be blown away; everything we do in post-post run should happen directly in post-run (next-commit)
 const postRunKey = "👻" // arbitrary index value that's smaller than its description
-type mountExtra struct {
-	manager.Interface
-	cmds.Environment
-}
-type postRunFunc func(context.Context, cmds.Response, cmds.ResponseEmitter) errors.Stream
+type mountExtra = cmds.Environment
 
 func mountPreRun(request *cmds.Request, env cmds.Environment) (err error) {
 	if len(request.Arguments) == 0 {
@@ -140,7 +132,7 @@ func maybeSetPostRunExtra(request *cmds.Request, env cmds.Environment) (err erro
 	// if the daemon already has the lock, don't do anything
 	// otherwise, make the fsi and attach it to the node
 	// figure out when/where our commands lock and do the check there instead of here
-	// if we do it here we might not be able to gaurantee who is holding the lock
+	// if we do it here we might not be able to guarantee who is holding the lock
 	// and just assume it's the daemon (bad)
 	var node *core.IpfsNode
 	if node, err = cmdenv.GetNode(env); err != nil {
@@ -175,7 +167,7 @@ func maybeSetPostRunExtra(request *cmds.Request, env cmds.Environment) (err erro
 		}
 
 		node.FileSystem = fsi
-		request.Root.Extra = request.Root.Extra.SetValue(postRunKey, mountExtra{Interface: fsi, Environment: env})
+		request.Root.Extra = request.Root.Extra.SetValue(postRunKey, env)
 	}
 	return
 }
@@ -220,7 +212,7 @@ func mountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Envi
 
 	responses = emitResponses(ctx, emitter, responses)
 	errorStreams = append(errorStreams, responsesToErrors(ctx, responses))
-	err = errors.WaitForAny(ctx, errorStreams...)
+	err = errors.WaitFor(ctx, errorStreams...)
 
 	return
 }
@@ -253,13 +245,17 @@ func mountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (err 
 	if isList {
 		err = emitList(ctx, emitter, response)
 	} else {
+		if err = emitBind(ctx, emitter, response); err != nil {
+			return
+		}
 		extra, setInPreRun := response.Request().Root.Extra.GetValue(postRunKey)
 		if setInPreRun {
-			mountExtra := extra.(mountExtra)
-			//defer waitAndTeardown(res.Request(), re, mountExtra.Environment)
-			defer emitBindPostrun(response.Request(), emitter, mountExtra.Environment)
+			mountExtra, isExtra := extra.(mountExtra)
+			if !isExtra {
+				panic("extra value is wrong type") // TODO: handle for real
+			}
+			emitBindPostrun(response.Request(), emitter, mountExtra)
 		}
-		err = emitBind(ctx, emitter, response)
 	}
 	return
 }

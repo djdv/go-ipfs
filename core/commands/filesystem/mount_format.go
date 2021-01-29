@@ -40,15 +40,12 @@ func emitResponses(ctx context.Context, emitter cmds.ResponseEmitter, responses 
 		defer close(relay)
 		var emitErr error
 		for response := range responses {
-			switch emitErr {
-			case nil: // emitter has an observer (formatter, API client, etc.); try to emit to it
-				if emitErr = emitter.Emit(response); emitErr != nil {
+			if emitErr == nil { // emitter has an observer (formatter, API client, etc.)
+				if emitErr = emitter.Emit(response); emitErr != nil { //try to emit to it
 					// include emit errors in the responses
 					response.Error = maybeWrap(response.Error, emitErr)
 				}
-			default: // emitter encountered an error during operation; don't try to emit to observers anymore
 			}
-
 			select { // always relay
 			case relay <- response:
 			case <-ctx.Done():
@@ -75,7 +72,7 @@ func cmdsResponseToManagerResponses(ctx context.Context, response cmds.Response)
 				// or we return 2 streams, response, errors
 			}
 
-			// NOTE: Next is not gauranteed to return the exact type passed to `Emit`
+			// NOTE: Next is not guaranteed to return the exact type passed to `Emit`
 			// local -> local responses are typically concrete copies directly returned from `Emit`,
 			// with remote -> local responses typically being pointers returned from `Unmarshal`.
 			var response manager.Response
@@ -109,7 +106,6 @@ func printXorRelay(encType cmds.EncodingType, re cmds.ResponseEmitter) (io.Write
 	if decorate {
 		out = console.Stdout()
 		emit = func(interface{}) error { return nil }
-
 	}
 	return out, emit
 }
@@ -167,7 +163,7 @@ func emitBindPostrun(request *cmds.Request, emitter cmds.ResponseEmitter, env cm
 	}
 	<-request.Context.Done()
 
-	// derive an `unmount` sub-request and execute it with an independant context
+	// derive an `unmount` sub-request and execute it with an independent context
 	var unmountRequest *cmds.Request
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel() // TODO: duration value is arbitrary; should be const somewhere too

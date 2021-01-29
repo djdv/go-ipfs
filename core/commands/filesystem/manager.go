@@ -115,6 +115,7 @@ func mergeResponseStreams(ctx context.Context, responseStreams <-chan manager.Re
 		wg.Wait()
 		close(mergedStream)
 	}()
+
 	return mergedStream
 }
 
@@ -189,5 +190,6 @@ func closeResponses(responses []manager.Response) manager.Responses {
 		}
 		undoneStatusMessages <- instance
 	}
+	close(undoneStatusMessages)
 	return undoneStatusMessages
 }

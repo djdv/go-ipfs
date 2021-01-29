@@ -96,7 +96,7 @@ func unmountPostRunCLI(response cmds.Response, emitter cmds.ResponseEmitter) (er
 	ctx := response.Request().Context
 	responses := cmdsResponseToManagerResponses(ctx, response)
 	for fsResponse := range drawResponses(ctx, consoleOut, responses) {
-		emit(fsResponse) // TODO: emitter errors
+		err = emit(fsResponse) // TODO: accumulate emitter errors
 	}
 
 	return

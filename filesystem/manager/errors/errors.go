@@ -8,7 +8,7 @@ import (
 
 type Stream = <-chan error
 
-func Combine(errorStreams ...Stream) Stream {
+func Merge(errorStreams ...Stream) Stream {
 	switch len(errorStreams) {
 	case 0:
 		empty := make(chan error)
@@ -36,15 +36,15 @@ func Combine(errorStreams ...Stream) Stream {
 	return mergedStream
 }
 
-func Merge(ctx context.Context, errorStreams <-chan Stream) Stream {
-	mergedStream := make(chan error, len(errorStreams))
+func Splice(ctx context.Context, errorStreams <-chan Stream) Stream {
+	streamPlex := make(chan error, len(errorStreams))
 
 	var wg sync.WaitGroup
-	mergeFrom := func(errors Stream) {
+	sourceFrom := func(errors Stream) {
 		defer wg.Done()
 		for err := range errors {
 			select {
-			case mergedStream <- err:
+			case streamPlex <- err:
 			case <-ctx.Done():
 				return
 			}
@@ -54,17 +54,18 @@ func Merge(ctx context.Context, errorStreams <-chan Stream) Stream {
 	go func() {
 		for errors := range errorStreams {
 			wg.Add(1)
-			go mergeFrom(errors)
+			go sourceFrom(errors)
 		}
 		wg.Wait()
-		close(mergedStream)
+		close(streamPlex)
 	}()
-	return mergedStream
+
+	return streamPlex
 }
 
 func WaitForAny(ctx context.Context, errors ...Stream) (err error) {
 	select {
-	case err = <-Combine(errors...):
+	case err = <-Merge(errors...):
 	case <-ctx.Done():
 		err = ctx.Err()
 	}
@@ -80,9 +81,10 @@ func WaitFor(ctx context.Context, errors ...Stream) (err error) {
 		}
 		return nil
 	}
+	combinedErrors := Merge(errors...)
 	for {
 		select {
-		case e, ok := <-Combine(errors...):
+		case e, ok := <-combinedErrors:
 			if !ok {
 				return
 			}
