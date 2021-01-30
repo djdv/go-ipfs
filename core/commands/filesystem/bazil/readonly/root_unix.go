@@ -33,13 +33,19 @@ type (
 )
 
 // NewFileSystem constructs new fs using given core.IpfsNode instance.
-func NewFileSystem(node *core.IpfsNode, logName string) (fs *FileSystem, err error) {
-	if logName == "" {
-		logName = "fuse/ipfs"
+func NewFileSystem(node *core.IpfsNode, ipfsLog *logging.ZapEventLogger) (fs *FileSystem, err error) {
+	if ipfsLog == nil {
+		ipfsLog = logging.Logger("fuse/ipfs")
+	}
+
+	if os.Getenv("IPFS_FUSE_DEBUG") != "" {
+		fuse.Debug = func(msg interface{}) {
+			ipfsLog.Debug(msg)
+		}
 	}
 
 	var logFS log.FileSystem
-	if logFS, err = log.NewFileSystem(logging.Logger(logName)); err == nil {
+	if logFS, err = log.NewFileSystem(ipfsLog); err == nil {
 		fs = &FileSystem{
 			IpfsNode: node,
 			log:      logFS,

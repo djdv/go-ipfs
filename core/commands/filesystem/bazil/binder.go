@@ -15,6 +15,7 @@ import (
 	rofs "github.com/ipfs/go-ipfs/core/commands/filesystem/bazil/readonly"
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
+	"github.com/ipfs/go-log"
 )
 
 // nodeBinder mounts requests in the host FS via the Fuse API
@@ -107,19 +108,23 @@ func (ca *bazilAttacher) Bind(ctx context.Context, requests manager.Requests) ma
 	return responses
 }
 
+type closer func() error      // io.Closer closure wrapper
+func (f closer) Close() error { return f() }
 func fuseMount(ipfsMountpoint, ipnsMountpoint string, fsid filesystem.ID, node *core.IpfsNode, opts ...fuse.MountOption) (instance closer, err error) {
-	const mountTimeout = time.Second * 5
-
+	const (
+		namespaceIPFS = "fuse/ipfs"
+		namespaceIPNS = "fuse/ipns"
+	)
 	var (
 		f            fs.FS
 		fsMountpoint string
 	)
 	switch fsid {
 	case filesystem.IPFS:
-		f, err = rofs.NewFileSystem(node, "fuse/ipfs")
+		f, err = rofs.NewFileSystem(node, log.Logger(namespaceIPFS))
 		fsMountpoint = ipfsMountpoint
 	case filesystem.IPNS:
-		f, err = ipns.NewFileSystem(node, "fuse/ipns", ipfsMountpoint, ipnsMountpoint) // TODO: logname?
+		f, err = ipns.NewFileSystem(node, ipfsMountpoint, ipnsMountpoint, log.Logger(namespaceIPFS))
 		fsMountpoint = ipnsMountpoint
 	default:
 		err = fmt.Errorf("we don't handle requests for %v", fsid)
@@ -129,37 +134,33 @@ func fuseMount(ipfsMountpoint, ipnsMountpoint string, fsid filesystem.ID, node *
 	}
 
 	var fuseConn *fuse.Conn
-	fuseConn, err = fuse.Mount(fsMountpoint, opts...)
-	if err != nil {
+	if fuseConn, err = fuse.Mount(fsMountpoint, opts...); err != nil {
 		return
 	}
 
+	// NOTE: [legacy] this whole block has been deprecated in fuselib
+	// `fuseConn` is ready immediately after `Mount` and `MountError` is unused
+	const mountTimeout = time.Second * 5
 	errs := make(chan error, 1)
-	go func() { // fs.Serve blocks until the filesystem is unmounted.
-		//err := fs.Serve(fuseConn, rofs.FileSystem(node))
-		err := fs.Serve(fuseConn, f)
-		if err != nil {
+	go func() {
+		if err := fs.Serve(fuseConn, f); err != nil {
 			errs <- err
 		}
 	}()
-
-	select { // wait for the mount process to be done, or timed out.
+	select {
 	case <-fuseConn.Ready:
+		err = fuseConn.MountError
 	case <-time.After(mountTimeout):
 		err = fmt.Errorf("mounting %s timed out", fsMountpoint)
-		return
 	case err = <-errs:
-		return
+		err = fmt.Errorf("mount returned early while serving: %w", err)
 	}
-
-	// check if the mount process has an error to report
-	if err = fuseConn.MountError; err != nil {
-		return
+	if err != nil {
+		if closeErr := fuseConn.Close(); closeErr != nil {
+			err = fmt.Errorf("%w - additionally a close error was encountered: %s", err, closeErr)
+		}
+	} else {
+		instance = func() error { return fuse.Unmount(fsMountpoint) }
 	}
-
-	instance = func() error { return fuse.Unmount(fsMountpoint) }
 	return
 }
-
-type closer func() error      // io.Closer closure wrapper
-func (f closer) Close() error { return f() }
