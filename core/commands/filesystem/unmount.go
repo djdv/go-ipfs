@@ -10,22 +10,22 @@ import (
 	"github.com/ipfs/go-ipfs/filesystem/manager"
 )
 
-// TODO: copy paste hacks
 const (
-	UnmountParameter           = "unmount"
-	UnmountArgumentDescription = "Multiaddr style targets to bind with host. (/fuse/ipfs/path/ipfs)"
-	unmountAllOptionKwd        = "all"
+	UnmountParameter            = "unmount"
+	UnmountArgumentDescription  = "Multiaddr style targets to detach from host. " + mountTargetExamples
+	unmountAllOptionKwd         = "all"
+	unmountAllOptionDescription = "close all active instances (exclusive: do not provide arguments with this flag)"
 )
 
 var Unmount = &cmds.Command{
 	Options: []cmds.Option{
-		cmds.BoolOption(unmountAllOptionKwd, "a", "close all active instances"),
+		cmds.BoolOption(unmountAllOptionKwd, "a", unmountAllOptionDescription),
 	},
 	Arguments: []cmds.Argument{
-		cmds.StringArg("targets", false, true, MountArgumentDescription),
+		cmds.StringArg(mountStringArgument, false, true, UnmountArgumentDescription),
 	},
-	//PreRun: unmountPreRun, // TODO: make sure len(targets) == 0 if -a provided, otherwise error
-	Run: unmountRun,
+	PreRun: unmountPreRun,
+	Run:    unmountRun,
 	PostRun: cmds.PostRunMap{
 		cmds.CLI: unmountPostRunCLI,
 	},
@@ -38,9 +38,30 @@ var Unmount = &cmds.Command{
 	Type: manager.Response{},
 }
 
-// TODO: whole file is quick hacks to get working
+// TODO: at least for bool, it looks like something in cmds is catching this before us too
+// ^ needs trace to find out where, probably cmds.Run or Execute; if redundant remove all these
+// TODO: [general] duplicate arg type checking everywhere 😪
+// figure out the best way to abstract this
+// we should only have to check them in pre|post(local) + run(remote), not all 3
+func unmountPreRun(request *cmds.Request, env cmds.Environment) error {
+	var closeAll bool // `--all`
+	if allFlag, provided := request.Options[unmountAllOptionKwd]; provided {
+		if flag, isBool := allFlag.(bool); isBool {
+			closeAll = flag
+		} else {
+			return paramError(unmountAllOptionKwd, allFlag, closeAll)
+		}
+	}
 
-func unmountRun(request *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) error {
+	if closeAll && len(request.Arguments) != 0 {
+		return cmds.Errorf(cmds.ErrClient, "ambiguous request; close-all flag present alongside specific arguments: %s",
+			strings.Join(request.Arguments, ", "))
+	}
+
+	return nil
+}
+
+func unmountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.Environment) error {
 	node, err := cmdenv.GetNode(env)
 	if err != nil {
 		return err
@@ -76,7 +97,7 @@ func unmountRun(request *cmds.Request, re cmds.ResponseEmitter, env cmds.Environ
 			defer wg.Done()
 			if match(instance) {
 				instance.Error = instance.Close()
-				err = re.Emit(instance) // TODO emitter's error
+				err = emitter.Emit(instance) // TODO emitter's error
 			}
 		}(instance)
 	}

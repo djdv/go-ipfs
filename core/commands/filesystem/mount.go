@@ -17,16 +17,28 @@ import (
 
 const (
 	MountParameter           = "mount"
-	MountArgumentDescription = "Multiaddr style targets to bind with host. (/fuse/ipfs/path/ipfs)"
+	MountArgumentDescription = "Multiaddr style targets to bind to host. " + mountTargetExamples
 	listOptionKwd            = "list"
+	listOptionDescription    = "list active instances"
+
+	// shared
+	mountStringArgument = "targets"
+	mountTargetExamples = "(e.g. `/fuse/ipfs/path/ipfs /fuse/ipns/path/ipns ...`)"
 )
 
 var Mount = &cmds.Command{
 	Options: []cmds.Option{
-		cmds.BoolOption(listOptionKwd, "l", "list active instances"), // TODO: constants
+		cmds.BoolOption(listOptionKwd, "l", listOptionDescription),
 	},
 	Arguments: []cmds.Argument{
-		cmds.StringArg("targets", false, true, MountArgumentDescription),
+		cmds.StringArg(mountStringArgument, false, true, MountArgumentDescription),
+		// TODO: we should accept stdin + file arguments since we can
+		// `ipfs mount mtab1.json mtab2.xml`,`... | ipfs mount -`
+		// where everything just gets decoded into a flat list/stream:
+		// (file|stdin data)[]byte -> (magic/header check + unmarshal) => []multiaddr
+		//  ^post: for each file => combine maddrs
+		// this would allow passing IPFS mtab references as well
+		// e.g. `ipfs mount /ipfs/Qm.../my-mount-table.json`
 	},
 	PreRun: mountPreRun,
 	Run:    mountRun,
@@ -34,7 +46,7 @@ var Mount = &cmds.Command{
 		cmds.CLI: mountPostRunCLI,
 	},
 	Encoders: cmds.Encoders,
-	Helptext: cmds.HelpText{
+	Helptext: cmds.HelpText{ // TODO: docs are still outdated - needs sys_ migrations
 		Tagline:          MountTagline,
 		ShortDescription: mountDescWhatAndWhere,
 		LongDescription:  mountDescWhatAndWhere + "\nExample:\n" + mountDescExample,
@@ -42,7 +54,7 @@ var Mount = &cmds.Command{
 	Type: manager.Response{},
 }
 
-// TODO: English pass; try to break apart code too, this is gross
+// TODO: English pass; try to break apart code too, this is ~gross~ update: less gross, but still gross
 // construct subcommand groups from supported API/ID pairs
 // e.g. make these invocations equal
 // 1) `ipfs mount /fuse/ipfs/path/mountpoint /fuse/ipfs/path/mountpoint2 ...
@@ -51,20 +63,40 @@ var Mount = &cmds.Command{
 // allow things like `ipfs mount fuse -l` to list all fuse instances only, etc.
 // shouldn't be too difficult to generate
 // run re-executes `mount` with each arg prefixed `subreq.Args += api/id.String+arg`
-func init() { registerSubcommands(Mount); return }
+func init() { registerSubcommands(Mount); registerSubcommands(Unmount); return }
 
 // TODO: simplify and document
 // prefix arguments with constants to make the CLI experience a little nicer to use
 // TODO: filtered --list + helptext (use some fmt tmpl)
 func registerSubcommands(parent *cmds.Command) {
+
+	deriveArgs := func(args []cmds.Argument, subExamples string) []cmds.Argument {
+		parentArgs := make([]cmds.Argument, 0, len(parent.Arguments))
+		for _, arg := range parent.Arguments {
+			if arg.Type == cmds.ArgString {
+				arg.Name = "sub" + arg.Name
+				arg.Required = true // NOTE: remove this if file support is added
+				arg.Description = strings.ReplaceAll(arg.Description, mountTargetExamples, subExamples)
+			}
+			parentArgs = append(parentArgs, arg)
+		}
+		return parentArgs
+	}
+
 	template := &cmds.Command{
-		Arguments: []cmds.Argument{
-			cmds.StringArg("targets", false, true, MountArgumentDescription),
-		},
 		Run:      parent.Run,
 		PostRun:  parent.PostRun,
 		Encoders: parent.Encoders,
 		Type:     parent.Type,
+	}
+
+	genPrerun := func(prefix string) func(request *cmds.Request, env cmds.Environment) error {
+		return func(request *cmds.Request, env cmds.Environment) error {
+			for i, arg := range request.Arguments {
+				request.Arguments[i] = prefix + strings.TrimPrefix(arg, "/")
+			}
+			return parent.PreRun(request, env)
+		}
 	}
 
 	subcommands := make(map[string]*cmds.Command)
@@ -77,15 +109,9 @@ func registerSubcommands(parent *cmds.Command) {
 
 		com := new(cmds.Command)
 		*com = *template
-		com.PreRun = func(request *cmds.Request, env cmds.Environment) error {
-			if len(request.Arguments) == 0 {
-				return fmt.Errorf("no arguments provided")
-			}
-			for i, arg := range request.Arguments {
-				request.Arguments[i] = fmt.Sprintf("/%s/%s", hostName, strings.TrimPrefix(arg, "/"))
-			}
-			return parent.PreRun(request, env)
-		}
+		prefix := fmt.Sprintf("/%s", hostName)
+		com.Arguments = deriveArgs(parent.Arguments, "(e.g. `/ipfs/path/ipfs /ipns/path/ipns ...`)")
+		com.PreRun = genPrerun(prefix)
 		com.Subcommands = subsystems
 		subcommands[hostName] = com
 
@@ -96,15 +122,9 @@ func registerSubcommands(parent *cmds.Command) {
 			nodeName := id.String()
 			com := new(cmds.Command)
 			*com = *template
-			com.PreRun = func(request *cmds.Request, env cmds.Environment) (err error) {
-				if len(request.Arguments) == 0 {
-					return fmt.Errorf("no arguments provided")
-				}
-				for i, arg := range request.Arguments {
-					request.Arguments[i] = fmt.Sprintf("/%s/%s/path/%s", hostName, nodeName, strings.TrimPrefix(arg, "/"))
-				}
-				return parent.PreRun(request, env)
-			}
+			prefix := fmt.Sprintf("/%s/%s/path", hostName, nodeName)
+			com.Arguments = deriveArgs(parent.Arguments, "(e.g. `/mnt/1 /mnt/2 ...`)")
+			com.PreRun = genPrerun(prefix)
 			subsystems[nodeName] = com
 		}
 	}
