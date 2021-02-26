@@ -2,12 +2,14 @@ package fscmds
 
 import (
 	"context"
+	goerrors "errors"
 	"fmt"
 	"io"
-	"strings"
 
+	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
+	"github.com/ipfs/go-ipfs/filesystem/manager/errors"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/olekukonko/tablewriter"
@@ -68,9 +70,7 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 	row := make([]string, tableWidth)
 	maddr := resp.Request
 
-	if maddr == nil {
-		resp.Error = maybeWrap(fmt.Errorf("response request field is empty"), resp.Error)
-	} else { // retrieve row data from the multiaddr (if any)
+	if maddr != nil { // retrieve row data from the multiaddr (if any)
 		multiaddr.ForEach(maddr, func(com multiaddr.Component) bool {
 			proto := com.Protocol()
 			switch proto.Code {
@@ -90,8 +90,6 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 				}
 				if addr, err := manet.ToNetAddr(hopefullyNet); err == nil {
 					row[thExtra] = fmt.Sprintf("Listening on: %s://%s", addr.Network(), addr.String())
-				} else {
-					resp.Error = maybeWrap(resp.Error, err)
 				}
 
 			case int(filesystem.PathProtocol):
@@ -110,9 +108,9 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 			rowColors[i] = tablewriter.Colors{tablewriter.FgGreenColor}
 			continue
 
-			// TODO: proper
-		//case goerrors.Is(resp.Error, errUnwound):
-		case strings.Contains(resp.Error.Error(), errUnwound.Error()): // XXX: no
+			// TODO: do this the proper way
+			// we need to check the string value in unmarshal, and check with Is here
+		case goerrors.Is(resp.Error, errors.Unwound):
 			rowColors[i] = tablewriter.Colors{tablewriter.FgYellowColor}
 		default:
 			rowColors[i] = tablewriter.Colors{tablewriter.FgRedColor}
@@ -125,30 +123,40 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 	return row, rowColors
 }
 
-// drawResponses renders the response stream to the buffer as a text stream for terminal displays,
-// and relays the input stream.
-func drawResponses(ctx context.Context, renderBuffer io.Writer, responses manager.Responses) manager.Responses {
+// TODO: English
+// responsesToConsole renders responses sent on the returned channel,
+// to the supplied buffer (as terminal text data).
+// Caller should cancel the context when done drawing.
+func responsesToConsole(ctx context.Context, renderBuffer io.Writer) (chan<- manager.Response, errors.Stream) {
 	var (
-		relay      = make(chan manager.Response)
+		responses  = make(chan manager.Response)
+		renderErrs = make(chan error)
 		graphics   = newTableFormatter(renderBuffer)
 		scrollBack int
 	)
-
 	go func() {
-		defer close(relay)
-		for response := range responses { // (re)render response to the console, as a formatted table
-			scrollBack = graphics.NumLines() // start drawing this many lines above the current line
-			// NOTE: when debugging you probably want to comment out one or both of these
-			//drawResponse(graphics, response)
-			overdrawResponse(renderBuffer, scrollBack, graphics, response)
+		defer close(responses)
+		defer close(renderErrs)
+		for {
 			select {
-			case relay <- response:
+			case response, ok := <-responses: // (re)render response to the console, as a formatted table
+				if !ok {
+					panic("caller closed input channel")
+				}
+				scrollBack = graphics.NumLines() // start drawing this many lines above the current line
+				if err := overdrawResponse(renderBuffer, scrollBack, graphics, response); err != nil {
+					select {
+					case renderErrs <- err:
+					case <-ctx.Done():
+						return
+					}
+				}
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
-	return relay
+	return responses, renderErrs
 }
 
 func drawResponse(graphics *tablewriter.Table, response manager.Response) {
@@ -158,23 +166,62 @@ func drawResponse(graphics *tablewriter.Table, response manager.Response) {
 
 func overdrawResponse(console io.Writer, scrollBack int, graphics *tablewriter.Table, response manager.Response) (err error) {
 	const headerHeight = 2
-	if scrollBack != 0 { // TODO: check/convert escapes code via some portability pkg
-		_, err = console.Write([]byte( // pkg.AnsiToWindowsConsole(outString)
+	if scrollBack != 0 {
+		// TODO: this needs to be abstracted; byte sequence is going to depend on the terminal
+		if _, err = console.Write([]byte(
 			fmt.Sprintf("\033[%dA\033[%dG",
 				headerHeight+scrollBack, // move cursor up N lines
 				0,                       // and go to the beginning of the line
-			)))
+			))); err != nil {
+			return
+		}
 	}
+	// draw the table, at cursors current position
+	// (this should draw over any characters from a previous call, if any)
 	drawResponse(graphics, response)
 	return
 }
 
-// TODO: move this somewhere else
-func maybeWrap(precedent, secondary error) error {
-	if precedent == nil {
-		return secondary
-	} else if secondary != nil {
-		return fmt.Errorf("%w - %s", precedent, secondary)
+func renderToConsole(request *cmds.Request, output optionalOutputs, inputErrors errors.Stream, responses manager.Responses) []error {
+	var (
+		renderCtx, renderCancel       = context.WithCancel(request.Context)
+		consoleRenderer, renderErrors = responsesToConsole(renderCtx, output.console)
+		allErrs                       = errors.Merge(inputErrors, renderErrors)
+		encounteredErrs               []error
+	)
+
+renderLoop: // TODO: simplify or extract or something, this seems worse than `emitResponses`'s
+	for {
+		select {
+		case response, ok := <-responses:
+			if !ok {
+				break renderLoop
+			}
+			if emitErr := output.Emit(response); emitErr != nil {
+				encounteredErrs = append(encounteredErrs, emitErr)
+				break renderLoop
+			}
+			select {
+			case consoleRenderer <- response:
+			case anyErr := <-allErrs:
+				encounteredErrs = append(encounteredErrs, anyErr)
+				break renderLoop
+			case <-renderCtx.Done():
+				encounteredErrs = append(encounteredErrs, renderCtx.Err())
+				break renderLoop
+			}
+		case <-renderCtx.Done():
+			encounteredErrs = append(encounteredErrs, renderCtx.Err())
+			break renderLoop
+		}
 	}
-	return nil
+	renderCancel()
+
+	remainingErrs := errors.Accumulate(request.Context, allErrs)
+	if len(encounteredErrs) == 0 {
+		encounteredErrs = remainingErrs
+	} else {
+		encounteredErrs = append(encounteredErrs, remainingErrs...)
+	}
+	return encounteredErrs
 }

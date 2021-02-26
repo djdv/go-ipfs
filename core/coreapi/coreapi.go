@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	bserv "github.com/ipfs/go-blockservice"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
@@ -37,11 +36,9 @@ import (
 	routing "github.com/libp2p/go-libp2p-core/routing"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	record "github.com/libp2p/go-libp2p-record"
-	"github.com/multiformats/go-multiaddr"
 
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/node"
-	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/namesys"
 	"github.com/ipfs/go-ipfs/repo"
 )
@@ -194,9 +191,8 @@ func (api *CoreAPI) WithOptions(opts ...options.ApiOption) (coreiface.CoreAPI, e
 	}
 
 	subApi.checkPublishAllowed = func() error {
-		if n.FileSystem == nil {
-			return nil
-		}
+		return fmt.Errorf("TODO: publishing disabled in this build")
+		/* TODO: connect to the client so we can have .List()
 		var ipnsTargets []string
 		for instance := range n.FileSystem.List(n.Context()) { // TODO: implicit ctx timeout?
 			header, _ := multiaddr.SplitFirst(instance.Request)
@@ -213,6 +209,7 @@ func (api *CoreAPI) WithOptions(opts ...options.ApiOption) (coreiface.CoreAPI, e
 				strings.Join(ipnsTargets, ", "))
 		}
 		return nil
+		*/
 	}
 
 	if settings.Offline {

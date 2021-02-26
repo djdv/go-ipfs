@@ -26,10 +26,12 @@ const (
 	Fuse          // fuse
 	Plan9Protocol // 9p
 
-	_        ID = iota
-	IPFS        // ipfs
-	IPNS        // ipns
-	buildDBG    // wut
+	_     ID = iota
+	IPFS     // ipfs
+	IPNS     // ipns
+	Files    // file
+	PinFS    // pinfs
+	KeyFS    // keyfs
 
 	// Existing Multicodec standards:
 	// TODO [review]: this protocol may be defined in another package
@@ -48,7 +50,7 @@ func init() {
 	if err = registerAPIProtocols(Fuse, Plan9Protocol); err != nil {
 		panic(err)
 	}
-	registerSystemIDs(IPFS, IPNS)
+	registerSystemIDs(IPFS, IPNS, Files, PinFS, KeyFS)
 }
 
 var ErrUnexpectedID = errors.New("unexpected ID value")

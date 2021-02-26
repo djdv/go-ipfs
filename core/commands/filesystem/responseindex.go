@@ -2,18 +2,11 @@ package fscmds
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sync"
 
-	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
 )
-
-// TODO: figure out how to make this work with RPC
-// when the error is marshaled, wrapped errors will loses their type
-// we could export it somewhere, maybe in /manager
-var errUnwound = fmt.Errorf("binding undone")
 
 type (
 	dispatchMap map[requestHeader]manager.Binder
@@ -21,9 +14,8 @@ type (
 	// commandDispatcher manages requests for/from `go-ipfs-cmds`.
 	// Dispatching requests to one of several multiplexed binders.
 	commandDispatcher struct {
-		*core.IpfsNode
-		dispatch dispatchMap
-		index
+		dispatchers dispatchMap
+		instanceIndex
 	}
 )
 
@@ -31,12 +23,11 @@ type (
 	indexKey = string
 	indices  map[indexKey]*manager.Response
 
-	index interface {
+	instanceIndex interface {
 		fetch(key indexKey) *manager.Response
 		store(key indexKey, value *manager.Response)
 		List(ctx context.Context) <-chan manager.Response
 	}
-
 	muIndex struct {
 		sync.RWMutex
 		indices
@@ -46,7 +37,7 @@ type (
 type closer func() error      // io.Closer closure wrapper
 func (f closer) Close() error { return f() }
 
-func newIndex() index { return &muIndex{indices: make(indices)} }
+func newIndex() instanceIndex { return &muIndex{indices: make(indices)} }
 
 func (mi *muIndex) fetch(key indexKey) *manager.Response {
 	mi.RLock()

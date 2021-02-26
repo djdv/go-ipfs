@@ -39,12 +39,14 @@ func _() {
 	var x [1]struct{}
 	_ = x[IPFS-4]
 	_ = x[IPNS-5]
-	_ = x[buildDBG-6]
+	_ = x[Files-6]
+	_ = x[PinFS-7]
+	_ = x[KeyFS-8]
 }
 
-const _ID_name = "ipfsipnswut"
+const _ID_name = "ipfsipnsfilepinfskeyfs"
 
-var _ID_index = [...]uint8{0, 4, 8, 11}
+var _ID_index = [...]uint8{0, 4, 8, 12, 17, 22}
 
 func (i ID) String() string {
 	i -= 4

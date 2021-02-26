@@ -23,7 +23,6 @@ import (
 	"github.com/ipfs/go-ipfs/core/bootstrap"
 	"github.com/ipfs/go-ipfs/core/node"
 	"github.com/ipfs/go-ipfs/core/node/libp2p"
-	"github.com/ipfs/go-ipfs/filesystem/manager"
 	"github.com/ipfs/go-ipfs/namesys"
 	ipnsrp "github.com/ipfs/go-ipfs/namesys/republisher"
 	"github.com/ipfs/go-ipfs/p2p"
@@ -62,7 +61,6 @@ type IpfsNode struct {
 
 	// Local node
 	Pinning         pin.Pinner             // the pinning manager
-	FileSystem      manager.Interface      `optional:"true"` // bridge between node and host systems
 	PrivateKey      ic.PrivKey             `optional:"true"` // the local node's private Key
 	PNetFingerprint libp2p.PNetFingerprint `optional:"true"` // fingerprint of private network
 

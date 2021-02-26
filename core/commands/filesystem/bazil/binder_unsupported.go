@@ -1,4 +1,4 @@
-//go:build (windows || plan9 || netbsd || openbsd)
+//go:build windows || plan9 || netbsd || openbsd
 // +build windows plan9 netbsd openbsd
 
 package bazil
@@ -12,7 +12,8 @@ import (
 	"github.com/ipfs/go-ipfs/filesystem/manager"
 )
 
-func NewBinder(context.Context, filesystem.ID, *core.IpfsNode, bool) (manager.Binder, error) {
+//func NewBinder(context.Context, filesystem.ID, *core.IpfsNode, bool) (manager.Binder, error) {
+func NewBinder(_ context.Context, _ filesystem.ID, _ *core.IpfsNode, _ bool) (manager.Binder, error) {
 	return new(unsupportedBinder), nil
 }
 

@@ -6,6 +6,8 @@ package bazil
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"bazil.org/fuse"
@@ -18,8 +20,8 @@ import (
 	"github.com/ipfs/go-log"
 )
 
-// nodeBinder mounts requests in the host FS via the Fuse API
-type bazilAttacher struct {
+// bazilBinder mounts requests in the host FS via the Fuse API
+type bazilBinder struct {
 	ctx context.Context
 	*core.IpfsNode
 	filesystem.ID
@@ -42,7 +44,7 @@ func NewBinder(ctx context.Context, fsid filesystem.ID, node *core.IpfsNode, all
 		return nil, fmt.Errorf("no support for file system ID: %v", fsid)
 	}
 
-	return &bazilAttacher{
+	return &bazilBinder{
 		ctx:          ctx,
 		IpfsNode:     node,
 		ID:           fsid,
@@ -50,7 +52,7 @@ func NewBinder(ctx context.Context, fsid filesystem.ID, node *core.IpfsNode, all
 	}, nil
 }
 
-func (ca *bazilAttacher) Bind(ctx context.Context, requests manager.Requests) manager.Responses {
+func (ca *bazilBinder) Bind(ctx context.Context, requests manager.Requests) manager.Responses {
 	// NOTE: [legacy]
 	// if our subsystem is IPNS
 	// we expect requests to come in sequence IPFS, IPNS, IPFS, IPNS, ...
@@ -111,20 +113,17 @@ func (ca *bazilAttacher) Bind(ctx context.Context, requests manager.Requests) ma
 type closer func() error      // io.Closer closure wrapper
 func (f closer) Close() error { return f() }
 func fuseMount(ipfsMountpoint, ipnsMountpoint string, fsid filesystem.ID, node *core.IpfsNode, opts ...fuse.MountOption) (instance closer, err error) {
-	const (
-		namespaceIPFS = "fuse/ipfs"
-		namespaceIPNS = "fuse/ipns"
-	)
 	var (
 		f            fs.FS
 		fsMountpoint string
+		logName      = strings.ToLower(path.Join("fuse", fsid.String()))
 	)
 	switch fsid {
 	case filesystem.IPFS:
-		f, err = rofs.NewFileSystem(node, log.Logger(namespaceIPFS))
+		f, err = rofs.NewFileSystem(node, log.Logger(logName))
 		fsMountpoint = ipfsMountpoint
 	case filesystem.IPNS:
-		f, err = ipns.NewFileSystem(node, ipfsMountpoint, ipnsMountpoint, log.Logger(namespaceIPFS))
+		f, err = ipns.NewFileSystem(node, ipfsMountpoint, ipnsMountpoint, log.Logger(logName))
 		fsMountpoint = ipnsMountpoint
 	default:
 		err = fmt.Errorf("we don't handle requests for %v", fsid)

@@ -110,7 +110,12 @@ func (resp *Response) UnmarshalJSON(b []byte) (err error) {
 	json.Unmarshal(b, decoded)
 
 	if decoded.Error != "" {
-		resp.Error = fmt.Errorf(decoded.Error)
+		switch decoded.Error {
+		case errors.Unwound.Error():
+			resp.Error = errors.Unwound
+		default:
+			resp.Error = fmt.Errorf(decoded.Error)
+		}
 	}
 	resp.Request, err = multiaddr.NewMultiaddrBytes(decoded.Request)
 	return

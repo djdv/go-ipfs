@@ -3,6 +3,8 @@ module github.com/ipfs/go-ipfs
 require (
 	bazil.org/fuse v0.0.0-20200117225306-7b5117fecadc
 	contrib.go.opencensus.io/exporter/prometheus v0.2.0
+	github.com/adrg/xdg v0.3.1
+	github.com/billziss-gh/cgofuse v1.4.0
 	github.com/bren2010/proquint v0.0.0-20160323162903-38337c27106d
 	github.com/cheggaaa/pb v1.0.29
 	github.com/coreos/go-systemd/v22 v22.1.0
@@ -36,6 +38,7 @@ require (
 	github.com/ipfs/go-ipfs-exchange-interface v0.0.1
 	github.com/ipfs/go-ipfs-exchange-offline v0.0.1
 	github.com/ipfs/go-ipfs-files v0.0.8
+	github.com/ipfs/go-ipfs-http-client v0.1.0
 	github.com/ipfs/go-ipfs-pinner v0.1.1
 	github.com/ipfs/go-ipfs-posinfo v0.0.1
 	github.com/ipfs/go-ipfs-provider v0.4.3
@@ -60,6 +63,7 @@ require (
 	github.com/jbenet/go-random v0.0.0-20190219211222-123a90aedc0c
 	github.com/jbenet/go-temp-err-catcher v0.1.0
 	github.com/jbenet/goprocess v0.1.4
+	github.com/kardianos/service v1.2.0
 	github.com/libp2p/go-libp2p v0.13.0
 	github.com/libp2p/go-libp2p-circuit v0.4.0
 	github.com/libp2p/go-libp2p-connmgr v0.2.4
@@ -116,3 +120,7 @@ go 1.14
 replace github.com/ipfs/go-fs-lock => github.com/djdv/go-fs-lock v0.0.7-0.20210125082851-589884c5a58c
 
 replace go4.org => github.com/djdv/go4 v0.0.0-20210128053858-2ef2978747da
+
+replace github.com/billziss-gh/cgofuse => github.com/djdv/cgofuse v1.4.1-0.20210201193829-e82cc4d16bd0
+
+replace github.com/adrg/xdg => github.com/djdv/xdg v0.3.2-0.20210302143540-b9e1b246cb62

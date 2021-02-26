@@ -47,14 +47,18 @@ func splitRequest(request manager.Request) (hostAPI filesystem.API, nodeAPI file
 	// disambiguation
 	// Note the direct use of the return variables in the range clauses.
 	// If both values being inspected appear in our supported list, we'll return them.
+	supportedAPIs := []filesystem.ID{
+		filesystem.IPFS,
+		filesystem.IPNS,
+		filesystem.PinFS,
+		//filesystem.KeyFS,
+		//filesystem.Files,
+	}
 	for _, hostAPI = range []filesystem.API{
 		filesystem.Fuse,
 	} {
 		if hostAPI == filesystem.API(hostProtocol) {
-			for _, nodeAPI = range []filesystem.ID{
-				filesystem.IPFS,
-				filesystem.IPNS,
-			} {
+			for _, nodeAPI = range supportedAPIs {
 				if nodeAPI == filesystem.ID(nodeProtocol) {
 					return
 				}

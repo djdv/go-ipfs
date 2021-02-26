@@ -25,7 +25,6 @@ import (
 	corehttp "github.com/ipfs/go-ipfs/core/corehttp"
 	corerepo "github.com/ipfs/go-ipfs/core/corerepo"
 	libp2p "github.com/ipfs/go-ipfs/core/node/libp2p"
-	"github.com/ipfs/go-ipfs/filesystem/manager"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 	migrate "github.com/ipfs/go-ipfs/repo/fsrepo/migrations"
 	mprome "github.com/ipfs/go-metrics-prometheus"
@@ -45,8 +44,9 @@ const (
 	initConfigOptionKwd       = "init-config"
 	initProfileOptionKwd      = "init-profile"
 	migrateKwd                = "migrate"
-	mountKwd                  = fscmds.MountParameter
-	mountPathKwd              = fscmds.MountParameter + "-path"
+	mountKwd                  = "mount"
+	mountPathKwd              = mountKwd + "-path"
+	unmountKwd                = "unmount"
 	offlineKwd                = "offline" // global option
 	routingOptionKwd          = "routing"
 	routingOptionSupernodeKwd = "supernode"
@@ -161,7 +161,7 @@ Headers.
 		cmds.StringOption(initProfileOptionKwd, "Configuration profiles to apply for --init. See ipfs init --help for more"),
 		cmds.StringOption(routingOptionKwd, "Overrides the routing option").WithDefault(routingOptionDefaultKwd),
 		cmds.BoolOption(mountKwd, fscmds.MountTagline),
-		cmds.StringsOption(mountPathKwd, fscmds.MountArgumentDescription),
+		cmds.StringsOption(mountPathKwd, fscmds.Mount.Arguments[0].Description), // TODO: magic index
 		cmds.BoolOption(writableKwd, "Enable writing objects (with POST, PUT and DELETE)"),
 		cmds.BoolOption(unrestrictedApiAccessKwd, "Allow API access to unlisted hashes"),
 		cmds.BoolOption(unencryptTransportKwd, "Disable transport encryption (for debugging protocols)"),
@@ -687,76 +687,86 @@ func serveHTTPGateway(req *cmds.Request, cctx *oldcmds.Context) (<-chan error, e
 	return errc, nil
 }
 
-// Sets up the file system interface, and connects it with the node.
-// Also relays requests to `ipfs mount` if arguments for it are provided in the `ipfs daemon` request.
-func serveFileSystem(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment, node *core.IpfsNode) (errChan <-chan error, err error) {
-	// parse the request's fs related flags
-	var doMount bool // `--mount`
-	if mountFlag, provided := req.Options[mountKwd]; provided {
-		if flag, isBool := mountFlag.(bool); isBool {
-			doMount = flag
-		} else {
-			err = paramError(mountKwd, mountFlag, doMount)
+// parse the request's fs related flags
+func filesystemArguments(request *cmds.Request) (callMount bool, mountTargets []string, err error) {
+	paramError := func(parameterName string, argument interface{}, expectedType interface{}) error {
+		return cmds.Errorf(cmds.ErrClient,
+			"%s's argument %v is type: %T, expecting type: %T",
+			parameterName, argument, argument, expectedType)
+	}
+
+	// `--mount`
+	if mountArg, provided := request.Options[mountKwd]; provided {
+		var isBool bool
+		if callMount, isBool = mountArg.(bool); !isBool {
+			err = paramError(mountKwd, mountArg, callMount)
 			return
 		}
 	}
-
-	var mountTargets []string // if `--mount-path` is provided, `--mount` becomes implied
-	if mountArgs, provided := req.Options[mountPathKwd]; provided {
-		if mountTargets, doMount = mountArgs.([]string); !doMount {
+	// `--mount-path`
+	if mountArgs, provided := request.Options[mountPathKwd]; provided {
+		// NOTE: if `--mount-path` is provided, `--mount` becomes implied
+		if mountTargets, callMount = mountArgs.([]string); !callMount {
 			err = paramError(mountKwd, mountArgs, mountTargets)
 			return
 		}
 	}
 
-	// construct the actual manager instance
-	var fsi manager.Interface
-	if fsi, err = fscmds.NewNodeInterface(req.Context, node); err != nil {
+	return
+}
+
+//TODO: update docs; this changed - we host a socket now rather than an interface in process
+// Sets up the file system interface, and connects it with the node.
+// Also relays requests to `ipfs mount` if arguments for it are provided in the `ipfs daemon` request.
+func serveFileSystem(request *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment, node *core.IpfsNode) (errChan <-chan error, err error) {
+	callMount, mountTargets, err := filesystemArguments(request)
+	if err != nil {
+		return nil, err
+	}
+	if !callMount {
+		return
+	}
+
+	//TODO: try to run in-proc cmd.Service with stderr piped to errChan
+	// if already running, use it
+
+	var (
+		fsRequest *cmds.Request
+		fsEnv     cmds.Environment
+		fsOpts    = cmds.OptMap{cmds.EncLong: cmds.GetEncoding(request, "")}
+		fsExe     = cmds.NewExecutor(request.Root)
+	)
+	if fsRequest, err = cmds.NewRequest(request.Context, []string{mountKwd},
+		fsOpts, mountTargets,
+		nil, request.Root); err != nil {
+		return
+	}
+	if fsEnv, err = fscmds.MakeFileSystemEnvironment(request.Context, request); err != nil {
+		return
+	}
+	if err = fsExe.Execute(fsRequest, re, fsEnv); err != nil {
 		return
 	}
 
 	// spawn its cleanup routine
-	daemonChan := make(chan error)
+	daemonChan := make(chan error, 1)
 	errChan = daemonChan
 	go func() {
 		defer close(daemonChan)
 		<-node.Context().Done() // wait until node shutdown
-
 		// derive an `unmount` sub-request and execute it
-		var unmountRequest *cmds.Request
-		if unmountRequest, err = cmds.NewRequest(req.Context,
-			[]string{fscmds.UnmountParameter}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong], // inherit encoding
-				"all": true}, // detach all
-			nil, nil,
-			req.Root); err == nil {
-			err = cmds.NewExecutor(req.Root).Execute(unmountRequest, re, env)
+		if fsRequest, err = cmds.NewRequest(request.Context, []string{unmountKwd},
+			fsOpts, mountTargets,
+			nil, request.Root); err != nil {
+			daemonChan <- err
+			return
 		}
-		if err != nil {
+		if err = fsExe.Execute(fsRequest, re, fsEnv); err != nil {
 			daemonChan <- err
 		}
 		return
 	}()
-
-	node.FileSystem = fsi // bind the service to the node
-	if !doMount {         // returning if mount wasn't also requested
-		return
-	}
-
-	// derive a `mount` sub-request and execute it
-	var mountRequest *cmds.Request
-	if mountRequest, err = cmds.NewRequest(req.Context,
-		[]string{mountKwd}, cmds.OptMap{cmds.EncLong: req.Options[cmds.EncLong]}, // inherit encoding
-		mountTargets, // possibly inherit arguments
-		nil, req.Root); err == nil {
-		err = cmds.NewExecutor(req.Root).Execute(mountRequest, re, env)
-	}
 	return
-}
-
-func paramError(parameterName string, argument interface{}, expectedType interface{}) error {
-	return cmds.Errorf(cmds.ErrClient,
-		parameterName+" argument (%v) is type: %T, expecting type: %T",
-		argument, argument, expectedType)
 }
 
 func maybeRunGC(req *cmds.Request, node *core.IpfsNode) <-chan error {

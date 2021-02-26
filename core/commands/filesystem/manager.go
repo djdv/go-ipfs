@@ -10,16 +10,38 @@ import (
 
 	"github.com/ipfs/go-ipfs/filesystem"
 	"github.com/ipfs/go-ipfs/filesystem/manager"
+	"github.com/ipfs/go-ipfs/filesystem/manager/errors"
 	"github.com/multiformats/go-multiaddr"
 )
 
-// TODO: refactor if we can, try to eliminate wg
-// TODO: sync needs review; ^possible send on close for subResponses, etc.
+// TODO: refactor if we can, complicated as-is
+// TODO: async changed; review
 func (ci *commandDispatcher) Bind(ctx context.Context, requests <-chan manager.Request) <-chan manager.Response {
-	sections, errors := generatePipeline(ctx, ci.IpfsNode, requests)
-	sectionResponses := make(chan manager.Responses, len(requests))
+	var (
+		sections, errors = generatePipeline(ctx, requests)
+		sectionResponses = make(chan manager.Responses, len(requests))
+
+		wg               sync.WaitGroup
+		respondWithError = func(err error) {
+			defer wg.Done()
+			errResp := make(chan manager.Response, 1)
+			errResp <- manager.Response{Error: err}
+			select {
+			case sectionResponses <- errResp:
+			case <-ctx.Done():
+			}
+			return
+		}
+		respondPrefixed = func(header requestHeader, responses manager.Responses) {
+			defer wg.Done()
+			select {
+			case sectionResponses <- prefixResponses(ctx, header, responses):
+			case <-ctx.Done():
+				return
+			}
+		}
+	)
 	go func() {
-		var wg sync.WaitGroup
 		for sections != nil || errors != nil {
 			select {
 			case section, ok := <-sections:
@@ -27,43 +49,34 @@ func (ci *commandDispatcher) Bind(ctx context.Context, requests <-chan manager.R
 					sections = nil
 					continue
 				}
-
 				header := section.requestHeader
-				binder := ci.dispatch[header]
+				binder, ok := ci.dispatchers[header]
+				if !ok {
+					wg.Add(1)
+					go respondWithError(fmt.Errorf("no binder found for: %v", header))
+					continue
+				}
 				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					select {
-					case sectionResponses <- prefixResponses(ctx, header,
-						binder.Bind(ctx, section.Requests)):
-					case <-ctx.Done():
-						return
-					}
-				}()
+				go respondPrefixed(header, binder.Bind(ctx, section.Requests))
 
 			case err, ok := <-errors:
 				if !ok {
 					errors = nil
 					continue
 				}
-
-				errResp := make(chan manager.Response, 1)
-				errResp <- manager.Response{Error: err}
-
-				select {
-				case sectionResponses <- errResp:
-				case <-ctx.Done():
-					return
-				}
+				wg.Add(1)
+				go respondWithError(err)
+				continue
 
 			case <-ctx.Done():
 				return
 			}
 		}
-		go func() { wg.Wait(); close(sectionResponses) }()
+		wg.Wait()
+		close(sectionResponses)
 	}()
 
-	return handleResponses(ctx, ci.index, mergeResponseStreams(ctx, sectionResponses))
+	return handleResponses(ctx, ci.instanceIndex, mergeResponseStreams(ctx, sectionResponses))
 }
 
 // binder-requests will not contain our manager-header values,
@@ -125,7 +138,7 @@ type responseHandlerFunc func([]manager.Response) manager.Responses
 // either storing them in the `List` index or closing them (all) if an(y) error is encountered.
 // NOTE: If the context is canceled, the returned stream is closed,
 // but all input responses are still processed as described above.
-func handleResponses(ctx context.Context, index index, responses <-chan manager.Response) <-chan manager.Response {
+func handleResponses(ctx context.Context, index instanceIndex, responses <-chan manager.Response) <-chan manager.Response {
 	var (
 		succeeded        []manager.Response
 		relay                                = make(chan manager.Response)
@@ -165,7 +178,7 @@ func handleResponses(ctx context.Context, index index, responses <-chan manager.
 }
 
 // commit these responses to the index, and return no additional status messages
-func commitResponsesTo(index index) responseHandlerFunc {
+func commitResponsesTo(index instanceIndex) responseHandlerFunc {
 	return func(responses []manager.Response) manager.Responses {
 		noResponse := make(chan manager.Response)
 		close(noResponse)
@@ -184,12 +197,34 @@ func closeResponses(responses []manager.Response) manager.Responses {
 	for i := len(responses) - 1; i != -1; i-- {
 		instance := responses[i]
 		if cErr := instance.Close(); cErr == nil {
-			instance.Error = errUnwound
+			instance.Error = errors.Unwound
 		} else {
-			instance.Error = fmt.Errorf("%w - failed to close: %s", errUnwound, cErr)
+			instance.Error = fmt.Errorf("%w - failed to close: %s", errors.Unwound, cErr)
 		}
 		undoneStatusMessages <- instance
 	}
 	close(undoneStatusMessages)
 	return undoneStatusMessages
+}
+
+//TODO: move this somewhere else?
+func cloneResponseStream(ctx context.Context, input manager.Responses) (_, _ manager.Responses) {
+	out1, out2 := make(chan manager.Response), make(chan manager.Response)
+	go func() {
+		defer close(out1)
+		defer close(out2)
+		for request := range input {
+			select {
+			case out1 <- request:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case out2 <- request:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out1, out2
 }

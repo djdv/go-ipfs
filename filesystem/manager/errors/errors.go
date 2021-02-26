@@ -6,6 +6,12 @@ import (
 	"sync"
 )
 
+// TODO: names and docs
+
+// TODO: placeholder name and value - we use it to implement unwinding request transactions
+// (if any instance fails to open, previously opened instances close and respond with this error)
+var Unwound = fmt.Errorf("instance was requested to close")
+
 type Stream = <-chan error
 
 func Merge(errorStreams ...Stream) Stream {
@@ -63,34 +69,15 @@ func Splice(ctx context.Context, errorStreams <-chan Stream) Stream {
 	return streamPlex
 }
 
-func WaitForAny(ctx context.Context, errors ...Stream) (err error) {
-	select {
-	case err = <-Merge(errors...):
-	case <-ctx.Done():
-		err = ctx.Err()
-	}
-	return
-}
-
-func WaitFor(ctx context.Context, errors ...Stream) (err error) {
-	maybeWrap := func(precedent, secondary error) error {
-		if precedent == nil {
-			return secondary
-		} else if secondary != nil {
-			return fmt.Errorf("%w - %s", precedent, secondary)
-		}
-		return nil
-	}
-	combinedErrors := Merge(errors...)
+func Accumulate(ctx context.Context, errors Stream) (errs []error) {
 	for {
 		select {
-		case e, ok := <-combinedErrors:
+		case err, ok := <-errors:
 			if !ok {
 				return
 			}
-			err = maybeWrap(err, e)
+			errs = append(errs, err)
 		case <-ctx.Done():
-			err = maybeWrap(err, ctx.Err())
 			return
 		}
 	}
