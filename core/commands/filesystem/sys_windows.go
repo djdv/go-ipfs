@@ -51,37 +51,17 @@ func makeServiceDir(serviceMaddr multiaddr.Multiaddr) error {
 			return err
 		}
 
-		/*
-			owner := windows.TRUSTEE{
-				TrusteeForm:  windows.TRUSTEE_IS_SID,
-				TrusteeType:  windows.TRUSTEE_IS_USER,
-				TrusteeValue: windows.TrusteeValueFromSID(systemSid),
-			}
-		*/
 		group := windows.TRUSTEE{
 			TrusteeForm:  windows.TRUSTEE_IS_SID,
 			TrusteeType:  windows.TRUSTEE_IS_GROUP,
 			TrusteeValue: windows.TrusteeValueFromSID(adminsSid),
 		}
+
 		aces := []windows.EXPLICIT_ACCESS{
-			/*
-				{
-					AccessPermissions: windows.GENERIC_ALL,
-					AccessMode:        windows.GRANT_ACCESS,
-					Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-					Trustee: windows.TRUSTEE{
-						TrusteeForm:  windows.TRUSTEE_IS_SID,
-						TrusteeType:  windows.TRUSTEE_IS_GROUP,
-						TrusteeValue: windows.TrusteeValueFromSID(usersSid),
-					},
-				},
-			*/
 			{
 				AccessPermissions: windows.GENERIC_ALL,
 				AccessMode:        windows.GRANT_ACCESS,
-				//Inheritance:       windows.OBJECT_INHERIT_ACE,
-				Inheritance: windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-				//Inheritance: windows.NO_INHERITANCE,
+				Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
 				Trustee: windows.TRUSTEE{
 					TrusteeForm:  windows.TRUSTEE_IS_SID,
 					TrusteeType:  windows.TRUSTEE_IS_USER,
@@ -92,8 +72,7 @@ func makeServiceDir(serviceMaddr multiaddr.Multiaddr) error {
 				AccessPermissions: windows.GENERIC_ALL,
 				AccessMode:        windows.GRANT_ACCESS,
 				Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-				//Inheritance:       windows.CONTAINER_INHERIT_ACE,
-				Trustee: group,
+				Trustee:           group,
 			},
 			{
 				AccessPermissions: windows.GENERIC_ALL,
@@ -115,6 +94,7 @@ func makeServiceDir(serviceMaddr multiaddr.Multiaddr) error {
 		}
 		for now, construct it manually
 		*/
+
 		sd, err := windows.NewSecurityDescriptor()
 		if err != nil {
 			return err
@@ -136,9 +116,6 @@ func makeServiceDir(serviceMaddr multiaddr.Multiaddr) error {
 		if err = sd.SetSACL(nil, false, false); err != nil {
 			return err
 		}
-
-		_, _ = ownerSid, group
-		_ = systemSid
 
 		var sa windows.SecurityAttributes
 		sa.Length = uint32(unsafe.Sizeof(sa))
