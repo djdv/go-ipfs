@@ -32,6 +32,9 @@ var Service = &cmds.Command{
 	Run:         filesystemRun,
 	Encoders:    cmds.Encoders,
 	Subcommands: make(map[string]*cmds.Command, len(service.ControlAction)),
+	Options: []cmds.Option{
+		cmds.IntOption("decay", "exit after N seconds if no instances"),
+	},
 	/*
 		PostRun: cmds.PostRunMap{
 			cmds.CLI: mountPostRunCLI,
@@ -202,6 +205,32 @@ func filesystemRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds
 		return err
 	}
 
+	// TODO:
+	// quick hacks just to prevent the process staying around forever
+	// this needs to be done properly
+	decay, ok := request.Options["decay"]
+	if ok {
+		index, err := fsEnv.Index(request)
+		if err != nil {
+			panic(err)
+		}
+		go func() {
+			for {
+				select {
+				case <-time.After(time.Second * time.Duration(decay.(int))): // XXX: no
+					isEmpty := true
+					for range index.List(request.Context) {
+						isEmpty = false
+					}
+					if isEmpty {
+						service.Stop()
+						os.Exit(0)
+					}
+				}
+			}
+		}()
+	}
+
 	return service.Run()
 
 	/* TODO: only on interactive:
@@ -342,8 +371,7 @@ func resolveAddr(ctx context.Context, addr multiaddr.Multiaddr) (multiaddr.Multi
 func relaunchSelfAsService(serviceMadder multiaddr.Multiaddr) error {
 	var (
 		parameterPath     = []string{serviceParameter}
-		commandParameters []string
-		//commandParameters = []string{"--stop-after=30s"} //TODO
+		commandParameters = []string{"--decay=30"} //TODO
 	)
 
 	self, err := os.Executable()
