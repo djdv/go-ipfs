@@ -80,7 +80,7 @@ func unmountRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds.En
 		return envError(env)
 	}
 
-	fsi, err := fsEnv.Manager(request)
+	fsi, err := fsEnv.Index(request)
 	if err != nil {
 		return err
 	}

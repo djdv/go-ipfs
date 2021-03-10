@@ -5,6 +5,8 @@ import (
 	goerrors "errors"
 	"fmt"
 	"io"
+	"runtime"
+	"strings"
 
 	cmds "github.com/ipfs/go-ipfs-cmds"
 	"github.com/ipfs/go-ipfs/filesystem"
@@ -71,16 +73,16 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 	maddr := resp.Request
 
 	if maddr != nil { // retrieve row data from the multiaddr (if any)
-		multiaddr.ForEach(maddr, func(com multiaddr.Component) bool {
-			proto := com.Protocol()
+		multiaddr.ForEach(maddr, func(comp multiaddr.Component) bool {
+			proto := comp.Protocol()
 			switch proto.Code {
 			case int(filesystem.Fuse):
 				row[thHAPI] = proto.Name
-				row[thNAPI] = com.Value()
+				row[thNAPI] = comp.Value()
 
 			case int(filesystem.Plan9Protocol):
 				row[thHAPI] = proto.Name
-				row[thNAPI] = com.Value()
+				row[thNAPI] = comp.Value()
 
 				// XXX: quick 9P formatting hacks; make formal and break out of here
 				_, tail := multiaddr.SplitFirst(maddr)       // strip fs header
@@ -93,7 +95,11 @@ func responseAsTableRow(resp manager.Response) ([]string, []tablewriter.Colors) 
 				}
 
 			case int(filesystem.PathProtocol):
-				row[thBinding] = com.Value()
+				localPath := comp.Value()
+				if runtime.GOOS == "windows" { // `/C:\path` -> `C:\path`
+					localPath = strings.TrimPrefix(localPath, `/`)
+				}
+				row[thBinding] = localPath
 			}
 			return true
 		})

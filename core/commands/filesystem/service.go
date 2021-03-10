@@ -25,7 +25,13 @@ import (
 	manet "github.com/multiformats/go-multiaddr/net"
 )
 
-const serviceParameter = "service"
+const (
+	serviceParameter   = "service"
+	serviceDescription = "Manages active file system requests and instances"
+
+	decayOptionKwd         = "decay" // TODO: name
+	decayOptionDescription = "exit after N seconds if no instances"
+)
 
 var Service = &cmds.Command{
 	NoRemote:    true,
@@ -33,7 +39,10 @@ var Service = &cmds.Command{
 	Encoders:    cmds.Encoders,
 	Subcommands: make(map[string]*cmds.Command, len(service.ControlAction)),
 	Options: []cmds.Option{
-		cmds.IntOption("decay", "exit after N seconds if no instances"),
+		cmds.IntOption(decayOptionKwd, decayOptionDescription),
+	},
+	Helptext: cmds.HelpText{
+		LongDescription: serviceDescription,
 	},
 	/*
 		PostRun: cmds.PostRunMap{
@@ -45,7 +54,7 @@ var Service = &cmds.Command{
 var serviceConfigTemplate = service.Config{
 	Name:        "FileSystemDaemon",
 	DisplayName: "File System Daemon",
-	Description: "Manages active file system requests and instances",
+	Description: serviceDescription,
 }
 
 func init() { registerServiceSubcommands(Service) }
@@ -208,7 +217,7 @@ func filesystemRun(request *cmds.Request, emitter cmds.ResponseEmitter, env cmds
 	// TODO:
 	// quick hacks just to prevent the process staying around forever
 	// this needs to be done properly
-	decay, ok := request.Options["decay"]
+	decay, ok := request.Options[decayOptionKwd]
 	if ok {
 		index, err := fsEnv.Index(request)
 		if err != nil {
@@ -281,7 +290,11 @@ func getService(request *cmds.Request, fsEnv FileSystemEnvironment) (service.Ser
 }
 
 func localServiceMaddr() (multiaddr.Multiaddr, error) {
-	ourName := filepath.Base(os.Args[0])
+	ourName, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	ourName = filepath.Base(ourName)
 	ourName = strings.TrimSuffix(ourName, filepath.Ext(ourName))
 	serviceName := filepath.Join(ourName, serviceTarget)
 
@@ -371,7 +384,7 @@ func resolveAddr(ctx context.Context, addr multiaddr.Multiaddr) (multiaddr.Multi
 func relaunchSelfAsService(serviceMadder multiaddr.Multiaddr) error {
 	var (
 		parameterPath     = []string{serviceParameter}
-		commandParameters = []string{"--decay=30"} //TODO
+		commandParameters = []string{fmt.Sprintf("--%s=30", decayOptionKwd)}
 	)
 
 	self, err := os.Executable()
@@ -395,20 +408,27 @@ func relaunchSelfAsService(serviceMadder multiaddr.Multiaddr) error {
 		serviceScanner = bufio.NewScanner(servicePipe)
 		scannerErr     = make(chan error, 1)
 	)
-	go func() {
-		for serviceScanner.Scan() {
+	go func() { // TODO: rickety
+		defer close(scannerErr)
+		serviceScanner.Scan()
+		{
 			text := serviceScanner.Text()
 			if !strings.Contains(text, stdHeader) &&
 				!strings.Contains(text, stdGoodStatus) {
-				err = fmt.Errorf(text)
-				break
-			}
-			if strings.Contains(text, stdGoodStatus) &&
-				strings.Contains(text, serviceMadder.String()) {
-				break
+				scannerErr <- fmt.Errorf("unexpected process output: %s", text)
+				return
 			}
 		}
-		scannerErr <- err
+
+		expectedMadder := serviceMadder.String()
+		for serviceScanner.Scan() {
+			text := serviceScanner.Text()
+			if strings.Contains(text, stdGoodStatus) &&
+				strings.Contains(text, expectedMadder) {
+				return // we saw our address in a success response
+			}
+		}
+		scannerErr <- fmt.Errorf("process output did not contain expected listener: %s", expectedMadder)
 		// TODO: stderr passed us the listener maddr string
 		// should we use it? it should be the same so we could inspect it at least
 		// if no goodmessage for service addr; fail (with some timeout)

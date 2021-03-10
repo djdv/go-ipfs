@@ -65,9 +65,14 @@ func generatePipeline(ctx context.Context, requests manager.Requests) (sectionSt
 	}
 
 	nodeConf, err := configfile.Load(confFile)
-	if err != nil {
+	switch err {
+	case nil:
+		return fillFromConfig(ctx, nodeConf, requests)
+	case configfile.ErrNotInitialized:
+		// TODO: we need to warn or something
+		// no config file was found, nothing to check
+		return splitRequests(ctx, requests)
+	default:
 		return withError(err)
 	}
-
-	return fillFromConfig(ctx, nodeConf, requests)
 }

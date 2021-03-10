@@ -1,4 +1,5 @@
-//+build !nofuse
+//go:build !nofuse
+// +build !nofuse
 
 package cgofuse
 
@@ -84,6 +85,11 @@ func (fs *hostBinding) Destroy() {
 
 func (fs *hostBinding) Statfs(path string, stat *fuselib.Statfs_t) int {
 	fs.log.Debugf("Statfs - HostRequest %q", path)
+	return -fuselib.ENOSYS
+
+	// FIXME: this works but needs to be done host side and somehow relayed to the client
+	// otherwise the client would be getting statistics for their repo, even when remote mounting
+	// (or errors if they don't have one)
 
 	target, err := config.DataStorePath("")
 	if err != nil {

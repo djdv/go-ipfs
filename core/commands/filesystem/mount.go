@@ -1,6 +1,7 @@
 package fscmds
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -116,7 +117,7 @@ func registerMountSubcommands(parent *cmds.Command) {
 			nodeName := id.String()
 			com := new(cmds.Command)
 			*com = *template
-			prefix := fmt.Sprintf("/%s/%s/path/", hostName, nodeName)
+			prefix := fmt.Sprintf("/%s/%s/path", hostName, nodeName)
 			com.Arguments = deriveArgs(parent.Arguments, "(e.g. `/mnt/1 /mnt/2 ...`)")
 			com.PreRun = genPrerun(prefix)
 			subsystems[nodeName] = com
@@ -127,10 +128,16 @@ func registerMountSubcommands(parent *cmds.Command) {
 
 func mountPreRun(request *cmds.Request, env cmds.Environment) (err error) {
 	if len(request.Arguments) == 0 {
-		request.Arguments = []string{ // TODO: update defaults - don't depend on go-ipfs config file
+		return errors.New("no arguments provided - portable defaults not implemented yet")
+		/* TODO: update defaults - don't depend on go-ipfs config file
+		FIXME: if the argument is just a header,
+		the dispatcher will send nil request(s) to that header's binder
+		(if there is no IPFS config file to supply the request's target values)
+		request.Arguments = []string{
 			"/fuse/ipfs",
 			"/fuse/ipns",
 		}
+		*/
 	}
 	return
 }
