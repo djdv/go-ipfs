@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -31,6 +33,9 @@ const (
 
 	decayOptionKwd         = "decay" // TODO: name
 	decayOptionDescription = "exit after N seconds if no instances"
+
+	serviceSocketName = "filesystem.service"
+	serviceStartGrace = 10 * time.Second
 )
 
 var Service = &cmds.Command{
@@ -106,6 +111,7 @@ type daemon struct {
 // anything else should be considered an error
 const (
 	stdHeader     = "Starting"
+	stdReady      = "Started"
 	stdGoodStatus = "Listening on: "
 )
 
@@ -145,7 +151,7 @@ func (d *daemon) Start(s service.Service) error {
 	go http.Serve(manet.NetListener(serviceListener),
 		cmdshttp.NewHandler(d.FileSystemEnvironment, ClientRoot, cmdshttp.NewServerConfig()))
 
-	return nil
+	return logger.Info(stdReady)
 }
 
 func (d *daemon) Stop(s service.Service) (err error) {
@@ -290,35 +296,32 @@ func getService(request *cmds.Request, fsEnv FileSystemEnvironment) (service.Ser
 }
 
 func localServiceMaddr() (multiaddr.Multiaddr, error) {
-	ourName, err := os.Executable()
+	ourName := filepath.Base(os.Args[0])
+	serviceName := strings.TrimSuffix(ourName, filepath.Ext(ourName))
+	// use existing socket if found
+	socketName := filepath.Join(serviceName, serviceSocketName)
+	servicePath, err := xdg.SearchRuntimeFile(socketName)
 	if err != nil {
-		return nil, err
+		servicePath, err = xdg.SearchConfigFile(socketName)
 	}
-	ourName = filepath.Base(ourName)
-	ourName = strings.TrimSuffix(ourName, filepath.Ext(ourName))
-	serviceName := filepath.Join(ourName, serviceTarget)
-
-	// use existing if found
-	servicePath, err := xdg.SearchRuntimeFile(serviceName)
-	if err == nil {
-		return multiaddr.NewMultiaddr("/unix/" + servicePath)
-	}
-	if servicePath, err = xdg.SearchConfigFile(serviceName); err == nil {
-		return multiaddr.NewMultiaddr("/unix/" + servicePath)
+	if err != nil { // otherwise use a default
+		servicePath = filepath.Join(localServiceDirectory(), serviceSocketName)
 	}
 
-	if service.Interactive() { // use the most user-specific path
-		if servicePath, err = xdg.RuntimeFile(serviceName); err != nil {
-			return nil, err
-		}
-	} else { // For system services, use the least user-specific path
-		// NOTE: xdg standard says this list should always have a fallback
-		// (so this list should never contain less than 1 element - regardless of platform)
-		leastLocalDir := xdg.ConfigDirs[len(xdg.ConfigDirs)-1]
-		servicePath = filepath.Join(leastLocalDir, serviceName)
-	}
+	return multiaddr.NewMultiaddr(path.Join("/unix/", filepath.ToSlash(servicePath)))
+}
 
-	return multiaddr.NewMultiaddr("/unix/" + servicePath)
+func localServiceDirectory() string {
+	ourName := filepath.Base(os.Args[0])
+	serviceName := strings.TrimSuffix(ourName, filepath.Ext(ourName))
+	if service.Interactive() {
+		// (for interactive, use the most user-specific path)
+		return filepath.Join(xdg.RuntimeDir, serviceName)
+	}
+	// (for system services, use the least user-specific path)
+	// NOTE: xdg standard says this list should always have a fallback
+	// (so this list should never contain less than 1 element - regardless of platform)
+	return filepath.Join(xdg.ConfigDirs[len(xdg.ConfigDirs)-1], serviceName)
 }
 
 // maybeRemoveUnixSockets attempts to remove all Unix domain socket paths in a given multiaddr.
@@ -381,76 +384,87 @@ func resolveAddr(ctx context.Context, addr multiaddr.Multiaddr) (multiaddr.Multi
 	return addrs[0], nil
 }
 
-func relaunchSelfAsService(serviceMadder multiaddr.Multiaddr) error {
-	var (
-		parameterPath     = []string{serviceParameter}
-		commandParameters = []string{fmt.Sprintf("--%s=30", decayOptionKwd)}
-	)
-
+func relaunchSelfAsService(request *cmds.Request, serviceMaddr multiaddr.Multiaddr) (*int, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	cmd := exec.Command(self, append(parameterPath, commandParameters...)...)
+	cmd := exec.Command(self, serviceParameter,
+		fmt.Sprintf("--%s=%s", rootServiceOptionKwd, serviceMaddr.String()),
+		fmt.Sprintf("--%s=%s", decayOptionKwd, "30"),
+	)
 	cmd.Dir = cwd
 	cmd.Env = os.Environ()
 
 	servicePipe, err := cmd.StderrPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	if err = cmd.Start(); err != nil {
+		return nil, err
+	}
+
+	releasedPid := cmd.Process.Pid
+	if err = cmd.Process.Release(); err != nil {
+		return nil, err
+	}
+
+	err = waitForService(servicePipe, serviceStartGrace)
+	if err != nil {
+		attachedProc, pErr := os.FindProcess(releasedPid)
+		if pErr == nil {
+			kErr := attachedProc.Kill()
+			if kErr != nil {
+				return &releasedPid, fmt.Errorf("%w - additionally could not kill process: %s", err, kErr)
+			}
+		}
+		return nil, fmt.Errorf("could not start background service: %w", err)
+	}
+
+	return &releasedPid, servicePipe.Close()
+}
+
+// waitForService scans the input,
+// and waits until the provided maddr is available (or times out).
+func waitForService(input io.Reader, timeout time.Duration) error {
 	var (
-		serviceScanner = bufio.NewScanner(servicePipe)
+		serviceScanner = bufio.NewScanner(input)
 		scannerErr     = make(chan error, 1)
+		timeoutChan    <-chan time.Time
 	)
-	go func() { // TODO: rickety
+	go func() {
 		defer close(scannerErr)
 		serviceScanner.Scan()
 		{
 			text := serviceScanner.Text()
-			if !strings.Contains(text, stdHeader) &&
-				!strings.Contains(text, stdGoodStatus) {
+			if !strings.Contains(text, stdHeader) {
 				scannerErr <- fmt.Errorf("unexpected process output: %s", text)
 				return
 			}
 		}
 
-		expectedMadder := serviceMadder.String()
+		var text string
 		for serviceScanner.Scan() {
-			text := serviceScanner.Text()
-			if strings.Contains(text, stdGoodStatus) &&
-				strings.Contains(text, expectedMadder) {
-				return // we saw our address in a success response
+			text = serviceScanner.Text()
+			if strings.Contains(text, stdReady) {
+				return
 			}
 		}
-		scannerErr <- fmt.Errorf("process output did not contain expected listener: %s", expectedMadder)
-		// TODO: stderr passed us the listener maddr string
-		// should we use it? it should be the same so we could inspect it at least
-		// if no goodmessage for service addr; fail (with some timeout)
-		// as-is we just accept anything, or block forever which aint good
+		scannerErr <- fmt.Errorf("process output ended abruptly: %s", text)
 	}()
 
-	// TODO: do we need these each or is Release portable?
-	// NT seems to allow us to exit, and sub-process to be okay with just Release
-	// test POSIX
-	// NT: cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags:windows.DETACHED_PROCESS}
-	// UNIX: cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
-	if err := cmd.Start(); err != nil {
+	if timeout > 0 {
+		timeoutChan = time.After(timeout)
+	}
+	select {
+	case <-timeoutChan:
+		return fmt.Errorf("timed out")
+	case err := <-scannerErr:
 		return err
 	}
-	if err = cmd.Process.Release(); err != nil {
-		return err
-	}
-
-	err = <-scannerErr
-	if err != nil {
-		return fmt.Errorf("could not start background service: %w", err)
-	}
-	return servicePipe.Close()
 }

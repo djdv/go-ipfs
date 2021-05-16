@@ -85,7 +85,7 @@ func MakeFileSystemEnvironment(ctx context.Context, request *cmds.Request) (env 
 		// try connecting
 		if _, err = getServiceClient(serviceMaddr); err != nil {
 			// not okay; try to launch service
-			err = relaunchSelfAsService(serviceMaddr)
+			_, err = relaunchSelfAsService(request, serviceMaddr)
 		}
 	}
 	if err == nil {

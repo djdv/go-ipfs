@@ -5,7 +5,6 @@ import (
 
 	cmdenv "github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	dag "github.com/ipfs/go-ipfs/core/commands/dag"
-	fscmds "github.com/ipfs/go-ipfs/core/commands/filesystem"
 	name "github.com/ipfs/go-ipfs/core/commands/name"
 	ocmd "github.com/ipfs/go-ipfs/core/commands/object"
 	"github.com/ipfs/go-ipfs/core/commands/pin"
@@ -138,9 +137,9 @@ var rootSubcommands = map[string]*cmds.Command{
 	//"fs": fscmds.FullRoot, // FIXME: we can't do this because --api and --enc overlap right now
 	// FIXME: these won't work with the cmds.Context env passed to them
 	// they need to be wrapped in an ipfs-specifc command which converts 1 env to the other, and relays the call
-	"mount":    fscmds.Mount,
-	"mtab":     fscmds.List,
-	"unmount":  fscmds.Unmount,
+	//"mount":    fscmds.Mount,
+	//"mtab":     fscmds.List,
+	//"unmount":  fscmds.Unmount,
 	"name":     name.NameCmd,
 	"object":   ocmd.ObjectCmd,
 	"pin":      pin.PinCmd,
